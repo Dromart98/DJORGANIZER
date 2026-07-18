@@ -33,6 +33,28 @@ describe("trackFormSchema", () => {
     expect(toTrackInsert(values, "user-id").user_id).toBe("user-id");
   });
 
+  it("deriva la notación canónica y Camelot desde una tonalidad", () => {
+    const values = trackFormSchema.parse({
+      album: "",
+      artist: "Artist",
+      bpm: "",
+      camelot_key: "",
+      comments: "",
+      duration_seconds: "",
+      energy: "",
+      genre: "",
+      musical_key: "A flat minor",
+      rating: "",
+      release_year: "",
+      title: "Track",
+    });
+
+    expect(toTrackInsert(values, "user-id")).toMatchObject({
+      camelot_key: "1A",
+      musical_key: "G♯m",
+    });
+  });
+
   it("rechaza valores musicales fuera de rango", () => {
     const result = trackFormSchema.safeParse({
       album: "",

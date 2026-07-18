@@ -150,3 +150,13 @@ el archivo.
 - Asignación y retirada masiva de etiquetas desde la selección de Biblioteca.
 - Todas las operaciones verifican el usuario en el servidor además de las
   políticas RLS y las claves foráneas compuestas de PostgreSQL.
+
+## Tonalidades y Camelot
+
+- Normalización de notación con sostenidos, bemoles, mayor y menor.
+- Conversión determinista de las 24 tonalidades a la rueda Camelot.
+- Acepta ejemplos como `Am`, `A minor`, `A♭ minor`, `F# major` o `8A`.
+- Las altas manuales, ediciones e importaciones derivan la tonalidad canónica y
+  Camelot al guardar.
+- La conversión usa metadatos existentes o datos escritos por el usuario; no
+  analiza la señal de audio ni afirma detectar la tonalidad automáticamente.

@@ -105,8 +105,9 @@ export function TrackForm({ mode, track }: TrackFormProps) {
             defaultValue={track?.musical_key ?? ""}
             maxLength={16}
             name="musical_key"
-            placeholder="Am"
+            placeholder="Am, A minor o 8A"
           />
+          <small>Se normaliza y completa Camelot al guardar.</small>
           <FieldError errors={state.fieldErrors} name="musical_key" />
         </label>
         <label className="field">
