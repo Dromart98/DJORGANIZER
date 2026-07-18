@@ -41,6 +41,7 @@ export function metadataToImportTrack(
   metadata: AudioMetadataLike,
   file: LocalAudioFile,
   clientId: string,
+  fingerprint: string,
 ): ImportTrackInput {
   return {
     album: optionalText(metadata.common.album),
@@ -48,6 +49,7 @@ export function metadataToImportTrack(
     bpm: finiteNumber(metadata.common.bpm, 2),
     client_id: clientId,
     duration_seconds: finiteNumber(metadata.format.duration, 3),
+    file_fingerprint: fingerprint,
     file_name: file.name,
     file_size: file.size,
     file_type: file.type || "application/octet-stream",
@@ -58,4 +60,3 @@ export function metadataToImportTrack(
       optionalText(metadata.common.title) ?? titleFromFileName(file.name),
   };
 }
-
