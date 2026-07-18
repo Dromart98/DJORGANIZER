@@ -164,6 +164,14 @@ de energía, similitud acústica ni inteligencia artificial.
 - Acepta ejemplos como `Am`, `A minor`, `A♭ minor`, `F# major` o `8A`.
 - Las altas manuales, ediciones e importaciones derivan la tonalidad canónica y
   Camelot al guardar.
-- La conversión usa metadatos existentes o datos escritos por el usuario; no
-  analiza la señal de audio ni afirma detectar la tonalidad automáticamente.
+- La conversión usa metadatos, datos escritos por el usuario o una estimación
+  local revisada antes de guardar.
+
+## Recomendaciones armónicas
+
+- Sugiere pistas con la misma posición Camelot, posiciones adyacentes o el
+  relativo mayor/menor.
+- Limita las sugerencias a una diferencia de BPM de ±6 % cuando existe tempo.
+- Ordena primero la misma tonalidad y después la cercanía de BPM.
+- Todas las consultas se limitan al usuario autenticado y no usan IA.
 
