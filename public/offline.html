@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="theme-color" content="#080d12" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Sin conexión · DJOrganizer</title>
+    <style>
+      :root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #080d12; color: #f4f7f6; }
+      main { width: min(100%, 520px); padding: 34px; background: #0f151b; border: 1px solid #26323b; border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.24); }
+      .brand { margin: 0 0 38px; font-size: 22px; font-weight: 620; letter-spacing: -.045em; }
+      .brand span { color: #7ee6b5; font-weight: 780; }
+      h1 { margin: 0 0 12px; font-size: 32px; letter-spacing: -.04em; }
+      p { margin: 0 0 24px; color: #8f9ba6; line-height: 1.65; }
+      button { min-height: 42px; border: 0; border-radius: 7px; padding: 10px 16px; background: #7ee6b5; color: #07120e; font: inherit; font-size: 13px; font-weight: 720; cursor: pointer; }
+      button:focus-visible { outline: 2px solid #9af0c7; outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="brand"><span>DJ</span>Organizer</p>
+      <h1>Estás sin conexión</h1>
+      <p>DJOrganizer necesita conexión para cargar o modificar tu biblioteca privada. Tus datos personales no se guardan en la caché del dispositivo.</p>
+      <button type="button" onclick="location.reload()">Reintentar conexión</button>
+    </main>
+  </body>
+</html>

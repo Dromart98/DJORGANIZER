@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DJOrganizer">
+  <rect width="512" height="512" fill="#0b1116"/>
+  <circle cx="256" cy="256" r="184" fill="#101820" stroke="#26323b" stroke-width="10"/>
+  <path d="M142 171h75c61 0 104 35 104 88s-43 88-104 88h-75V171Zm72 136c32 0 52-18 52-48s-20-48-52-48h-22v96h22Z" fill="#7ee6b5"/>
+  <path d="M323 171h48v115c0 45-25 68-69 68-18 0-37-5-49-14l21-35c8 6 16 9 24 9 17 0 25-9 25-30V171Z" fill="#f4f7f6"/>
+</svg>
