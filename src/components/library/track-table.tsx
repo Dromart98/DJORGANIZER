@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import {
+  assignTagToTracksAction,
+  removeTagFromTracksAction,
+} from "@/app/crates/actions";
 import { deleteTracksAction } from "@/app/library/actions";
 import {
   buildLibraryHref,
@@ -36,14 +40,17 @@ function sortHref(query: TrackQuery, sort: TrackSort) {
 
 export function TrackTable({
   query,
+  tags,
   tracks,
 }: {
   query: TrackQuery;
+  tags: Pick<Tables<"tags">, "id" | "name">[];
   tracks: Tables<"tracks">[];
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const allSelected =
     tracks.length > 0 && tracks.every((track) => selected.has(track.id));
+  const returnTo = buildLibraryHref(query, {});
 
   function toggleAll() {
     setSelected(allSelected ? new Set() : new Set(tracks.map((track) => track.id)));
@@ -60,33 +67,77 @@ export function TrackTable({
 
   return (
     <>
-      <form
-        action={deleteTracksAction}
-        className="bulk-toolbar"
-        onSubmit={(event) => {
-          if (
-            !window.confirm(
-              `¿Eliminar ${selected.size} ${
-                selected.size === 1 ? "canción" : "canciones"
-              }? Esta acción no se puede deshacer.`,
-            )
-          ) {
-            event.preventDefault();
-          }
-        }}
-      >
-        {Array.from(selected).map((id) => (
-          <input key={id} name="trackId" type="hidden" value={id} />
-        ))}
+      <div className="bulk-toolbar">
         <span>{selected.size} seleccionadas</span>
-        <button
-          className="button button--danger button--small"
-          disabled={selected.size === 0}
-          type="submit"
-        >
-          Eliminar selección
-        </button>
-      </form>
+        <div className="bulk-actions">
+          {tags.length ? (
+            <form className="bulk-tag-form">
+              {Array.from(selected).map((id) => (
+                <input key={id} name="trackId" type="hidden" value={id} />
+              ))}
+              <input name="returnTo" type="hidden" value={returnTo} />
+              <select
+                aria-label="Etiqueta para la selección"
+                disabled={selected.size === 0}
+                name="tagId"
+                required
+              >
+                <option value="">Etiqueta…</option>
+                {tags.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="button button--secondary button--small"
+                disabled={selected.size === 0}
+                formAction={assignTagToTracksAction}
+                type="submit"
+              >
+                Asignar
+              </button>
+              <button
+                className="button button--secondary button--small"
+                disabled={selected.size === 0}
+                formAction={removeTagFromTracksAction}
+                type="submit"
+              >
+                Quitar
+              </button>
+            </form>
+          ) : (
+            <Link className="table-action" href="/crates">
+              Crear etiquetas
+            </Link>
+          )}
+          <form
+            action={deleteTracksAction}
+            onSubmit={(event) => {
+              if (
+                !window.confirm(
+                  `¿Eliminar ${selected.size} ${
+                    selected.size === 1 ? "canción" : "canciones"
+                  }? Esta acción no se puede deshacer.`,
+                )
+              ) {
+                event.preventDefault();
+              }
+            }}
+          >
+            {Array.from(selected).map((id) => (
+              <input key={id} name="trackId" type="hidden" value={id} />
+            ))}
+            <button
+              className="button button--danger button--small"
+              disabled={selected.size === 0}
+              type="submit"
+            >
+              Eliminar selección
+            </button>
+          </form>
+        </div>
+      </div>
 
       <div className="table-wrap library-table">
         <table>
