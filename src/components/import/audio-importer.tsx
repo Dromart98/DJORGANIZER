@@ -15,6 +15,7 @@ import {
   importValidationMessage,
   type ImportTrackInput,
 } from "@/lib/import/import-schema";
+import { detectKeyFromFile } from "@/lib/import/key-detector";
 import { metadataToImportTrack } from "@/lib/import/metadata";
 
 type ImportStatus =
@@ -36,6 +37,8 @@ type ImportItem = {
   error?: string;
   file?: File;
   id: string;
+  keyError?: string;
+  keyStatus?: "idle" | "analyzing" | "detected" | "error";
   name: string;
   progress?: number;
   status: ImportStatus;
@@ -87,6 +90,7 @@ function statusLabel(status: ImportStatus) {
 export function AudioImporter() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
+  const [isAnalyzingKey, setIsAnalyzingKey] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [isAnalyzingBpm, setIsAnalyzingBpm] = useState(false);
   const [isReading, setIsReading] = useState(false);
@@ -103,6 +107,13 @@ export function AudioImporter() {
       item.file &&
       item.data &&
       item.data.bpm === null,
+  );
+  const missingKeyItems = items.filter(
+    (item) =>
+      item.status === "ready" &&
+      item.file &&
+      item.data &&
+      item.data.musical_key === null,
   );
 
   function updateItem(id: string, update: Partial<ImportItem>) {
@@ -147,6 +158,7 @@ export function AudioImporter() {
         error: error ?? undefined,
         file,
         id,
+        keyStatus: "idle",
         name: file.name,
         progress: 100,
         status: error ? "invalid" : "ready",
@@ -307,6 +319,9 @@ export function AudioImporter() {
           bpmStatus: field === "bpm" ? "idle" : item.bpmStatus,
           data,
           error: error ?? undefined,
+          keyError: field === "musical_key" ? undefined : item.keyError,
+          keyStatus:
+            field === "musical_key" ? "idle" : item.keyStatus,
           status: error ? "invalid" : "ready",
         };
       }),
@@ -396,6 +411,92 @@ export function AudioImporter() {
     }
   }
 
+  async function analyzeKeys(targets: ImportItem[]) {
+    const analyzable = targets.filter(
+      (item): item is ImportItem & {
+        data: ImportTrackInput;
+        file: File;
+      } =>
+        item.status === "ready" &&
+        Boolean(item.data) &&
+        Boolean(item.file),
+    );
+    if (!analyzable.length) return;
+
+    setIsAnalyzingKey(true);
+    setNotice(null);
+    let audioContext: AudioContext | null = null;
+
+    try {
+      audioContext = new AudioContext();
+      await audioContext.resume();
+
+      for (const item of analyzable) {
+        updateItem(item.id, {
+          keyError: undefined,
+          keyStatus: "analyzing",
+        });
+
+        try {
+          const result = await detectKeyFromFile(item.file, audioContext);
+          setItems((current) =>
+            current.map((currentItem) => {
+              if (currentItem.id !== item.id || !currentItem.data) {
+                return currentItem;
+              }
+
+              const data = {
+                ...currentItem.data,
+                musical_key: result.musicalKey,
+              };
+              const error = importValidationMessage(data);
+              return {
+                ...currentItem,
+                data,
+                error: error ?? undefined,
+                keyError: undefined,
+                keyStatus: "detected",
+                status: error ? "invalid" : "ready",
+              };
+            }),
+          );
+        } catch {
+          updateItem(item.id, {
+            keyError:
+              "No se pudo estimar la tonalidad. Puedes escribirla manualmente.",
+            keyStatus: "error",
+          });
+        }
+      }
+
+      setNotice(
+        "Análisis tonal terminado. Revisa las estimaciones antes de guardar.",
+      );
+    } catch {
+      const targetIds = new Set(analyzable.map((item) => item.id));
+      setItems((current) =>
+        current.map((item) =>
+          targetIds.has(item.id) && item.keyStatus === "analyzing"
+            ? {
+                ...item,
+                keyError:
+                  "El navegador no pudo iniciar el análisis. Escribe la tonalidad manualmente.",
+                keyStatus: "error",
+              }
+            : item,
+        ),
+      );
+      setNotice(
+        "No se pudo iniciar el analizador tonal en este navegador.",
+      );
+    } finally {
+      if (audioContext) {
+        await audioContext.close().catch(() => undefined);
+      }
+      setIsAnalyzingKey(false);
+    }
+  }
+
   async function saveReadyTracks() {
     const ready = items.filter(
       (item): item is ImportItem & { data: ImportTrackInput } =>
@@ -477,7 +578,9 @@ export function AudioImporter() {
   return (
     <section
       className="import-flow"
-      aria-busy={isReading || isSaving || isAnalyzingBpm}
+      aria-busy={
+        isReading || isSaving || isAnalyzingBpm || isAnalyzingKey
+      }
     >
       <div className="card import-dropzone">
         <div>
@@ -485,16 +588,18 @@ export function AudioImporter() {
           <h2>El audio no sale de este dispositivo</h2>
           <p>
             DJOrganizer calcula una huella SHA-256 local para detectar archivos
-            exactamente iguales y puede estimar el BPM en el navegador. Solo
-            envía a Supabase la huella y los campos que revises; no sube audio
-            ni portadas.
+            exactamente iguales y puede estimar BPM y tonalidad en el
+            navegador. Solo envía a Supabase la huella y los campos que revises;
+            no sube audio ni portadas.
           </p>
         </div>
         <input
           ref={inputRef}
           accept="audio/*,.aac,.aif,.aiff,.ape,.flac,.m4a,.mp3,.mp4,.ogg,.opus,.wav,.webm,.wma"
           className="visually-hidden"
-          disabled={isReading || isSaving || isAnalyzingBpm}
+          disabled={
+            isReading || isSaving || isAnalyzingBpm || isAnalyzingKey
+          }
           id="audio-files"
           multiple
           onChange={(event) => void handleFiles(event.target.files)}
@@ -536,7 +641,27 @@ export function AudioImporter() {
               </Button>
               <Button
                 disabled={
-                  !readyCount || isSaving || isReading || isAnalyzingBpm
+                  !missingKeyItems.length ||
+                  isSaving ||
+                  isReading ||
+                  isAnalyzingBpm ||
+                  isAnalyzingKey
+                }
+                onClick={() => void analyzeKeys(missingKeyItems)}
+                type="button"
+                variant="secondary"
+              >
+                {isAnalyzingKey
+                  ? "Analizando tonalidad…"
+                  : `Detectar tonalidad (${missingKeyItems.length})`}
+              </Button>
+              <Button
+                disabled={
+                  !readyCount ||
+                  isSaving ||
+                  isReading ||
+                  isAnalyzingBpm ||
+                  isAnalyzingKey
                 }
                 onClick={() => void saveReadyTracks()}
                 type="button"
@@ -552,7 +677,8 @@ export function AudioImporter() {
                 item.status === "saving" ||
                 item.status === "saved" ||
                 item.status === "duplicate" ||
-                item.bpmStatus === "analyzing";
+                item.bpmStatus === "analyzing" ||
+                item.keyStatus === "analyzing";
 
               return (
                 <article className="card import-item" key={item.id}>
@@ -684,8 +810,13 @@ export function AudioImporter() {
                         </small>
                       ) : null}
                     </label>
-                    <label className="field">
-                      Tonalidad de etiqueta
+                    <label className="field import-key-field">
+                      <span>
+                        Tonalidad
+                        {item.keyStatus === "detected" ? (
+                          <small>Estimada localmente</small>
+                        ) : null}
+                      </span>
                       <input
                         disabled={isLocked}
                         maxLength={16}
@@ -698,6 +829,33 @@ export function AudioImporter() {
                         }
                         value={item.data.musical_key ?? ""}
                       />
+                      {item.file &&
+                      item.status === "ready" &&
+                      item.keyStatus !== "analyzing" ? (
+                        <button
+                          className="import-analyze-link"
+                          disabled={
+                            isAnalyzingKey ||
+                            isAnalyzingBpm ||
+                            isSaving ||
+                            isReading
+                          }
+                          onClick={() => void analyzeKeys([item])}
+                          type="button"
+                        >
+                          {item.data.musical_key === null
+                            ? "Detectar automáticamente"
+                            : "Volver a analizar"}
+                        </button>
+                      ) : null}
+                      {item.keyStatus === "analyzing" ? (
+                        <small role="status">Analizando armonía local…</small>
+                      ) : null}
+                      {item.keyError ? (
+                        <small className="field-error" role="alert">
+                          {item.keyError}
+                        </small>
+                      ) : null}
                     </label>
                     <label className="field">
                       Año
