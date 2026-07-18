@@ -219,9 +219,11 @@ La base de escritorio usa Tauri 2 y vive en `src-tauri/`. En desarrollo abre
 el servidor local de Next.js; el binario inicial de producción carga
 exclusivamente `https://djorganizer-beta.vercel.app`.
 
-Esta primera entrega no expone comandos nativos a la web remota y no concede
-permisos de sistema de archivos, shell, diálogo ni proceso. Por tanto todavía
-no puede escanear, mover, renombrar ni modificar música local.
+La aplicación de escritorio expone un único comando nativo al origen oficial de
+producción. Ese comando siempre abre el selector de carpetas del sistema y
+realiza un escaneo acotado y de solo lectura: recoge nombres, rutas relativas,
+extensiones y tamaños. No acepta rutas enviadas por la web y no mueve, renombra,
+modifica, reproduce, sube ni guarda archivos de audio.
 
 Para validar el núcleo Rust:
 
@@ -232,5 +234,5 @@ cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 
 Para desarrollo interactivo, instala Tauri CLI 2 y ejecuta `cargo tauri dev`
 desde la raíz. Son necesarios Rust y las dependencias de sistema indicadas por
-Tauri para cada plataforma. La siguiente fase añadirá selección de carpetas y
-lectura de metadatos mediante permisos mínimos, explícitos y revisables.
+Tauri para cada plataforma. Los límites y el modelo de seguridad del escaneo se
+documentan en `docs/desktop-folder-scanning.md`.
