@@ -20,16 +20,20 @@ function credentialsFrom(formData: FormData) {
   const password = typeof passwordValue === "string" ? passwordValue : "";
 
   if (!EMAIL_PATTERN.test(email)) {
-    return { error: "Introduce una dirección de correo válida." } as const;
+    return {
+      error: "Introduce una dirección de correo válida.",
+      ok: false,
+    } as const;
   }
 
   if (password.length < 8) {
     return {
       error: "La contraseña debe tener al menos 8 caracteres.",
+      ok: false,
     } as const;
   }
 
-  return { email, password } as const;
+  return { email, ok: true, password } as const;
 }
 
 function authErrorMessage(code: string | undefined) {
@@ -53,7 +57,7 @@ export async function loginAction(
   formData: FormData,
 ): Promise<AuthActionState> {
   const credentials = credentialsFrom(formData);
-  if ("error" in credentials) {
+  if (!credentials.ok) {
     return errorState(credentials.error);
   }
 
@@ -77,7 +81,7 @@ export async function signupAction(
   formData: FormData,
 ): Promise<AuthActionState> {
   const credentials = credentialsFrom(formData);
-  if ("error" in credentials) {
+  if (!credentials.ok) {
     return errorState(credentials.error);
   }
 
@@ -102,7 +106,8 @@ export async function signupAction(
 
     const supabase = await createClient();
     const { data, error } = await supabase.auth.signUp({
-      ...credentials,
+      email: credentials.email,
+      password: credentials.password,
       options: {
         data: { display_name: displayName },
         emailRedirectTo: callbackUrl.toString(),
