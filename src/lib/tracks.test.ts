@@ -10,3 +10,4 @@ describe("track helpers", () => {
     expect(demoTracks[0]?.bpm).toBe(122);
   });
 });
+
