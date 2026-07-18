@@ -7,6 +7,7 @@ import {
   importBatchSchema,
   type ImportTrackInput,
 } from "@/lib/import/import-schema";
+import { normalizeMusicalKey } from "@/lib/music/key-normalization";
 import { createClient } from "@/lib/supabase/server";
 import type { TablesInsert } from "@/types/database";
 
@@ -37,17 +38,19 @@ function toTrackInsert(
   track: ImportTrackInput,
   userId: string,
 ): TablesInsert<"tracks"> {
+  const normalizedKey = normalizeMusicalKey(track.musical_key);
   return {
     album: track.album,
     artist: track.artist,
     bpm: track.bpm,
     duration_seconds: track.duration_seconds,
+    camelot_key: normalizedKey?.camelotKey ?? null,
     file_fingerprint: track.file_fingerprint,
     file_name: track.file_name,
     file_size: track.file_size,
     file_type: track.file_type,
     genre: track.genre,
-    musical_key: track.musical_key,
+    musical_key: normalizedKey?.musicalKey ?? track.musical_key,
     release_year: track.release_year,
     title: track.title,
     user_id: userId,
