@@ -184,3 +184,14 @@ de energía, similitud acústica ni inteligencia artificial.
   conjunta.
 - Cada acción requiere confirmación y se limita al usuario autenticado además de
   las políticas RLS.
+
+## Diseño de producto
+
+- Sistema visual oscuro de alto contraste basado en grafito frío y un acento
+  menta controlado.
+- Tabla densa con cabecera fija, estados de selección y navegación refinados.
+- Controles, formularios, crates e importación comparten los mismos tokens.
+- En móvil, la tabla se transforma en filas táctiles y mantiene acciones,
+  selección, filtros y navegación inferior sin desbordamiento horizontal.
+- Los estados de foco y movimiento respetan accesibilidad y
+  `prefers-reduced-motion`.
