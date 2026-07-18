@@ -1,17 +1,196 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { formatDuration, sortTracks } from "@/lib/tracks";
-import type { SortDirection, Track, TrackSortKey } from "@/types/music";
+import Link from "next/link";
+import { useState } from "react";
+import { deleteTracksAction } from "@/app/library/actions";
+import {
+  buildLibraryHref,
+  type TrackQuery,
+  type TrackSort,
+} from "@/lib/library/track-query";
+import { formatDuration } from "@/lib/tracks";
+import type { Tables } from "@/types/database";
 
-const columns: { key: TrackSortKey; label: string }[] = [
-  { key: "title", label: "Título" }, { key: "artist", label: "Artista" }, { key: "genre", label: "Género" }, { key: "bpm", label: "BPM" }, { key: "key", label: "Tonalidad" }, { key: "camelot", label: "Camelot" }, { key: "durationSeconds", label: "Duración" },
+const columns: { key: TrackSort; label: string }[] = [
+  { key: "title", label: "Título" },
+  { key: "artist", label: "Artista" },
+  { key: "bpm", label: "BPM" },
+  { key: "key", label: "Tonalidad" },
+  { key: "duration", label: "Duración" },
+  { key: "created", label: "Añadida" },
 ];
 
-export function TrackTable({ tracks }: { tracks: readonly Track[] }) {
-  const [sortKey, setSortKey] = useState<TrackSortKey>("title");
-  const [direction, setDirection] = useState<SortDirection>("asc");
-  const sorted = useMemo(() => sortTracks(tracks, sortKey, direction), [tracks, sortKey, direction]);
-  function changeSort(key: TrackSortKey) { if (key === sortKey) setDirection((value) => value === "asc" ? "desc" : "asc"); else { setSortKey(key); setDirection("asc"); } }
-  return <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.key}><button onClick={() => changeSort(column.key)} aria-label={`Ordenar por ${column.label}`}>{column.label}<span className={sortKey === column.key ? "sort active" : "sort"}>{sortKey === column.key && direction === "desc" ? "↓" : "↑"}</span></button></th>)}</tr></thead><tbody>{sorted.map((track) => <tr key={track.id}><td><strong>{track.title}</strong></td><td>{track.artist}</td><td><span className="genre">{track.genre}</span></td><td className="numeric">{track.bpm}</td><td>{track.key}</td><td><span className="camelot">{track.camelot}</span></td><td className="numeric muted">{formatDuration(track.durationSeconds)}</td></tr>)}</tbody></table></div>;
+const dateFormatter = new Intl.DateTimeFormat("es-ES", {
+  dateStyle: "medium",
+});
+
+function displayDuration(value: number | null) {
+  return value === null ? "—" : formatDuration(Math.round(value));
+}
+
+function sortHref(query: TrackQuery, sort: TrackSort) {
+  const direction =
+    query.sort === sort && query.direction === "asc" ? "desc" : "asc";
+  return buildLibraryHref(query, { direction, page: 1, sort });
+}
+
+export function TrackTable({
+  query,
+  tracks,
+}: {
+  query: TrackQuery;
+  tracks: Tables<"tracks">[];
+}) {
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const allSelected =
+    tracks.length > 0 && tracks.every((track) => selected.has(track.id));
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(tracks.map((track) => track.id)));
+  }
+
+  function toggleTrack(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <>
+      <form
+        action={deleteTracksAction}
+        className="bulk-toolbar"
+        onSubmit={(event) => {
+          if (
+            !window.confirm(
+              `¿Eliminar ${selected.size} ${
+                selected.size === 1 ? "canción" : "canciones"
+              }? Esta acción no se puede deshacer.`,
+            )
+          ) {
+            event.preventDefault();
+          }
+        }}
+      >
+        {Array.from(selected).map((id) => (
+          <input key={id} name="trackId" type="hidden" value={id} />
+        ))}
+        <span>{selected.size} seleccionadas</span>
+        <button
+          className="button button--danger button--small"
+          disabled={selected.size === 0}
+          type="submit"
+        >
+          Eliminar selección
+        </button>
+      </form>
+
+      <div className="table-wrap library-table">
+        <table>
+          <thead>
+            <tr>
+              <th className="select-cell">
+                <input
+                  aria-label="Seleccionar todas las canciones de la página"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  type="checkbox"
+                />
+              </th>
+              {columns.map((column) => (
+                <th key={column.key}>
+                  <Link href={sortHref(query, column.key)}>
+                    {column.label}
+                    <span
+                      className={
+                        query.sort === column.key ? "sort active" : "sort"
+                      }
+                    >
+                      {query.sort === column.key && query.direction === "desc"
+                        ? "↓"
+                        : "↑"}
+                    </span>
+                  </Link>
+                </th>
+              ))}
+              <th>Género</th>
+              <th>Camelot</th>
+              <th>Energía</th>
+              <th>Valoración</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tracks.map((track) => (
+              <tr key={track.id}>
+                <td className="select-cell">
+                  <input
+                    aria-label={`Seleccionar ${track.title}`}
+                    checked={selected.has(track.id)}
+                    onChange={() => toggleTrack(track.id)}
+                    type="checkbox"
+                  />
+                </td>
+                <td>
+                  <strong>{track.title}</strong>
+                </td>
+                <td>{track.artist}</td>
+                <td className="numeric">{track.bpm ?? "—"}</td>
+                <td>{track.musical_key ?? "—"}</td>
+                <td className="numeric muted">
+                  {displayDuration(track.duration_seconds)}
+                </td>
+                <td className="muted">
+                  {dateFormatter.format(new Date(track.created_at))}
+                </td>
+                <td>
+                  <span className="genre">{track.genre ?? "—"}</span>
+                </td>
+                <td>
+                  {track.camelot_key ? (
+                    <span className="camelot">{track.camelot_key}</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="numeric">{track.energy ?? "—"}</td>
+                <td>{track.rating === null ? "—" : `${track.rating}/5`}</td>
+                <td>
+                  <Link className="table-action" href={`/library/${track.id}`}>
+                    Ver y editar
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mobile-track-list">
+        {tracks.map((track) => (
+          <article className="mobile-track card" key={track.id}>
+            <input
+              aria-label={`Seleccionar ${track.title}`}
+              checked={selected.has(track.id)}
+              onChange={() => toggleTrack(track.id)}
+              type="checkbox"
+            />
+            <div>
+              <strong>{track.title}</strong>
+              <span>{track.artist}</span>
+              <small>
+                {track.bpm ? `${track.bpm} BPM` : "BPM —"} ·{" "}
+                {track.musical_key ?? "Tonalidad —"} ·{" "}
+                {displayDuration(track.duration_seconds)}
+              </small>
+            </div>
+            <Link href={`/library/${track.id}`}>Editar</Link>
+          </article>
+        ))}
+      </div>
+    </>
+  );
 }

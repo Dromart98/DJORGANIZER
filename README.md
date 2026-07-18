@@ -1,14 +1,15 @@
 # DJOrganizer
 
 DJOrganizer es una aplicación web para que DJs organicen sus bibliotecas
-musicales. Esta fase añade autenticación y una base de datos segura por usuario,
-pero mantiene deliberadamente la biblioteca visual con datos de demostración.
+musicales. La aplicación incluye autenticación y una biblioteca persistente
+aislada por usuario mediante Supabase.
 
 ## Stack
 
 - Next.js 15 con App Router y React 19
 - TypeScript en modo estricto y Tailwind CSS 4
 - Supabase Auth y PostgreSQL con Row Level Security
+- Zod para validar todas las entradas de canciones
 - ESLint 9 y Vitest
 - GitHub y despliegues automáticos en Vercel
 
@@ -100,11 +101,19 @@ supabase/
 └── migrations/   # Esquema versionado, índices, triggers y RLS
 ```
 
-## Alcance actual
+## Biblioteca persistente
 
-La autenticación y el esquema seguro sí son reales. La biblioteca principal
-sigue mostrando la colección local de demostración y está separada de la
-persistencia hasta la siguiente fase.
+- Alta manual, detalle, edición y eliminación de canciones.
+- Búsqueda por título, artista o álbum.
+- Filtros combinables por género, BPM, tonalidad, Camelot, energía y valoración.
+- Ordenación y paginación ejecutadas en Supabase.
+- Estado de búsqueda, filtros y ordenación conservado en la URL.
+- Selección y eliminación múltiple con confirmación.
+- Consultas limitadas explícitamente al usuario autenticado, además de RLS.
+- Estados de carga, biblioteca vacía, sin resultados y error.
+
+Los archivos locales de demostración permanecen únicamente como referencia de
+desarrollo y ya no se usan en la biblioteca real.
 
 No se guardan archivos de audio, no se usa Supabase Storage para audio y no se
 ha implementado detección de BPM, tonalidad, Camelot, energía ni inteligencia
