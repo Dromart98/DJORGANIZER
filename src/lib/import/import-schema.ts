@@ -1,0 +1,40 @@
+import { z } from "zod";
+
+const nullableText = (maximum: number) =>
+  z
+    .string()
+    .trim()
+    .max(maximum)
+    .nullable()
+    .transform((value: string | null) => value || null);
+
+const nullableNumber = (minimum: number, maximum: number) =>
+  z.number().finite().min(minimum).max(maximum).nullable();
+
+export const importTrackSchema = z
+  .object({
+    album: nullableText(300),
+    artist: z.string().trim().min(1, "Añade el artista.").max(300),
+    bpm: nullableNumber(20, 300),
+    client_id: z.string().uuid(),
+    duration_seconds: nullableNumber(0, 31_536_000),
+    file_name: z.string().trim().min(1).max(500),
+    file_size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    file_type: z.string().trim().min(1).max(120),
+    genre: nullableText(120),
+    musical_key: nullableText(16),
+    release_year: z.number().int().min(1000).max(2100).nullable(),
+    title: z.string().trim().min(1, "Añade el título.").max(300),
+  })
+  .strict();
+
+export const importBatchSchema = z.array(importTrackSchema).min(1).max(25);
+
+export type ImportTrackInput = z.infer<typeof importTrackSchema>;
+
+export function importValidationMessage(input: ImportTrackInput) {
+  const result = importTrackSchema.safeParse(input);
+  if (result.success) return null;
+  return result.error.issues[0]?.message ?? "Revisa los metadatos.";
+}
+

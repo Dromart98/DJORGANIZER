@@ -9,6 +9,7 @@ aislada por usuario mediante Supabase.
 - Next.js 15 con App Router y React 19
 - TypeScript en modo estricto y Tailwind CSS 4
 - Supabase Auth y PostgreSQL con Row Level Security
+- music-metadata para leer etiquetas de audio exclusivamente en el navegador
 - Zod para validar todas las entradas de canciones
 - ESLint 9 y Vitest
 - GitHub y despliegues automáticos en Vercel
@@ -112,9 +113,22 @@ supabase/
 - Consultas limitadas explícitamente al usuario autenticado, además de RLS.
 - Estados de carga, biblioteca vacía, sin resultados y error.
 
+## Importación de metadatos
+
+- Selección de hasta 100 archivos locales por tanda.
+- Lectura en el navegador de título, artista, álbum, género, BPM etiquetado,
+  tonalidad etiquetada, año y duración.
+- Vista previa editable antes de guardar.
+- Guardado en lotes de 25 con resultado independiente por pista.
+- Los errores parciales no descartan las pistas guardadas correctamente.
+- Solo se envían campos de texto y números al servidor.
+
 Los archivos locales de demostración permanecen únicamente como referencia de
 desarrollo y ya no se usan en la biblioteca real.
 
-No se guardan archivos de audio, no se usa Supabase Storage para audio y no se
-ha implementado detección de BPM, tonalidad, Camelot, energía ni inteligencia
-artificial.
+No se suben ni guardan archivos de audio o portadas, no se usa Supabase Storage
+para audio y no se ha implementado detección automática de BPM, tonalidad,
+Camelot, energía, fingerprint de duplicados ni inteligencia artificial. Los
+valores de BPM y tonalidad de esta fase proceden solamente de etiquetas ya
+existentes en el archivo.
+
