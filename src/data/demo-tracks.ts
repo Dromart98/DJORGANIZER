@@ -8,4 +8,3 @@ export const demoTracks: readonly Track[] = [
   { id: "trk-005", title: "Soft Focus", artist: "Aria Moss", genre: "Organic House", bpm: 118, key: "G major", camelot: "9B", durationSeconds: 398, energy: 48, tags: ["sunset", "warm-up"] },
   { id: "trk-006", title: "Static Motion", artist: "Kinetic Club", genre: "Electro", bpm: 128, key: "D minor", camelot: "7A", durationSeconds: 329, energy: 86, tags: ["club"] },
 ];
-
