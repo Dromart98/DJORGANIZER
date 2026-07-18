@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { ZodError } from "zod";
 import { requireUser } from "@/lib/auth/user";
+import { bulkTrackUpdateFromFormData } from "@/lib/library/bulk-track-update";
 import {
   toTrackInsert,
   toTrackUpdate,
@@ -135,4 +136,45 @@ export async function deleteTracksAction(formData: FormData) {
 
   revalidatePath("/library");
   redirect("/library?deleted=1");
+}
+
+function libraryReturnTo(formData: FormData) {
+  const value = formData.get("returnTo");
+  return typeof value === "string" &&
+    value.startsWith("/library") &&
+    !value.startsWith("//")
+    ? value
+    : "/library";
+}
+
+function withLibraryStatus(returnTo: string, status: string) {
+  const url = new URL(returnTo, "https://djorganizer.local");
+  url.searchParams.set(status, "1");
+  return `${url.pathname}${url.search}`;
+}
+
+export async function bulkUpdateTracksAction(formData: FormData) {
+  const user = await requireUser();
+  const returnTo = libraryReturnTo(formData);
+  let change;
+
+  try {
+    change = bulkTrackUpdateFromFormData(formData);
+  } catch {
+    redirect(withLibraryStatus(returnTo, "bulkError"));
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tracks")
+    .update(change.update)
+    .eq("user_id", user.id)
+    .in("id", change.trackIds);
+
+  if (error) {
+    redirect(withLibraryStatus(returnTo, "bulkError"));
+  }
+
+  revalidatePath("/library");
+  redirect(withLibraryStatus(returnTo, "bulkUpdated"));
 }
