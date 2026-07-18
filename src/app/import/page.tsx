@@ -1,3 +1,4 @@
+import { DesktopFolderScanner } from "@/components/desktop/folder-scanner";
 import { AudioImporter } from "@/components/import/audio-importer";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
@@ -14,7 +15,10 @@ export default async function ImportPage() {
         title="Importar música"
         description="Lee etiquetas y estima BPM y tonalidad en este dispositivo; después revisa y guarda solo los metadatos."
       />
-      <AudioImporter />
+      <div className="import-flow">
+        <DesktopFolderScanner />
+        <AudioImporter />
+      </div>
     </>
   );
 }

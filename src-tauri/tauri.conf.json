@@ -9,6 +9,7 @@
     "frontendDist": "https://djorganizer-beta.vercel.app"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",

@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-base",
-  "description": "Core window permissions for bundled local development content only.",
+  "description": "Core permissions for local content and the trusted production origin.",
   "windows": ["main"],
   "platforms": ["linux", "macOS", "windows"],
+  "remote": {
+    "urls": ["https://djorganizer-beta.vercel.app"]
+  },
   "permissions": ["core:default"]
 }
