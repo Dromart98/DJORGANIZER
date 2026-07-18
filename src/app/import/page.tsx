@@ -12,7 +12,7 @@ export default async function ImportPage() {
       <PageHeader
         eyebrow="Colección"
         title="Importar música"
-        description="Lee etiquetas y estima el BPM en este dispositivo; después revisa y guarda únicamente los metadatos."
+        description="Lee etiquetas y estima BPM y tonalidad en este dispositivo; después revisa y guarda solo los metadatos."
       />
       <AudioImporter />
     </>
