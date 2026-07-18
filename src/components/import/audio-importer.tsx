@@ -8,6 +8,7 @@ import {
   type ImportResult,
 } from "@/app/import/actions";
 import { Button } from "@/components/ui/button";
+import { detectBpmFromFile } from "@/lib/import/bpm-detector";
 import { duplicateClientIds } from "@/lib/import/duplicates";
 import { fingerprintBlob } from "@/lib/import/fingerprint";
 import {
@@ -28,9 +29,12 @@ type ImportStatus =
   | "error";
 
 type ImportItem = {
+  bpmError?: string;
+  bpmStatus?: "idle" | "analyzing" | "detected" | "error";
   data?: ImportTrackInput;
   duplicateTrackId?: string;
   error?: string;
+  file?: File;
   id: string;
   name: string;
   progress?: number;
@@ -84,6 +88,7 @@ export function AudioImporter() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isAnalyzingBpm, setIsAnalyzingBpm] = useState(false);
   const [isReading, setIsReading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -92,6 +97,13 @@ export function AudioImporter() {
   const duplicateCount = items.filter(
     (item) => item.status === "duplicate",
   ).length;
+  const missingBpmItems = items.filter(
+    (item) =>
+      item.status === "ready" &&
+      item.file &&
+      item.data &&
+      item.data.bpm === null,
+  );
 
   function updateItem(id: string, update: Partial<ImportItem>) {
     setItems((current) =>
@@ -130,8 +142,10 @@ export function AudioImporter() {
       const data = metadataToImportTrack(metadata, file, id, fingerprint);
       const error = importValidationMessage(data);
       const item: ImportItem = {
+        bpmStatus: "idle",
         data,
         error: error ?? undefined,
+        file,
         id,
         name: file.name,
         progress: 100,
@@ -289,12 +303,97 @@ export function AudioImporter() {
         const error = importValidationMessage(data);
         return {
           ...item,
+          bpmError: field === "bpm" ? undefined : item.bpmError,
+          bpmStatus: field === "bpm" ? "idle" : item.bpmStatus,
           data,
           error: error ?? undefined,
           status: error ? "invalid" : "ready",
         };
       }),
     );
+  }
+
+  async function analyzeBpm(targets: ImportItem[]) {
+    const analyzable = targets.filter(
+      (item): item is ImportItem & {
+        data: ImportTrackInput;
+        file: File;
+      } =>
+        item.status === "ready" &&
+        Boolean(item.data) &&
+        Boolean(item.file),
+    );
+    if (!analyzable.length) return;
+
+    setIsAnalyzingBpm(true);
+    setNotice(null);
+    let audioContext: AudioContext | null = null;
+
+    try {
+      audioContext = new AudioContext();
+      await audioContext.resume();
+
+      for (const item of analyzable) {
+        updateItem(item.id, {
+          bpmError: undefined,
+          bpmStatus: "analyzing",
+        });
+
+        try {
+          const bpm = await detectBpmFromFile(item.file, audioContext);
+          setItems((current) =>
+            current.map((currentItem) => {
+              if (currentItem.id !== item.id || !currentItem.data) {
+                return currentItem;
+              }
+
+              const data = { ...currentItem.data, bpm };
+              const error = importValidationMessage(data);
+              return {
+                ...currentItem,
+                bpmError: undefined,
+                bpmStatus: "detected",
+                data,
+                error: error ?? undefined,
+                status: error ? "invalid" : "ready",
+              };
+            }),
+          );
+        } catch {
+          updateItem(item.id, {
+            bpmError:
+              "No se pudo estimar el BPM. Puedes escribirlo manualmente.",
+            bpmStatus: "error",
+          });
+        }
+      }
+
+      setNotice(
+        "Análisis de BPM terminado. Revisa las estimaciones antes de guardar.",
+      );
+    } catch {
+      const targetIds = new Set(analyzable.map((item) => item.id));
+      setItems((current) =>
+        current.map((item) =>
+          targetIds.has(item.id) && item.bpmStatus === "analyzing"
+            ? {
+                ...item,
+                bpmError:
+                  "El navegador no pudo iniciar el análisis. Escribe el BPM manualmente.",
+                bpmStatus: "error",
+              }
+            : item,
+        ),
+      );
+      setNotice(
+        "No se pudo iniciar el analizador de audio en este navegador.",
+      );
+    } finally {
+      if (audioContext) {
+        await audioContext.close().catch(() => undefined);
+      }
+      setIsAnalyzingBpm(false);
+    }
   }
 
   async function saveReadyTracks() {
@@ -376,22 +475,26 @@ export function AudioImporter() {
   }
 
   return (
-    <section className="import-flow" aria-busy={isReading || isSaving}>
+    <section
+      className="import-flow"
+      aria-busy={isReading || isSaving || isAnalyzingBpm}
+    >
       <div className="card import-dropzone">
         <div>
           <p className="eyebrow">Importación privada</p>
           <h2>El audio no sale de este dispositivo</h2>
           <p>
             DJOrganizer calcula una huella SHA-256 local para detectar archivos
-            exactamente iguales. Solo envía a Supabase la huella y los campos
-            que revises; no sube audio ni portadas.
+            exactamente iguales y puede estimar el BPM en el navegador. Solo
+            envía a Supabase la huella y los campos que revises; no sube audio
+            ni portadas.
           </p>
         </div>
         <input
           ref={inputRef}
           accept="audio/*,.aac,.aif,.aiff,.ape,.flac,.m4a,.mp3,.mp4,.ogg,.opus,.wav,.webm,.wma"
           className="visually-hidden"
-          disabled={isReading || isSaving}
+          disabled={isReading || isSaving || isAnalyzingBpm}
           id="audio-files"
           multiple
           onChange={(event) => void handleFiles(event.target.files)}
@@ -415,13 +518,32 @@ export function AudioImporter() {
               <strong>{items.length}</strong> archivos · {readyCount} listos ·{" "}
               {savedCount} guardados · {duplicateCount} duplicados
             </p>
-            <Button
-              disabled={!readyCount || isSaving || isReading}
-              onClick={() => void saveReadyTracks()}
-              type="button"
-            >
-              {isSaving ? "Guardando…" : `Guardar ${readyCount} pistas`}
-            </Button>
+            <div className="import-actions">
+              <Button
+                disabled={
+                  !missingBpmItems.length ||
+                  isSaving ||
+                  isReading ||
+                  isAnalyzingBpm
+                }
+                onClick={() => void analyzeBpm(missingBpmItems)}
+                type="button"
+                variant="secondary"
+              >
+                {isAnalyzingBpm
+                  ? "Analizando BPM…"
+                  : `Detectar BPM (${missingBpmItems.length})`}
+              </Button>
+              <Button
+                disabled={
+                  !readyCount || isSaving || isReading || isAnalyzingBpm
+                }
+                onClick={() => void saveReadyTracks()}
+                type="button"
+              >
+                {isSaving ? "Guardando…" : `Guardar ${readyCount} pistas`}
+              </Button>
+            </div>
           </div>
 
           <div className="import-list">
@@ -429,7 +551,8 @@ export function AudioImporter() {
               const isLocked =
                 item.status === "saving" ||
                 item.status === "saved" ||
-                item.status === "duplicate";
+                item.status === "duplicate" ||
+                item.bpmStatus === "analyzing";
 
               return (
                 <article className="card import-item" key={item.id}>
@@ -514,8 +637,13 @@ export function AudioImporter() {
                         value={item.data.genre ?? ""}
                       />
                     </label>
-                    <label className="field">
-                      BPM de etiqueta
+                    <label className="field import-bpm-field">
+                      <span>
+                        BPM
+                        {item.bpmStatus === "detected" ? (
+                          <small>Estimado localmente</small>
+                        ) : null}
+                      </span>
                       <input
                         disabled={isLocked}
                         max={300}
@@ -533,6 +661,28 @@ export function AudioImporter() {
                         type="number"
                         value={item.data.bpm ?? ""}
                       />
+                      {item.file &&
+                      item.status === "ready" &&
+                      item.bpmStatus !== "analyzing" ? (
+                        <button
+                          className="import-analyze-link"
+                          disabled={isAnalyzingBpm || isSaving || isReading}
+                          onClick={() => void analyzeBpm([item])}
+                          type="button"
+                        >
+                          {item.data.bpm === null
+                            ? "Detectar automáticamente"
+                            : "Volver a analizar"}
+                        </button>
+                      ) : null}
+                      {item.bpmStatus === "analyzing" ? (
+                        <small role="status">Analizando el audio local…</small>
+                      ) : null}
+                      {item.bpmError ? (
+                        <small className="field-error" role="alert">
+                          {item.bpmError}
+                        </small>
+                      ) : null}
                     </label>
                     <label className="field">
                       Tonalidad de etiqueta
@@ -604,3 +754,4 @@ export function AudioImporter() {
     </section>
   );
 }
+
