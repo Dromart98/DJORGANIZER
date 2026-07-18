@@ -10,6 +10,7 @@ aislada por usuario mediante Supabase.
 - TypeScript en modo estricto y Tailwind CSS 4
 - Supabase Auth y PostgreSQL con Row Level Security
 - music-metadata para leer etiquetas de audio exclusivamente en el navegador
+- web-audio-beat-detector para estimar BPM exclusivamente en el navegador
 - Zod para validar todas las entradas de canciones
 - ESLint 9 y Vitest
 - GitHub y despliegues automáticos en Vercel
@@ -119,6 +120,9 @@ supabase/
 - Lectura en el navegador de título, artista, álbum, género, BPM etiquetado,
   tonalidad etiquetada, año y duración.
 - Vista previa editable antes de guardar.
+- Detección opcional de BPM por pista o en lote, ejecutada localmente.
+- Análisis secuencial de una ventana de hasta 90 segundos para limitar memoria.
+- Las estimaciones de BPM quedan identificadas y pueden corregirse manualmente.
 - Cálculo incremental de una huella SHA-256 en el navegador, con progreso.
 - Detección de archivos repetidos en la selección y en la biblioteca existente.
 - El índice único de la base de datos evita duplicados incluso ante guardados
@@ -134,11 +138,10 @@ generará otra huella; esta fase no intenta reconocer similitud acústica.
 Los archivos locales de demostración permanecen únicamente como referencia de
 desarrollo y ya no se usan en la biblioteca real.
 
-No se suben ni guardan archivos de audio o portadas, no se usa Supabase Storage
-para audio y no se ha implementado detección automática de BPM, tonalidad,
-Camelot, energía, similitud acústica ni inteligencia artificial. Los valores de
-BPM y tonalidad de esta fase proceden solamente de etiquetas ya existentes en
-el archivo.
+No se suben ni guardan archivos de audio o portadas y no se usa Supabase
+Storage para audio. El BPM puede proceder de una etiqueta o de la estimación
+local revisada por el usuario. No se ha implementado detección automática de
+tonalidad, energía, similitud acústica ni inteligencia artificial.
 
 ## Crates y etiquetas
 
@@ -160,3 +163,4 @@ el archivo.
   Camelot al guardar.
 - La conversión usa metadatos existentes o datos escritos por el usuario; no
   analiza la señal de audio ni afirma detectar la tonalidad automáticamente.
+
