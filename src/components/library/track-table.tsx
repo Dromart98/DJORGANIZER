@@ -7,6 +7,7 @@ import {
   removeTagFromTracksAction,
 } from "@/app/crates/actions";
 import { deleteTracksAction } from "@/app/library/actions";
+import { BulkEditForm } from "@/components/library/bulk-edit-form";
 import {
   buildLibraryHref,
   type TrackQuery,
@@ -70,6 +71,10 @@ export function TrackTable({
       <div className="bulk-toolbar">
         <span>{selected.size} seleccionadas</span>
         <div className="bulk-actions">
+          <BulkEditForm
+            returnTo={returnTo}
+            selectedIds={Array.from(selected)}
+          />
           {tags.length ? (
             <form className="bulk-tag-form">
               {Array.from(selected).map((id) => (
