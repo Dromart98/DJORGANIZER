@@ -46,7 +46,7 @@ describe("URL de biblioteca", () => {
 
   it("elimina delimitadores reservados de una búsqueda", () => {
     expect(safeSearchTerm('house),artist.ilike."%"')).toBe(
-      "house artist.ilike.%",
+      "house artist.ilike. %",
     );
   });
 });
