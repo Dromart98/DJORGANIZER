@@ -146,9 +146,7 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
 }
 
 #[tauri::command]
-async fn choose_and_scan_music_folder(
-    app: AppHandle,
-) -> Result<Option<FolderScanResult>, String> {
+async fn choose_and_scan_music_folder(app: AppHandle) -> Result<Option<FolderScanResult>, String> {
     let selection = app
         .dialog()
         .file()
@@ -203,8 +201,14 @@ mod tests {
 
     #[test]
     fn recognizes_supported_extensions_case_insensitively() {
-        assert_eq!(audio_extension(Path::new("track.MP3")).as_deref(), Some("mp3"));
-        assert_eq!(audio_extension(Path::new("track.flac")).as_deref(), Some("flac"));
+        assert_eq!(
+            audio_extension(Path::new("track.MP3")).as_deref(),
+            Some("mp3")
+        );
+        assert_eq!(
+            audio_extension(Path::new("track.flac")).as_deref(),
+            Some("flac")
+        );
         assert_eq!(audio_extension(Path::new("notes.txt")), None);
     }
 
@@ -213,10 +217,8 @@ mod tests {
         let root = test_directory();
         let set = root.join("Set A");
         fs::create_dir_all(&set).expect("nested directory should be created");
-        fs::write(set.join("Opening.MP3"), [1_u8, 2, 3])
-            .expect("audio fixture should be written");
-        fs::write(root.join("notes.txt"), b"not audio")
-            .expect("text fixture should be written");
+        fs::write(set.join("Opening.MP3"), [1_u8, 2, 3]).expect("audio fixture should be written");
+        fs::write(root.join("notes.txt"), b"not audio").expect("text fixture should be written");
 
         let result = scan_music_folder(&root).expect("folder should be scanned");
 
