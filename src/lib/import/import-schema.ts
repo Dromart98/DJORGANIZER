@@ -18,6 +18,7 @@ export const importTrackSchema = z
     bpm: nullableNumber(20, 300),
     client_id: z.string().uuid(),
     duration_seconds: nullableNumber(0, 31_536_000),
+    file_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     file_name: z.string().trim().min(1).max(500),
     file_size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     file_type: z.string().trim().min(1).max(120),
@@ -30,6 +31,12 @@ export const importTrackSchema = z
 
 export const importBatchSchema = z.array(importTrackSchema).min(1).max(25);
 
+export const fingerprintBatchSchema = z
+  .array(z.string().regex(/^[a-f0-9]{64}$/))
+  .min(1)
+  .max(100)
+  .transform((fingerprints: string[]) => [...new Set(fingerprints)]);
+
 export type ImportTrackInput = z.infer<typeof importTrackSchema>;
 
 export function importValidationMessage(input: ImportTrackInput) {
@@ -37,4 +44,3 @@ export function importValidationMessage(input: ImportTrackInput) {
   if (result.success) return null;
   return result.error.issues[0]?.message ?? "Revisa los metadatos.";
 }
-
