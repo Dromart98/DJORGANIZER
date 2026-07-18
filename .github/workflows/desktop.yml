@@ -1,0 +1,41 @@
+name: Desktop Validate
+
+on:
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y             libwebkit2gtk-4.1-dev             libayatana-appindicator3-dev             librsvg2-dev
+
+      - name: Configure Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Check desktop crate
+        run: |
+          if [ -f src-tauri/Cargo.lock ]; then
+            cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+          else
+            cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+          fi

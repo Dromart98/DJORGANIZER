@@ -211,3 +211,26 @@ cookies, bibliotecas personales ni archivos de audio. La edición de datos sin
 conexión y su sincronización posterior no forman parte de esta fase. Para
 probar la instalación y el service worker usa un build de producción servido
 por HTTPS o desde localhost.
+
+
+## Aplicación de escritorio
+
+La base de escritorio usa Tauri 2 y vive en `src-tauri/`. En desarrollo abre
+el servidor local de Next.js; el binario inicial de producción carga
+exclusivamente `https://djorganizer-beta.vercel.app`.
+
+Esta primera entrega no expone comandos nativos a la web remota y no concede
+permisos de sistema de archivos, shell, diálogo ni proceso. Por tanto todavía
+no puede escanear, mover, renombrar ni modificar música local.
+
+Para validar el núcleo Rust:
+
+```bash
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+```
+
+Para desarrollo interactivo, instala Tauri CLI 2 y ejecuta `cargo tauri dev`
+desde la raíz. Son necesarios Rust y las dependencias de sistema indicadas por
+Tauri para cada plataforma. La siguiente fase añadirá selección de carpetas y
+lectura de metadatos mediante permisos mínimos, explícitos y revisables.
