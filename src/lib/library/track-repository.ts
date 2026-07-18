@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Tables } from "@/types/database";
 import {
+  compatibleBpmRange,
+  compatibleCamelotKeys,
+} from "@/lib/music/harmonic-compatibility";
+import {
   databaseSortColumn,
   safeSearchTerm,
   TRACKS_PER_PAGE,
@@ -89,3 +93,45 @@ export async function getTrack(
 
   return data;
 }
+
+export async function listCompatibleTracks(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  source: Tables<"tracks">,
+) {
+  const matches = compatibleCamelotKeys(source.camelot_key);
+  if (!matches.length) return [];
+  const reasons = new Map(
+    matches.map((match) => [match.camelotKey, match.reason]),
+  );
+  let request = supabase
+    .from("tracks")
+    .select("*")
+    .eq("user_id", userId)
+    .neq("id", source.id)
+    .in("camelot_key", matches.map((match) => match.camelotKey));
+  const bpmRange = compatibleBpmRange(source.bpm);
+  if (bpmRange) {
+    request = request
+      .gte("bpm", bpmRange.minimum)
+      .lte("bpm", bpmRange.maximum);
+  }
+  const { data, error } = await request.limit(30);
+  if (error) throw new Error("No se pudieron cargar las recomendaciones.");
+
+  return (data ?? [])
+    .sort((left, right) => {
+      const leftExact = left.camelot_key === source.camelot_key ? 0 : 1;
+      const rightExact = right.camelot_key === source.camelot_key ? 0 : 1;
+      if (leftExact !== rightExact) return leftExact - rightExact;
+      return Math.abs((left.bpm ?? 0) - (source.bpm ?? 0)) -
+        Math.abs((right.bpm ?? 0) - (source.bpm ?? 0));
+    })
+    .slice(0, 8)
+    .map((track) => ({
+      ...track,
+      compatibility_reason:
+        reasons.get(track.camelot_key ?? "") ?? "Tonalidad compatible",
+    }));
+}
+
