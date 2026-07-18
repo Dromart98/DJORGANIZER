@@ -66,7 +66,7 @@ self.addEventListener("fetch", (event) => {
           if (response.ok) void cache.put(request, response.clone());
           return response;
         })
-        .catch(() => cached);
+        .catch(() => cached ?? Response.error());
 
       return cached ?? network;
     }),
