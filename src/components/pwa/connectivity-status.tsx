@@ -21,7 +21,7 @@ export function ConnectivityStatus() {
   }, []);
 
   return online ? null : (
-    <div aria-live="polite" className="connectivity-banner" role="status">
+    <div aria-live="polite" className="connectivity-status" role="status">
       Sin conexión · Las funciones en la nube están temporalmente pausadas.
     </div>
   );
