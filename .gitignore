@@ -34,14 +34,14 @@ bower_components
 # node-waf configuration
 .lock-wscript
 
-# Compiled binary addons (https://nodejs.org/api/addons.html)
+# Compiled binary addons
 build/Release
 
 # Dependency directories
 node_modules/
 jspm_packages/
 
-# Snowpack dependency directory (https://snowpack.dev/)
+# Snowpack dependency directory
 web_modules/
 
 # TypeScript cache
@@ -70,7 +70,7 @@ web_modules/
 .env.*
 !.env.example
 
-# parcel-bundler cache (https://parceljs.org/)
+# parcel-bundler cache
 .cache
 .parcel-cache
 
@@ -144,3 +144,6 @@ vite.config.ts.timestamp-*
 
 # Vercel local configuration
 .vercel/
+
+# Tauri / Rust build output
+src-tauri/target/
