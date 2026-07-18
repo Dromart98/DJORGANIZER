@@ -230,7 +230,6 @@ export function TrackTable({
       <div className="mobile-track-list">
         {tracks.map((track) => (
           <article
-            aria-selected={selected.has(track.id)}
             className={`mobile-track card ${
               selected.has(track.id) ? "is-selected" : ""
             }`}
