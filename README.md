@@ -119,16 +119,23 @@ supabase/
 - Lectura en el navegador de título, artista, álbum, género, BPM etiquetado,
   tonalidad etiquetada, año y duración.
 - Vista previa editable antes de guardar.
+- Cálculo incremental de una huella SHA-256 en el navegador, con progreso.
+- Detección de archivos repetidos en la selección y en la biblioteca existente.
+- El índice único de la base de datos evita duplicados incluso ante guardados
+  simultáneos.
 - Guardado en lotes de 25 con resultado independiente por pista.
 - Los errores parciales no descartan las pistas guardadas correctamente.
-- Solo se envían campos de texto y números al servidor.
+- Solo se envían la huella y los campos de texto y números al servidor.
+
+La detección compara el contenido exacto del archivo. Una copia idéntica se
+detectará aunque tenga otro nombre, pero una canción reetiquetada o recodificada
+generará otra huella; esta fase no intenta reconocer similitud acústica.
 
 Los archivos locales de demostración permanecen únicamente como referencia de
 desarrollo y ya no se usan en la biblioteca real.
 
 No se suben ni guardan archivos de audio o portadas, no se usa Supabase Storage
 para audio y no se ha implementado detección automática de BPM, tonalidad,
-Camelot, energía, fingerprint de duplicados ni inteligencia artificial. Los
-valores de BPM y tonalidad de esta fase proceden solamente de etiquetas ya
-existentes en el archivo.
-
+Camelot, energía, similitud acústica ni inteligencia artificial. Los valores de
+BPM y tonalidad de esta fase proceden solamente de etiquetas ya existentes en
+el archivo.
