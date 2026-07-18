@@ -12,9 +12,25 @@ const navigation: { href: string; label: string; icon: IconName }[] = [
   { href: "/settings", label: "Ajustes", icon: "settings" },
 ];
 
-function NavLinks() {
-  const pathname = usePathname();
-  return navigation.map(({ href, label, icon }) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><Icon name={icon}/><span>{label}</span></Link>);
+function isActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function Brand() {
+  return (
+    <Link aria-label="DJOrganizer, inicio" className="brand" href="/">
+      <span>DJ</span>Organizer
+    </Link>
+  );
+}
+
+function NavLinks({ pathname }: { pathname: string }) {
+  return navigation.map(({ href, label, icon }) => (
+    <Link className={isActive(pathname, href) ? "active" : ""} href={href} key={href}>
+      <Icon name={icon} />
+      <span>{label}</span>
+    </Link>
+  ));
 }
 
 export function AppShell({
@@ -29,6 +45,8 @@ export function AppShell({
     pathname === "/login" ||
     pathname === "/signup" ||
     pathname.startsWith("/auth/");
+  const currentSection =
+    navigation.find(({ href }) => isActive(pathname, href))?.label ?? "Inicio";
 
   if (isAuthRoute) {
     return <main className="auth-main">{children}</main>;
@@ -37,18 +55,19 @@ export function AppShell({
   return (
     <div className="app-shell">
       <aside>
-        <Link href="/" className="brand">
-          <span>DJ</span>Organizer
-        </Link>
-        <p className="nav-label">Workspace</p>
-        <nav>
-          <NavLinks />
+        <Brand />
+        <nav aria-label="Navegación principal">
+          <NavLinks pathname={pathname} />
         </nav>
         {authStatus}
       </aside>
+      <header className="mobile-topbar">
+        <Brand />
+        <span>{currentSection}</span>
+      </header>
       <main>{children}</main>
-      <nav className="mobile-nav">
-        <NavLinks />
+      <nav aria-label="Navegación móvil" className="mobile-nav">
+        <NavLinks pathname={pathname} />
       </nav>
     </div>
   );

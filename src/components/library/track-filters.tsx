@@ -11,7 +11,7 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
             defaultValue={query.q}
             maxLength={120}
             name="q"
-            placeholder="Título, artista o álbum"
+            placeholder="Buscar en biblioteca…"
             type="search"
           />
         </label>
@@ -29,7 +29,7 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
         </label>
       </div>
       <details className="filter-advanced">
-        <summary>Filtros avanzados</summary>
+        <summary>Más filtros</summary>
         <div className="filter-range-grid">
           <label className="field">
             <span>BPM mínimo</span>
