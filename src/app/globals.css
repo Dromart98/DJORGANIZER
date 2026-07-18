@@ -528,3 +528,32 @@ td strong { color: #f0f3f4; font-weight: 650; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+
+/* PWA connectivity status */
+.connectivity-status {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  max-width: min(360px, calc(100vw - 36px));
+  padding: 10px 14px;
+  background: #2b2110;
+  border: 1px solid #72592a;
+  border-radius: var(--radius-sm, 7px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .34);
+  color: #f3d997;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .connectivity-status {
+    right: 12px;
+    bottom: calc(82px + env(safe-area-inset-bottom));
+    left: 12px;
+    max-width: none;
+    text-align: center;
+  }
+}
