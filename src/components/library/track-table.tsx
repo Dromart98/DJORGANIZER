@@ -161,14 +161,16 @@ export function TrackTable({
                   <Link href={sortHref(query, column.key)}>
                     {column.label}
                     <span
-                      className={
-                        query.sort === column.key ? "sort active" : "sort"
-                      }
-                    >
-                      {query.sort === column.key && query.direction === "desc"
-                        ? "↓"
-                        : "↑"}
-                    </span>
+                      aria-hidden="true"
+                      className={`sort ${
+                        query.sort === column.key ? "active" : ""
+                      } ${
+                        query.sort === column.key &&
+                        query.direction === "desc"
+                          ? "descending"
+                          : ""
+                      }`}
+                    />
                   </Link>
                 </th>
               ))}
@@ -181,7 +183,7 @@ export function TrackTable({
           </thead>
           <tbody>
             {tracks.map((track) => (
-              <tr key={track.id}>
+              <tr className={selected.has(track.id) ? "is-selected" : ""} key={track.id}>
                 <td className="select-cell">
                   <input
                     aria-label={`Seleccionar ${track.title}`}
@@ -227,7 +229,13 @@ export function TrackTable({
 
       <div className="mobile-track-list">
         {tracks.map((track) => (
-          <article className="mobile-track card" key={track.id}>
+          <article
+            aria-selected={selected.has(track.id)}
+            className={`mobile-track card ${
+              selected.has(track.id) ? "is-selected" : ""
+            }`}
+            key={track.id}
+          >
             <input
               aria-label={`Seleccionar ${track.title}`}
               checked={selected.has(track.id)}
