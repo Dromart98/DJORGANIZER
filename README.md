@@ -175,3 +175,12 @@ de energía, similitud acústica ni inteligencia artificial.
 - Ordena primero la misma tonalidad y después la cercanía de BPM.
 - Todas las consultas se limitan al usuario autenticado y no usan IA.
 
+## Edición masiva
+
+- Permite cambiar álbum, género, BPM, tonalidad, energía, valoración, año o
+  comentarios de hasta 100 pistas seleccionadas.
+- Un valor vacío elimina únicamente el campo elegido.
+- La edición de tonalidad normaliza la notación y actualiza Camelot de forma
+  conjunta.
+- Cada acción requiere confirmación y se limita al usuario autenticado además de
+  las políticas RLS.
