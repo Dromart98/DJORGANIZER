@@ -83,6 +83,16 @@ export default async function LibraryPage({
           No se pudo actualizar la etiqueta de la selección.
         </p>
       ) : null}
+      {rawSearchParams.bulkUpdated === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          Los metadatos de la selección se actualizaron correctamente.
+        </p>
+      ) : null}
+      {rawSearchParams.bulkError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          No se pudo aplicar la edición. Revisa el valor introducido.
+        </p>
+      ) : null}
 
       <TrackFilters query={query} />
 
