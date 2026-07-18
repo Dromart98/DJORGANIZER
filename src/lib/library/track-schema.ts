@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeMusicalKey } from "@/lib/music/key-normalization";
 import type { TablesInsert, TablesUpdate } from "@/types/database";
 
 const optionalText = (maximum: number) =>
@@ -71,11 +72,16 @@ export function toTrackInsert(
   values: TrackFormValues,
   userId: string,
 ): TablesInsert<"tracks"> {
+  const normalizedKey = normalizeMusicalKey(
+    values.musical_key ?? values.camelot_key,
+  );
   return {
     ...values,
     bpm: values.bpm ?? null,
     duration_seconds: values.duration_seconds ?? null,
     energy: values.energy ?? null,
+    camelot_key: normalizedKey?.camelotKey ?? values.camelot_key,
+    musical_key: normalizedKey?.musicalKey ?? values.musical_key,
     rating: values.rating ?? null,
     release_year: values.release_year ?? null,
     user_id: userId,
@@ -85,11 +91,16 @@ export function toTrackInsert(
 export function toTrackUpdate(
   values: TrackFormValues,
 ): TablesUpdate<"tracks"> {
+  const normalizedKey = normalizeMusicalKey(
+    values.musical_key ?? values.camelot_key,
+  );
   return {
     ...values,
     bpm: values.bpm ?? null,
     duration_seconds: values.duration_seconds ?? null,
     energy: values.energy ?? null,
+    camelot_key: normalizedKey?.camelotKey ?? values.camelot_key,
+    musical_key: normalizedKey?.musicalKey ?? values.musical_key,
     rating: values.rating ?? null,
     release_year: values.release_year ?? null,
   };
