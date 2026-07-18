@@ -3,8 +3,7 @@
   "git": {
     "deploymentEnabled": {
       "**": false,
-      "main": true,
-      "codex/desktop-folder-scanning": true
+      "main": true
     }
   }
 }
