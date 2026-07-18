@@ -10,6 +10,7 @@ aislada por usuario mediante Supabase.
 - TypeScript en modo estricto y Tailwind CSS 4
 - Supabase Auth y PostgreSQL con Row Level Security
 - music-metadata para leer etiquetas de audio exclusivamente en el navegador
+- Meyda para extraer información armónica exclusivamente en el navegador
 - web-audio-beat-detector para estimar BPM exclusivamente en el navegador
 - Zod para validar todas las entradas de canciones
 - ESLint 9 y Vitest
@@ -123,6 +124,8 @@ supabase/
 - Detección opcional de BPM por pista o en lote, ejecutada localmente.
 - Análisis secuencial de una ventana de hasta 90 segundos para limitar memoria.
 - Las estimaciones de BPM quedan identificadas y pueden corregirse manualmente.
+- Detección opcional de tonalidad por pista o en lote mediante cromas.
+- Conversión de la tonalidad estimada a notación canónica y Camelot al guardar.
 - Cálculo incremental de una huella SHA-256 en el navegador, con progreso.
 - Detección de archivos repetidos en la selección y en la biblioteca existente.
 - El índice único de la base de datos evita duplicados incluso ante guardados
@@ -139,9 +142,9 @@ Los archivos locales de demostración permanecen únicamente como referencia de
 desarrollo y ya no se usan en la biblioteca real.
 
 No se suben ni guardan archivos de audio o portadas y no se usa Supabase
-Storage para audio. El BPM puede proceder de una etiqueta o de la estimación
-local revisada por el usuario. No se ha implementado detección automática de
-tonalidad, energía, similitud acústica ni inteligencia artificial.
+Storage para audio. El BPM y la tonalidad pueden proceder de etiquetas o de
+estimaciones locales revisadas por el usuario. No se ha implementado detección
+de energía, similitud acústica ni inteligencia artificial.
 
 ## Crates y etiquetas
 
