@@ -156,7 +156,7 @@ function withLibraryStatus(returnTo: string, status: string) {
 export async function bulkUpdateTracksAction(formData: FormData) {
   const user = await requireUser();
   const returnTo = libraryReturnTo(formData);
-  let change;
+  let change: ReturnType<typeof bulkTrackUpdateFromFormData>;
 
   try {
     change = bulkTrackUpdateFromFormData(formData);
