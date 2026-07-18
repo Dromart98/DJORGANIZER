@@ -257,15 +257,6 @@ main {
   list-style: none;
 }
 .filter-advanced summary::-webkit-details-marker { display: none; }
-.filter-advanced summary::before {
-  width: 13px;
-  height: 13px;
-  margin-right: 8px;
-  background: linear-gradient(currentColor, currentColor) 2px 3px/9px 1px no-repeat,
-    linear-gradient(currentColor, currentColor) 2px 9px/9px 1px no-repeat;
-  content: "";
-  opacity: .75;
-}
 .filter-range-grid { gap: 10px; margin-top: 12px; }
 .filter-actions { margin-top: 12px; }
 .library-toolbar {
@@ -486,7 +477,7 @@ td strong { color: #f0f3f4; font-weight: 650; }
   }
   .mobile-track.card:last-child { border-bottom: 0; }
   .mobile-track.card.is-selected {
-    background: linear-gradient(90deg, rgba(126, 230, 181, .11), rgba(126, 230, 181, .035));
+    background: rgba(126, 230, 181, .09);
     box-shadow: inset 3px 0 var(--accent);
   }
   .mobile-track input[type="checkbox"] { width: 20px; height: 20px; }
