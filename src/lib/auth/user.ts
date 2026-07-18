@@ -14,7 +14,7 @@ function userFromClaims(claims: Record<string, unknown> | undefined) {
   }
 
   return {
-    email: typeof claims.email === "string" ? claims.email : null,
+    email: typeof claims?.email === "string" ? claims.email : null,
     id,
   } satisfies AuthenticatedUser;
 }
@@ -41,4 +41,3 @@ export async function requireUser() {
 
   return user;
 }
-
