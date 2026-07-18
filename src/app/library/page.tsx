@@ -26,7 +26,15 @@ export default async function LibraryPage({
   const rawSearchParams = await searchParams;
   const query = parseTrackQuery(rawSearchParams);
   const supabase = await createClient();
-  const page = await listTracks(supabase, user.id, query);
+  const [page, { data: tags, error: tagsError }] = await Promise.all([
+    listTracks(supabase, user.id, query),
+    supabase
+      .from("tags")
+      .select("id, name")
+      .eq("user_id", user.id)
+      .order("name", { ascending: true }),
+  ]);
+  if (tagsError) throw new Error("No se pudieron cargar las etiquetas.");
   if (page.count > 0 && query.page > page.pageCount) {
     redirect(buildLibraryHref(query, { page: page.pageCount }));
   }
@@ -60,6 +68,21 @@ export default async function LibraryPage({
           La selección se eliminó correctamente.
         </p>
       ) : null}
+      {rawSearchParams.tagged === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          La etiqueta se asignó a la selección.
+        </p>
+      ) : null}
+      {rawSearchParams.untagged === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          La etiqueta se quitó de la selección.
+        </p>
+      ) : null}
+      {rawSearchParams.tagError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          No se pudo actualizar la etiqueta de la selección.
+        </p>
+      ) : null}
 
       <TrackFilters query={query} />
 
@@ -75,7 +98,7 @@ export default async function LibraryPage({
 
       {page.tracks.length > 0 ? (
         <>
-          <TrackTable query={query} tracks={page.tracks} />
+          <TrackTable query={query} tags={tags} tracks={page.tracks} />
           <nav aria-label="Paginación de biblioteca" className="pagination">
             {page.page > 1 ? (
               <Link

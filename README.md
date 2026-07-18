@@ -139,3 +139,14 @@ para audio y no se ha implementado detección automática de BPM, tonalidad,
 Camelot, energía, similitud acústica ni inteligencia artificial. Los valores de
 BPM y tonalidad de esta fase proceden solamente de etiquetas ya existentes en
 el archivo.
+
+## Crates y etiquetas
+
+- Creación, edición y eliminación de crates privados.
+- Incorporación y retirada de pistas sin borrar la canción de la biblioteca.
+- Orden manual mediante controles accesibles para subir y bajar pistas.
+- Búsqueda por título o artista al preparar un crate.
+- Creación y eliminación de etiquetas reutilizables.
+- Asignación y retirada masiva de etiquetas desde la selección de Biblioteca.
+- Todas las operaciones verifican el usuario en el servidor además de las
+  políticas RLS y las claves foráneas compuestas de PostgreSQL.
