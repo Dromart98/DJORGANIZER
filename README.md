@@ -1,14 +1,16 @@
 # DJOrganizer
 
-DJOrganizer es la base de una aplicación web profesional para que DJs puedan importar, analizar, clasificar y organizar sus bibliotecas musicales. Esta primera versión se limita deliberadamente a la arquitectura de interfaz y a datos locales de demostración.
+DJOrganizer es una aplicación web para que DJs organicen sus bibliotecas
+musicales. Esta fase añade autenticación y una base de datos segura por usuario,
+pero mantiene deliberadamente la biblioteca visual con datos de demostración.
 
 ## Stack
 
-- Next.js 15 con App Router
-- React 19 y TypeScript en modo estricto
-- Tailwind CSS 4
+- Next.js 15 con App Router y React 19
+- TypeScript en modo estricto y Tailwind CSS 4
+- Supabase Auth y PostgreSQL con Row Level Security
 - ESLint 9 y Vitest
-- Preparado para despliegue en Vercel
+- GitHub y despliegues automáticos en Vercel
 
 ## Instalación
 
@@ -16,10 +18,24 @@ Requiere Node.js 20 o superior.
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000). `.env.example` documenta el lugar reservado para futuras variables; no se necesita ninguna en esta fase.
+Completa `.env.local` con la URL y la clave pública del proyecto de Supabase.
+Nunca uses una clave `service_role` en el navegador.
+
+Abre [http://localhost:3000](http://localhost:3000).
+
+## Variables de entorno
+
+| Variable | Uso |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL pública del proyecto Supabase |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Clave pública para clientes web |
+
+Las mismas variables deben existir en Vercel para Production, Preview y
+Development.
 
 ## Scripts
 
@@ -32,32 +48,64 @@ Abre [http://localhost:3000](http://localhost:3000). `.env.example` documenta el
 | `npm run typecheck` | Comprobación TypeScript sin emitir archivos |
 | `npm test` | Pruebas unitarias con Vitest |
 
+## Base de datos
+
+La migración inicial está en `supabase/migrations`. Crea:
+
+- `profiles`
+- `tracks`
+- `tags`
+- `track_tags`
+- `crates`
+- `crate_tracks`
+
+Todas las tablas personales tienen RLS activado y políticas separadas de
+lectura, creación, actualización y eliminación. Las relaciones intermedias
+incluyen `user_id` y claves foráneas compuestas para impedir asociaciones entre
+datos de usuarios distintos.
+
+Para aplicar las migraciones con Supabase CLI:
+
+```bash
+npx supabase link --project-ref <project-ref>
+npx supabase db push
+```
+
+No guardes contraseñas de base de datos ni tokens de acceso en el repositorio.
+
+## Autenticación
+
+- Registro con nombre, correo y contraseña.
+- Confirmación de correo y callback seguro.
+- Inicio y cierre de sesión.
+- Sesiones SSR mediante cookies.
+- Validación del usuario con claims verificados.
+- Protección doble: middleware y comprobación en cada página privada.
+- Cabeceras privadas para evitar cachear respuestas autenticadas en CDN.
+
+Rutas públicas: `/`, `/login`, `/signup` y `/auth/callback`.
+
+Rutas privadas: `/library`, `/import`, `/crates` y `/settings`.
+
 ## Estructura
 
 ```text
 src/
-├── app/          # Rutas, layout y estilos globales
-├── components/   # Layout, biblioteca y componentes UI reutilizables
+├── app/          # Rutas, acciones de servidor y estilos globales
+├── components/   # Layout, autenticación, biblioteca y UI reutilizable
 ├── data/         # Datos locales tipados de demostración
-├── lib/          # Helpers puros y sus pruebas
-└── types/        # Tipos del dominio musical
+├── lib/          # Helpers, autenticación y clientes de Supabase
+└── types/        # Tipos musicales y tipos generados de la base de datos
+supabase/
+└── migrations/   # Esquema versionado, índices, triggers y RLS
 ```
 
-## Funcionalidades actuales
+## Alcance actual
 
-- Dashboard y rutas Biblioteca, Importar, Crates y Ajustes.
-- Navegación lateral en escritorio e inferior en móvil.
-- Biblioteca local de demostración con metadatos tipados.
-- Tabla responsive ordenable por cualquiera de sus columnas.
-- Componentes reutilizables de encabezado, botón, tarjeta y estado vacío.
+La autenticación y el esquema seguro sí son reales. La biblioteca principal
+sigue mostrando la colección local de demostración y está separada de la
+persistencia hasta la siguiente fase.
 
-Los estados de Importar y Crates comunican explícitamente que esas capacidades todavía no están disponibles; no simulan acciones ni persistencia.
-
-## Próximas fases
-
-1. Supabase, modelo de datos y autenticación.
-2. Importación y almacenamiento seguro de audio.
-3. Extracción de BPM, tonalidad, Camelot y energía.
-4. Etiquetas, crates persistentes, búsqueda y filtros avanzados.
-
-Supabase, autenticación, subida de archivos y análisis musical **no están implementados** en esta versión.
+No se guardan archivos de audio, no se usa Supabase Storage para audio y no se
+ha implementado detección de BPM, tonalidad, Camelot, energía ni inteligencia
+artificial.
