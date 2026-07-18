@@ -1,11 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import {
+  checkImportDuplicatesAction,
   saveImportedTracksAction,
   type ImportResult,
 } from "@/app/import/actions";
 import { Button } from "@/components/ui/button";
+import { duplicateClientIds } from "@/lib/import/duplicates";
+import { fingerprintBlob } from "@/lib/import/fingerprint";
 import {
   importValidationMessage,
   type ImportTrackInput,
@@ -14,17 +18,22 @@ import { metadataToImportTrack } from "@/lib/import/metadata";
 
 type ImportStatus =
   | "reading"
+  | "fingerprinting"
+  | "checking"
   | "ready"
   | "invalid"
   | "saving"
   | "saved"
+  | "duplicate"
   | "error";
 
 type ImportItem = {
   data?: ImportTrackInput;
+  duplicateTrackId?: string;
   error?: string;
   id: string;
   name: string;
+  progress?: number;
   status: ImportStatus;
 };
 
@@ -58,7 +67,10 @@ function chunks<T>(items: T[], size: number) {
 
 function statusLabel(status: ImportStatus) {
   const labels: Record<ImportStatus, string> = {
+    checking: "Comprobando",
+    duplicate: "Duplicada",
     error: "Error al guardar",
+    fingerprinting: "Calculando huella",
     invalid: "Requiere revisión",
     reading: "Leyendo etiquetas",
     ready: "Lista para guardar",
@@ -77,6 +89,9 @@ export function AudioImporter() {
 
   const readyCount = items.filter((item) => item.status === "ready").length;
   const savedCount = items.filter((item) => item.status === "saved").length;
+  const duplicateCount = items.filter(
+    (item) => item.status === "duplicate",
+  ).length;
 
   function updateItem(id: string, update: Partial<ImportItem>) {
     setItems((current) =>
@@ -84,33 +99,55 @@ export function AudioImporter() {
     );
   }
 
-  async function readFile(file: File, id: string) {
+  async function readFile(file: File, id: string): Promise<ImportItem> {
     if (!isAudioFile(file)) {
-      updateItem(id, {
+      const item: ImportItem = {
         error: "El formato del archivo no parece ser de audio.",
+        id,
+        name: file.name,
         status: "invalid",
-      });
-      return;
+      };
+      updateItem(id, item);
+      return item;
     }
 
+    updateItem(id, { progress: 0, status: "fingerprinting" });
+
     try {
-      const { parseBlob } = await import("music-metadata");
-      const metadata = await parseBlob(file, {
-        duration: true,
-        skipCovers: true,
-      });
-      const data = metadataToImportTrack(metadata, file, id);
+      const metadataPromise = import("music-metadata").then(({ parseBlob }) =>
+        parseBlob(file, {
+          duration: true,
+          skipCovers: true,
+        }),
+      );
+      const fingerprintPromise = fingerprintBlob(file, (progress) =>
+        updateItem(id, { progress }),
+      );
+      const [metadata, fingerprint] = await Promise.all([
+        metadataPromise,
+        fingerprintPromise,
+      ]);
+      const data = metadataToImportTrack(metadata, file, id, fingerprint);
       const error = importValidationMessage(data);
-      updateItem(id, {
+      const item: ImportItem = {
         data,
         error: error ?? undefined,
+        id,
+        name: file.name,
+        progress: 100,
         status: error ? "invalid" : "ready",
-      });
+      };
+      updateItem(id, item);
+      return item;
     } catch {
-      updateItem(id, {
+      const item: ImportItem = {
         error: "No se pudieron leer las etiquetas de este archivo.",
+        id,
+        name: file.name,
         status: "invalid",
-      });
+      };
+      updateItem(id, item);
+      return item;
     }
   }
 
@@ -135,18 +172,109 @@ export function AudioImporter() {
     setItems((current) => [...current, ...pending.map(({ item }) => item)]);
     setIsReading(true);
     const queue = [...pending];
+    const completed = new Map<string, ImportItem>();
     const workerCount = Math.min(4, queue.length);
-    await Promise.all(
-      Array.from({ length: workerCount }, async () => {
-        let next = queue.shift();
-        while (next) {
-          await readFile(next.file, next.item.id);
-          next = queue.shift();
+
+    try {
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          let next = queue.shift();
+          while (next) {
+            const item = await readFile(next.file, next.item.id);
+            completed.set(item.id, item);
+            next = queue.shift();
+          }
+        }),
+      );
+
+      const completedItems = pending.flatMap(({ item }) => {
+        const result = completed.get(item.id);
+        return result ? [result] : [];
+      });
+      const pendingIds = new Set(pending.map(({ item }) => item.id));
+      const fingerprinted = [
+        ...items.flatMap((item) => (item.data ? [item.data] : [])),
+        ...completedItems.flatMap((item) => (item.data ? [item.data] : [])),
+      ];
+      const localDuplicateIds = new Set(duplicateClientIds(fingerprinted));
+
+      setItems((current) =>
+        current.map((item) => {
+          if (!pendingIds.has(item.id) || !item.data) return item;
+          if (localDuplicateIds.has(item.id)) {
+            return {
+              ...item,
+              error: "Este archivo coincide con otro de esta selección.",
+              status: "duplicate",
+            };
+          }
+          return item.status === "ready"
+            ? { ...item, status: "checking" }
+            : item;
+        }),
+      );
+
+      const fingerprints = completedItems.flatMap((item) =>
+        item.data ? [item.data.file_fingerprint] : [],
+      );
+
+      if (fingerprints.length) {
+        try {
+          const response = await checkImportDuplicatesAction(fingerprints);
+          const serverDuplicates = new Map(
+            response.duplicates.map((duplicate) => [
+              duplicate.file_fingerprint,
+              duplicate,
+            ]),
+          );
+
+          setItems((current) =>
+            current.map((item) => {
+              if (!pendingIds.has(item.id) || !item.data) return item;
+              if (localDuplicateIds.has(item.id)) {
+                return {
+                  ...item,
+                  error: "Este archivo coincide con otro de esta selección.",
+                  status: "duplicate",
+                };
+              }
+
+              const duplicate = serverDuplicates.get(
+                item.data.file_fingerprint,
+              );
+              if (duplicate) {
+                return {
+                  ...item,
+                  duplicateTrackId: duplicate.track_id,
+                  error: `Ya existe en tu biblioteca: “${duplicate.title}”.`,
+                  status: "duplicate",
+                };
+              }
+
+              return item.status === "checking"
+                ? { ...item, error: undefined, status: "ready" }
+                : item;
+            }),
+          );
+
+          if (response.message) setNotice(response.message);
+        } catch {
+          setItems((current) =>
+            current.map((item) =>
+              pendingIds.has(item.id) && item.status === "checking"
+                ? { ...item, status: "ready" }
+                : item,
+            ),
+          );
+          setNotice(
+            "No se pudo comprobar la biblioteca. Se volverá a comprobar al guardar.",
+          );
         }
-      }),
-    );
-    setIsReading(false);
-    if (inputRef.current) inputRef.current.value = "";
+      }
+    } finally {
+      setIsReading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
   }
 
   function updateField(
@@ -213,6 +341,7 @@ export function AudioImporter() {
               if (!result) return item;
               return {
                 ...item,
+                duplicateTrackId: result.track_id,
                 error: result.message,
                 status: result.status,
               };
@@ -253,8 +382,9 @@ export function AudioImporter() {
           <p className="eyebrow">Importación privada</p>
           <h2>El audio no sale de este dispositivo</h2>
           <p>
-            DJOrganizer solo enviará a Supabase los campos que revises debajo.
-            No sube audio ni portadas y no analiza BPM o tonalidad.
+            DJOrganizer calcula una huella SHA-256 local para detectar archivos
+            exactamente iguales. Solo envía a Supabase la huella y los campos
+            que revises; no sube audio ni portadas.
           </p>
         </div>
         <input
@@ -283,7 +413,7 @@ export function AudioImporter() {
           <div className="import-toolbar">
             <p>
               <strong>{items.length}</strong> archivos · {readyCount} listos ·{" "}
-              {savedCount} guardados
+              {savedCount} guardados · {duplicateCount} duplicados
             </p>
             <Button
               disabled={!readyCount || isSaving || isReading}
@@ -297,7 +427,9 @@ export function AudioImporter() {
           <div className="import-list">
             {items.map((item) => {
               const isLocked =
-                item.status === "saving" || item.status === "saved";
+                item.status === "saving" ||
+                item.status === "saved" ||
+                item.status === "duplicate";
 
               return (
                 <article className="card import-item" key={item.id}>
@@ -318,6 +450,13 @@ export function AudioImporter() {
                     Quitar
                   </button>
                 </header>
+
+                {item.status === "fingerprinting" ? (
+                  <div className="import-progress">
+                    <progress max={100} value={item.progress ?? 0} />
+                    <small>{item.progress ?? 0}%</small>
+                  </div>
+                ) : null}
 
                 {item.data ? (
                   <div className="import-grid">
@@ -441,7 +580,12 @@ export function AudioImporter() {
 
                 {item.error ? (
                   <p className="field-error" role="alert">
-                    {item.error}
+                    {item.error}{" "}
+                    {item.duplicateTrackId ? (
+                      <Link href={`/library/${item.duplicateTrackId}`}>
+                        Ver la pista
+                      </Link>
+                    ) : null}
                   </p>
                 ) : null}
                 </article>
@@ -460,4 +604,3 @@ export function AudioImporter() {
     </section>
   );
 }
-
