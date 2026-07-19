@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import {
   clearDiagnosticEvents,
   createDiagnosticReport,
@@ -8,12 +9,13 @@ import {
 } from "@/lib/diagnostics/local-diagnostics";
 
 export function DiagnosticsCapture() {
+  const { t } = useTranslator();
   useEffect(() => {
     const runtimeError = (event: ErrorEvent) => {
       recordDiagnosticEvent(window.localStorage, {
         category: "runtime",
         createdAt: new Date().toISOString(),
-        message: event.message || "Error de ejecución sin detalle.",
+        message: event.message || t("Error de ejecución sin detalle."),
       });
     };
     const rejection = (event: PromiseRejectionEvent) => {
@@ -23,20 +25,20 @@ export function DiagnosticsCapture() {
         message:
           event.reason instanceof Error
             ? event.reason.message
-            : "Promesa rechazada sin detalle.",
+            : t("Promesa rechazada sin detalle."),
       });
     };
     const online = () =>
       recordDiagnosticEvent(window.localStorage, {
         category: "connectivity",
         createdAt: new Date().toISOString(),
-        message: "Conexión recuperada.",
+        message: t("Conexión recuperada."),
       });
     const offline = () =>
       recordDiagnosticEvent(window.localStorage, {
         category: "connectivity",
         createdAt: new Date().toISOString(),
-        message: "Conexión perdida.",
+        message: t("Conexión perdida."),
       });
     window.addEventListener("error", runtimeError);
     window.addEventListener("unhandledrejection", rejection);
@@ -48,11 +50,12 @@ export function DiagnosticsCapture() {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
     };
-  }, []);
+  }, [t]);
   return null;
 }
 
 export function PrivacyDiagnostics() {
+  const { t } = useTranslator();
   function download() {
     const report = createDiagnosticReport(window.localStorage, {
       language: navigator.language,
@@ -81,14 +84,14 @@ export function PrivacyDiagnostics() {
         onClick={download}
         type="button"
       >
-        Exportar diagnóstico
+        {t("Exportar diagnóstico")}
       </button>
       <button
         className="button button--secondary button--small"
         onClick={() => clearDiagnosticEvents(window.localStorage)}
         type="button"
       >
-        Borrar diagnóstico
+        {t("Borrar diagnóstico")}
       </button>
     </div>
   );

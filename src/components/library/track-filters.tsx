@@ -1,26 +1,28 @@
 import Link from "next/link";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import type { TrackQuery } from "@/lib/library/track-query";
 
 export function TrackFilters({ query }: { query: TrackQuery }) {
+  const { t } = useTranslator();
   return (
     <form className="library-filters card" method="get">
       <div className="filter-primary">
         <label className="field">
-          <span>Buscar</span>
+          <span>{t("Buscar")}</span>
           <input
             defaultValue={query.q}
             maxLength={120}
             name="q"
-            placeholder="Buscar en biblioteca…"
+            placeholder={t("Buscar en biblioteca…")}
             type="search"
           />
         </label>
         <label className="field">
-          <span>Género</span>
+          <span>{t("Género")}</span>
           <input defaultValue={query.genre} maxLength={120} name="genre" />
         </label>
         <label className="field">
-          <span>Tonalidad</span>
+          <span>{t("Tonalidad")}</span>
           <input defaultValue={query.key} maxLength={16} name="key" />
         </label>
         <label className="field">
@@ -29,10 +31,10 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
         </label>
       </div>
       <details className="filter-advanced">
-        <summary>Más filtros</summary>
+        <summary>{t("Más filtros")}</summary>
         <div className="filter-range-grid">
           <label className="field">
-            <span>BPM mínimo</span>
+            <span>{t("BPM mínimo")}</span>
             <input
               defaultValue={query.bpmMin}
               max={300}
@@ -42,7 +44,7 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
             />
           </label>
           <label className="field">
-            <span>BPM máximo</span>
+            <span>{t("BPM máximo")}</span>
             <input
               defaultValue={query.bpmMax}
               max={300}
@@ -52,7 +54,7 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
             />
           </label>
           <label className="field">
-            <span>Energía mínima</span>
+            <span>{t("Energía mínima")}</span>
             <input
               defaultValue={query.energyMin}
               max={100}
@@ -62,7 +64,7 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
             />
           </label>
           <label className="field">
-            <span>Energía máxima</span>
+            <span>{t("Energía máxima")}</span>
             <input
               defaultValue={query.energyMax}
               max={100}
@@ -72,9 +74,9 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
             />
           </label>
           <label className="field">
-            <span>Valoración mínima</span>
+            <span>{t("Valoración mínima")}</span>
             <select defaultValue={query.rating ?? ""} name="rating">
-              <option value="">Cualquiera</option>
+              <option value="">{t("Cualquiera")}</option>
               {[0, 1, 2, 3, 4, 5].map((rating) => (
                 <option key={rating} value={rating}>
                   {rating}+
@@ -88,10 +90,10 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
       <input name="direction" type="hidden" value={query.direction} />
       <div className="filter-actions">
         <Link className="button button--secondary" href="/library">
-          Limpiar
+          {t("Limpiar")}
         </Link>
         <button className="button button--primary" type="submit">
-          Aplicar
+          {t("Aplicar")}
         </button>
       </div>
     </form>

@@ -6,6 +6,7 @@ import { TrackFilters } from "@/components/library/track-filters";
 import { TrackTable } from "@/components/library/track-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
+import { formatMessage, formatTrackCount, translate } from "@/lib/i18n/functional";
 import { getMessages } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
 import {
@@ -19,7 +20,10 @@ type LibraryPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export const metadata = { title: "Biblioteca" };
+export async function generateMetadata() {
+  const locale = await getCurrentLocale();
+  return { title: translate(locale, "Biblioteca") };
+}
 
 export default async function LibraryPage({
   searchParams,
@@ -31,6 +35,8 @@ export default async function LibraryPage({
   ]);
   const query = parseTrackQuery(rawSearchParams);
   const emptyCopy = getMessages(locale).libraryEmpty;
+  const t = (message: Parameters<typeof translate>[1]) =>
+    translate(locale, message);
   const supabase = await createClient();
   const [page, { data: tags, error: tagsError }] = await Promise.all([
     listTracks(supabase, user.id, query),
@@ -61,42 +67,42 @@ export default async function LibraryPage({
       <PageHeader
         action={
           <Link className="button button--primary" href="/library/new">
-            Añadir canción
+            {t("Añadir canción")}
           </Link>
         }
-        description="Busca, filtra y edita tu colección privada guardada en Supabase."
-        eyebrow="Colección"
-        title="Biblioteca"
+        description={t("Busca, filtra y edita tu colección privada guardada en Supabase.")}
+        eyebrow={t("Colección")}
+        title={t("Biblioteca")}
       />
 
       {rawSearchParams.deleted === "1" ? (
         <p className="form-message form-message--success" role="status">
-          La selección se eliminó correctamente.
+          {t("La selección se eliminó correctamente.")}
         </p>
       ) : null}
       {rawSearchParams.tagged === "1" ? (
         <p className="form-message form-message--success" role="status">
-          La etiqueta se asignó a la selección.
+          {t("La etiqueta se asignó a la selección.")}
         </p>
       ) : null}
       {rawSearchParams.untagged === "1" ? (
         <p className="form-message form-message--success" role="status">
-          La etiqueta se quitó de la selección.
+          {t("La etiqueta se quitó de la selección.")}
         </p>
       ) : null}
       {rawSearchParams.tagError === "1" ? (
         <p className="form-message form-message--error" role="alert">
-          No se pudo actualizar la etiqueta de la selección.
+          {t("No se pudo actualizar la etiqueta de la selección.")}
         </p>
       ) : null}
       {rawSearchParams.bulkUpdated === "1" ? (
         <p className="form-message form-message--success" role="status">
-          Los metadatos de la selección se actualizaron correctamente.
+          {t("Los metadatos de la selección se actualizaron correctamente.")}
         </p>
       ) : null}
       {rawSearchParams.bulkError === "1" ? (
         <p className="form-message form-message--error" role="alert">
-          No se pudo aplicar la edición. Revisa el valor introducido.
+          {t("No se pudo aplicar la edición. Revisa el valor introducido.")}
         </p>
       ) : null}
 
@@ -105,23 +111,26 @@ export default async function LibraryPage({
       <div className="library-toolbar">
         <div>
           <span className="status-dot" />
-          {page.count} {page.count === 1 ? "canción" : "canciones"}
+          {formatTrackCount(locale, page.count)}
         </div>
         <p>
-          Página {page.page} de {page.pageCount}
+          {formatMessage(locale, "Página {page} de {pages}", {
+            page: page.page,
+            pages: page.pageCount,
+          })}
         </p>
       </div>
 
       {page.tracks.length > 0 ? (
         <>
           <TrackTable query={query} tags={tags} tracks={page.tracks} />
-          <nav aria-label="Paginación de biblioteca" className="pagination">
+          <nav aria-label={t("Paginación de biblioteca")} className="pagination">
             {page.page > 1 ? (
               <Link
                 className="button button--secondary"
                 href={buildLibraryHref(query, { page: page.page - 1 })}
               >
-                Anterior
+                {t("Anterior")}
               </Link>
             ) : (
               <span />
@@ -134,7 +143,7 @@ export default async function LibraryPage({
                 className="button button--secondary"
                 href={buildLibraryHref(query, { page: page.page + 1 })}
               >
-                Siguiente
+                {t("Siguiente")}
               </Link>
             ) : (
               <span />
@@ -146,7 +155,7 @@ export default async function LibraryPage({
           action={
             hasFilters ? (
               <Link className="button button--secondary" href="/library">
-                Limpiar filtros
+                {t("Limpiar filtros")}
               </Link>
             ) : (
               <div className="empty-state__actions">
@@ -161,13 +170,13 @@ export default async function LibraryPage({
           }
           description={
             hasFilters
-              ? "Prueba con otros términos o elimina alguno de los filtros."
+              ? t("Prueba con otros términos o elimina alguno de los filtros.")
               : emptyCopy.description
           }
           icon={<Icon name="library" />}
           title={
             hasFilters
-              ? "No hay resultados para estos filtros"
+              ? t("No hay resultados para estos filtros")
               : emptyCopy.title
           }
         />

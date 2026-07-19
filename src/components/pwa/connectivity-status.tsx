@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslator } from "@/components/i18n/locale-provider";
 
 export function ConnectivityStatus() {
+  const { t } = useTranslator();
   const [online, setOnline] = useState(true);
 
   useEffect(() => {
@@ -22,7 +24,7 @@ export function ConnectivityStatus() {
 
   return online ? null : (
     <div aria-live="polite" className="connectivity-status" role="status">
-      Sin conexión · Los cambios compatibles se guardarán en este dispositivo.
+      {t("Sin conexión · Los cambios compatibles se guardarán en este dispositivo.")}
     </div>
   );
 }

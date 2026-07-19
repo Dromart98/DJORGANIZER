@@ -240,6 +240,30 @@ los límites y los casos ambiguos se documentan en
 - Los estados de foco y movimiento respetan accesibilidad y
   `prefers-reduced-motion`.
 
+## Interfaz en español e inglés
+
+La interfaz funcional completa está disponible en español e inglés. La
+preferencia se guarda únicamente en la cookie `djorganizer-locale`; el cambio
+de idioma conserva la ruta, los parámetros de consulta, la sesión y los datos
+guardados. Español sigue siendo el idioma predeterminado.
+
+Para añadir texto funcional:
+
+1. Añade la clave y su traducción inglesa en
+   `src/lib/i18n/functional.ts`. Las interpolaciones usan plantillas tipadas y
+   los plurales compartidos usan los formateadores del mismo módulo.
+2. En Server Components resuelve el idioma con `getCurrentLocale()` y utiliza
+   `translate()`, `formatMessage()` o `getMessages(locale)`.
+3. En Client Components utiliza `useTranslator()` o `useMessages()`, que
+   reutilizan `LocaleProvider`; no crees otro contexto ni leas la cookie.
+4. Ejecuta las pruebas de `src/lib/i18n/i18n.test.ts`: comprueban paridad
+   recursiva, ausencia de valores indefinidos, interpolaciones y plurales.
+
+No se traducen títulos, artistas, nombres de archivo, etiquetas o crates
+introducidos por el usuario; tampoco rutas, IDs, huellas, notación musical,
+Camelot, BPM, nombres oficiales de formatos ni valores persistidos de
+contratos.
+
 
 ## PWA y funcionamiento sin conexión
 

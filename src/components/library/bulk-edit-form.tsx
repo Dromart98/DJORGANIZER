@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { bulkUpdateTracksAction } from "@/app/library/actions";
+import { useTranslator } from "@/components/i18n/locale-provider";
+import { formatBulkEditConfirmation } from "@/lib/i18n/functional";
 
 const fields = [
   { label: "Álbum", name: "album", placeholder: "Nombre del álbum", type: "text" },
@@ -24,6 +26,7 @@ export function BulkEditForm({
   selectedIds: string[];
 }) {
   const [field, setField] = useState<BulkField>("genre");
+  const { locale, t } = useTranslator();
   const config = fields.find((item) => item.name === field) ?? fields[0];
   const disabled = selectedIds.length === 0;
 
@@ -32,15 +35,14 @@ export function BulkEditForm({
       action={bulkUpdateTracksAction}
       className="bulk-edit-form"
       data-offline-action="track-bulk-update"
-      data-offline-confirm={`¿Aplicar este cambio a ${selectedIds.length} ${
-        selectedIds.length === 1 ? "canción" : "canciones"
-      }?`}
+      data-offline-confirm={formatBulkEditConfirmation(
+        locale,
+        selectedIds.length,
+      )}
       onSubmit={(event) => {
         if (
           !window.confirm(
-            `¿Aplicar este cambio a ${selectedIds.length} ${
-              selectedIds.length === 1 ? "canción" : "canciones"
-            }?`,
+            formatBulkEditConfirmation(locale, selectedIds.length),
           )
         ) {
           event.preventDefault();
@@ -52,7 +54,7 @@ export function BulkEditForm({
       ))}
       <input name="returnTo" type="hidden" value={returnTo} />
       <label className="visually-hidden" htmlFor="bulk-field">
-        Campo que se editará
+        {t("Campo que se editará")}
       </label>
       <select
         disabled={disabled}
@@ -63,12 +65,12 @@ export function BulkEditForm({
       >
         {fields.map((item) => (
           <option key={item.name} value={item.name}>
-            {item.label}
+            {t(item.label as Parameters<typeof t>[0])}
           </option>
         ))}
       </select>
       <label className="visually-hidden" htmlFor="bulk-value">
-        Nuevo valor
+        {t("Nuevo valor")}
       </label>
       <input
         disabled={disabled}
@@ -77,7 +79,7 @@ export function BulkEditForm({
         max={"max" in config ? config.max : undefined}
         min={"min" in config ? config.min : undefined}
         name="value"
-        placeholder={config.placeholder}
+        placeholder={t(config.placeholder as Parameters<typeof t>[0])}
         step={field === "bpm" ? "0.1" : "1"}
         type={config.type}
       />
@@ -86,9 +88,9 @@ export function BulkEditForm({
         disabled={disabled}
         type="submit"
       >
-        Aplicar edición
+        {t("Aplicar edición")}
       </button>
-      <small>Valor vacío = borrar campo</small>
+      <small>{t("Valor vacío = borrar campo")}</small>
     </form>
   );
 }

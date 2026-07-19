@@ -30,4 +30,12 @@ describe("createPwaManifest", () => {
       },
     ]);
   });
+
+  it("localizes visible install metadata", () => {
+    expect(createPwaManifest("en")).toMatchObject({
+      description: "Organize your music library for every set.",
+      lang: "en",
+      name: "DJOrganizer",
+    });
+  });
 });

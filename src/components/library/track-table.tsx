@@ -7,7 +7,13 @@ import {
   removeTagFromTracksAction,
 } from "@/app/crates/actions";
 import { deleteTracksAction } from "@/app/library/actions";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import { BulkEditForm } from "@/components/library/bulk-edit-form";
+import {
+  formatDeleteTracksConfirmation,
+  formatSelectedCount,
+  formatMessage,
+} from "@/lib/i18n/functional";
 import {
   buildLibraryHref,
   type TrackQuery,
@@ -24,10 +30,6 @@ const columns: { key: TrackSort; label: string }[] = [
   { key: "duration", label: "Duración" },
   { key: "created", label: "Añadida" },
 ];
-
-const dateFormatter = new Intl.DateTimeFormat("es-ES", {
-  dateStyle: "medium",
-});
 
 function displayDuration(value: number | null) {
   return value === null ? "—" : formatDuration(Math.round(value));
@@ -49,6 +51,8 @@ export function TrackTable({
   tracks: Tables<"tracks">[];
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const { locale, t } = useTranslator();
+  const dateFormatter = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
   const allSelected =
     tracks.length > 0 && tracks.every((track) => selected.has(track.id));
   const returnTo = buildLibraryHref(query, {});
@@ -69,7 +73,7 @@ export function TrackTable({
   return (
     <>
       <div className="bulk-toolbar">
-        <span>{selected.size} seleccionadas</span>
+        <span>{formatSelectedCount(locale, selected.size)}</span>
         <div className="bulk-actions">
           <BulkEditForm
             returnTo={returnTo}
@@ -82,12 +86,12 @@ export function TrackTable({
               ))}
               <input name="returnTo" type="hidden" value={returnTo} />
               <select
-                aria-label="Etiqueta para la selección"
+                aria-label={t("Etiqueta para la selección")}
                 disabled={selected.size === 0}
                 name="tagId"
                 required
               >
-                <option value="">Etiqueta…</option>
+                <option value="">{t("Etiqueta…")}</option>
                 {tags.map((tag) => (
                   <option key={tag.id} value={tag.id}>
                     {tag.name}
@@ -101,7 +105,7 @@ export function TrackTable({
                 formAction={assignTagToTracksAction}
                 type="submit"
               >
-                Asignar
+                {t("Asignar")}
               </button>
               <button
                 className="button button--secondary button--small"
@@ -110,26 +114,25 @@ export function TrackTable({
                 formAction={removeTagFromTracksAction}
                 type="submit"
               >
-                Quitar
+                {t("Quitar")}
               </button>
             </form>
           ) : (
             <Link className="table-action" href="/crates">
-              Crear etiquetas
+              {t("Crear etiquetas")}
             </Link>
           )}
           <form
             action={deleteTracksAction}
             data-offline-action="track-delete"
-            data-offline-confirm={`¿Eliminar ${selected.size} ${
-              selected.size === 1 ? "canción" : "canciones"
-            }? Esta acción no se puede deshacer.`}
+            data-offline-confirm={formatDeleteTracksConfirmation(
+              locale,
+              selected.size,
+            )}
             onSubmit={(event) => {
               if (
                 !window.confirm(
-                  `¿Eliminar ${selected.size} ${
-                    selected.size === 1 ? "canción" : "canciones"
-                  }? Esta acción no se puede deshacer.`,
+                  formatDeleteTracksConfirmation(locale, selected.size),
                 )
               ) {
                 event.preventDefault();
@@ -144,7 +147,7 @@ export function TrackTable({
               disabled={selected.size === 0}
               type="submit"
             >
-              Eliminar selección
+              {t("Eliminar selección")}
             </button>
           </form>
         </div>
@@ -156,7 +159,7 @@ export function TrackTable({
             <tr>
               <th className="select-cell">
                 <input
-                  aria-label="Seleccionar todas las canciones de la página"
+                  aria-label={t("Seleccionar todas las canciones de la página")}
                   checked={allSelected}
                   onChange={toggleAll}
                   type="checkbox"
@@ -165,7 +168,7 @@ export function TrackTable({
               {columns.map((column) => (
                 <th key={column.key}>
                   <Link href={sortHref(query, column.key)}>
-                    {column.label}
+                    {t(column.label as Parameters<typeof t>[0])}
                     <span
                       aria-hidden="true"
                       className={`sort ${
@@ -180,11 +183,11 @@ export function TrackTable({
                   </Link>
                 </th>
               ))}
-              <th>Género</th>
+              <th>{t("Género")}</th>
               <th>Camelot</th>
-              <th>Energía</th>
-              <th>Valoración</th>
-              <th>Acciones</th>
+              <th>{t("Energía")}</th>
+              <th>{t("Valoración")}</th>
+              <th>{t("Acciones")}</th>
             </tr>
           </thead>
           <tbody>
@@ -192,7 +195,9 @@ export function TrackTable({
               <tr className={selected.has(track.id) ? "is-selected" : ""} key={track.id}>
                 <td className="select-cell">
                   <input
-                    aria-label={`Seleccionar ${track.title}`}
+                    aria-label={formatMessage(locale, "Seleccionar {name}", {
+                      name: track.title,
+                    })}
                     checked={selected.has(track.id)}
                     onChange={() => toggleTrack(track.id)}
                     type="checkbox"
@@ -201,7 +206,7 @@ export function TrackTable({
                 <td>
                   <strong>{track.title}</strong>
                 </td>
-                <td>{track.artist ?? "Artista desconocido"}</td>
+                <td>{track.artist ?? t("Artista desconocido")}</td>
                 <td className="numeric">{track.bpm ?? "—"}</td>
                 <td>{track.musical_key ?? "—"}</td>
                 <td className="numeric muted">
@@ -224,7 +229,7 @@ export function TrackTable({
                 <td>{track.rating === null ? "—" : `${track.rating}/5`}</td>
                 <td>
                   <Link className="table-action" href={`/library/${track.id}`}>
-                    Ver y editar
+                    {t("Ver y editar")}
                   </Link>
                 </td>
               </tr>
@@ -242,21 +247,23 @@ export function TrackTable({
             key={track.id}
           >
             <input
-              aria-label={`Seleccionar ${track.title}`}
+              aria-label={formatMessage(locale, "Seleccionar {name}", {
+                name: track.title,
+              })}
               checked={selected.has(track.id)}
               onChange={() => toggleTrack(track.id)}
               type="checkbox"
             />
             <div>
               <strong>{track.title}</strong>
-              <span>{track.artist ?? "Artista desconocido"}</span>
+              <span>{track.artist ?? t("Artista desconocido")}</span>
               <small>
                 {track.bpm ? `${track.bpm} BPM` : "BPM —"} ·{" "}
-                {track.musical_key ?? "Tonalidad —"} ·{" "}
+                {track.musical_key ?? `${t("Tonalidad")} —`} ·{" "}
                 {displayDuration(track.duration_seconds)}
               </small>
             </div>
-            <Link href={`/library/${track.id}`}>Editar</Link>
+            <Link href={`/library/${track.id}`}>{t("Editar")}</Link>
           </article>
         ))}
       </div>

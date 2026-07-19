@@ -4,17 +4,19 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { loginAction, signupAction } from "@/app/auth/actions";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import type { AuthActionState } from "@/lib/auth/types";
 
 const INITIAL_STATE: AuthActionState = { message: "", status: "idle" };
 
 function SubmitButton({ mode }: { mode: "login" | "signup" }) {
   const { pending } = useFormStatus();
-  const label = mode === "login" ? "Iniciar sesión" : "Crear cuenta";
+  const { t } = useTranslator();
+  const label = mode === "login" ? t("Iniciar sesión") : t("Crear cuenta");
 
   return (
     <button className="button button--primary auth-submit" disabled={pending}>
-      {pending ? "Procesando…" : label}
+      {pending ? t("Procesando…") : label}
     </button>
   );
 }
@@ -31,18 +33,21 @@ export function AuthForm({
   const action = mode === "login" ? loginAction : signupAction;
   const [state, formAction] = useActionState(action, INITIAL_STATE);
   const isLogin = mode === "login";
+  const { t } = useTranslator();
 
   return (
     <div className="auth-card">
       <Link href="/" className="auth-brand">
         <span>DJ</span>Organizer
       </Link>
-      <p className="eyebrow">{isLogin ? "Bienvenido" : "Nueva cuenta"}</p>
-      <h1>{isLogin ? "Accede a tu biblioteca" : "Crea tu espacio musical"}</h1>
+      <p className="eyebrow">{isLogin ? t("Bienvenido") : t("Nueva cuenta")}</p>
+      <h1>
+        {isLogin ? t("Accede a tu biblioteca") : t("Crea tu espacio musical")}
+      </h1>
       <p className="auth-description">
         {isLogin
-          ? "Tus pistas, crates y etiquetas permanecerán aislados en tu cuenta."
-          : "Empieza con una biblioteca privada preparada para crecer contigo."}
+          ? t("Tus pistas, crates y etiquetas permanecerán aislados en tu cuenta.")
+          : t("Empieza con una biblioteca privada preparada para crecer contigo.")}
       </p>
 
       {pageMessage ? (
@@ -55,7 +60,7 @@ export function AuthForm({
         <input type="hidden" name="next" value={nextPath} />
         {!isLogin ? (
           <label>
-            Nombre
+            {t("Nombre")}
             <input
               autoComplete="name"
               maxLength={80}
@@ -67,7 +72,7 @@ export function AuthForm({
           </label>
         ) : null}
         <label>
-          Correo
+          {t("Correo")}
           <input
             autoComplete="email"
             inputMode="email"
@@ -77,7 +82,7 @@ export function AuthForm({
           />
         </label>
         <label>
-          Contraseña
+          {t("Contraseña")}
           <input
             autoComplete={isLogin ? "current-password" : "new-password"}
             minLength={8}
@@ -98,11 +103,11 @@ export function AuthForm({
       </form>
 
       <p className="auth-switch">
-        {isLogin ? "¿Aún no tienes cuenta?" : "¿Ya tienes cuenta?"}{" "}
+        {isLogin ? t("¿Aún no tienes cuenta?") : t("¿Ya tienes cuenta?")}{" "}
         <Link
           href={`${isLogin ? "/signup" : "/login"}?next=${encodeURIComponent(nextPath)}`}
         >
-          {isLogin ? "Regístrate" : "Inicia sesión"}
+          {isLogin ? t("Regístrate") : t("Inicia sesión")}
         </Link>
       </p>
     </div>
