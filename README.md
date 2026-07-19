@@ -266,6 +266,13 @@ ni persiste las huellas. No acepta rutas enviadas por la web, no decodifica
 muestras y no mueve, renombra, modifica, reproduce, sube ni guarda archivos de
 audio durante el escaneo.
 
+Después del primer escaneo se puede buscar cambios manualmente o vigilar la
+carpeta cada 30 segundos durante la sesión. El escaneo incremental conserva IDs
+opacos y metadatos de archivos sin cambios, relee altas y modificaciones,
+retira archivos desaparecidos y nunca recibe la ruta desde React. La vigilancia
+no se persiste y se bloquea si el resultado está truncado para evitar retiradas
+falsas basadas en una vista parcial.
+
 El resultado local completo se puede buscar por nombre, ruta y metadatos,
 filtrar por duplicados o errores de lectura y recorrer en páginas de 25 pistas.
 La selección múltiple permanece en memoria hasta que el usuario confirma una

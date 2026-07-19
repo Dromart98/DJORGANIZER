@@ -52,7 +52,10 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 - [x] Detectar cambios externos y evitar sobrescrituras o colisiones.
 - [x] Escribir metadatos en archivos solo como opción explícita, con copia de
   seguridad y reversión.
-- [ ] Vigilar carpetas e incorporar escaneos incrementales.
+- [x] Vigilar la carpeta confirmada durante la sesión con comprobaciones
+  incrementales manuales o cada 30 segundos. Conserva IDs de pistas estables,
+  relee solo archivos nuevos o modificados, retira los desaparecidos y bloquea
+  la vigilancia cuando el resultado está truncado.
 
 ### Inteligencia y calidad musical
 

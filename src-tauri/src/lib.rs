@@ -76,6 +76,7 @@ struct FolderScanResult {
 struct ScanCandidate {
     path: PathBuf,
     track: ScannedAudioFile,
+    version: FileVersion,
 }
 
 #[derive(Clone, Debug)]
@@ -86,16 +87,39 @@ struct SessionTrack {
 
 #[derive(Debug)]
 struct CompletedScan {
+    file_versions: HashMap<String, FileVersion>,
     result: FolderScanResult,
     session_tracks: Vec<SessionTrack>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileVersion {
+    modified_nanos: Option<u128>,
+    size_bytes: u64,
+}
+
 #[derive(Debug)]
 struct ScanSession {
+    file_versions: HashMap<String, FileVersion>,
     id: String,
+    incremental_scan_active: bool,
     root: PathBuf,
     tracks: HashMap<String, SessionTrack>,
+    truncated: bool,
     library_links: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IncrementalScanResult {
+    added_scan_ids: Vec<String>,
+    added_tracks: usize,
+    removed_scan_ids: Vec<String>,
+    removed_tracks: usize,
+    scan: FolderScanResult,
+    unchanged_tracks: usize,
+    updated_scan_ids: Vec<String>,
+    updated_tracks: usize,
 }
 
 #[derive(Debug, Default)]
@@ -451,6 +475,9 @@ fn hash_file(path: &Path, expected_size: u64) -> Result<[u8; 32], String> {
 }
 
 fn mark_exact_duplicates(candidates: &mut [ScanCandidate]) -> (usize, usize, usize) {
+    for candidate in candidates.iter_mut() {
+        candidate.track.duplicate_group = None;
+    }
     let mut candidates_by_size: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
     for (index, candidate) in candidates.iter().enumerate() {
         candidates_by_size
@@ -503,6 +530,26 @@ fn mark_exact_duplicates(candidates: &mut [ScanCandidate]) -> (usize, usize, usi
 }
 
 fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, String> {
+    scan_music_folder_with_previous(root, session_id, None, None)
+}
+
+fn file_version(metadata: &fs::Metadata) -> FileVersion {
+    FileVersion {
+        modified_nanos: metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos()),
+        size_bytes: metadata.len(),
+    }
+}
+
+fn scan_music_folder_with_previous(
+    root: &Path,
+    session_id: String,
+    previous_tracks: Option<&HashMap<String, SessionTrack>>,
+    previous_versions: Option<&HashMap<String, FileVersion>>,
+) -> Result<CompletedScan, String> {
     if !root.is_dir() {
         return Err("La selección no es una carpeta accesible.".to_owned());
     }
@@ -520,6 +567,14 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
     let mut skipped_entries = 0;
     let mut metadata_failures = 0;
     let mut truncated = false;
+    let previous_by_path = previous_tracks
+        .map(|tracks| {
+            tracks
+                .values()
+                .map(|track| (track.track.relative_path.clone(), track.clone()))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
 
     'folders: while let Some(directory) = pending.pop() {
         let entries = match fs::read_dir(&directory) {
@@ -592,6 +647,35 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
                 .and_then(|name| name.to_str())
                 .unwrap_or("Archivo sin nombre")
                 .to_owned();
+            let version = file_version(&file_metadata);
+            let version_key = relative_path.clone();
+            let previous_track = previous_by_path.get(&version_key);
+            let unchanged = previous_track.is_some()
+                && version.modified_nanos.is_some()
+                && previous_versions
+                    .and_then(|versions| versions.get(&version_key))
+                    .is_some_and(|previous| previous == &version);
+
+            if unchanged {
+                let mut track = previous_track
+                    .expect("an unchanged version always has a previous track")
+                    .track
+                    .clone();
+                track.name = name;
+                track.relative_path = relative_path;
+                track.extension = extension;
+                track.size_bytes = file_metadata.len();
+                if !track.metadata_read {
+                    metadata_failures += 1;
+                }
+                candidates.push(ScanCandidate {
+                    path,
+                    track,
+                    version,
+                });
+                continue;
+            }
+
             let (metadata, metadata_read) = match read_audio_metadata(&path) {
                 Ok(metadata) => (metadata, true),
                 Err(_) => {
@@ -603,7 +687,9 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
             candidates.push(ScanCandidate {
                 path,
                 track: ScannedAudioFile {
-                    scan_id: String::new(),
+                    scan_id: previous_track
+                        .map(|track| track.track.scan_id.clone())
+                        .unwrap_or_default(),
                     name,
                     relative_path,
                     extension,
@@ -618,6 +704,7 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
                     musical_key: metadata.musical_key,
                     duplicate_group: None,
                 },
+                version,
             });
         }
     }
@@ -625,9 +712,21 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
     candidates.sort_by_key(|candidate| candidate.track.relative_path.to_ascii_lowercase());
     let (duplicate_groups, duplicate_tracks, fingerprint_failures) =
         mark_exact_duplicates(&mut candidates);
-    for (index, candidate) in candidates.iter_mut().enumerate() {
-        candidate.track.scan_id = create_track_id(&session_id, index);
+    for candidate in &mut candidates {
+        if candidate.track.scan_id.is_empty() {
+            candidate.track.scan_id =
+                create_track_path_id(&session_id, &candidate.track.relative_path);
+        }
     }
+    let file_versions = candidates
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.track.relative_path.clone(),
+                candidate.version.clone(),
+            )
+        })
+        .collect();
     let session_tracks = candidates
         .iter()
         .map(|candidate| SessionTrack {
@@ -641,6 +740,7 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
         .collect();
 
     Ok(CompletedScan {
+        file_versions,
         result: FolderScanResult {
             session_id,
             root_name,
@@ -657,11 +757,35 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
     })
 }
 
-fn create_track_id(session_id: &str, index: usize) -> String {
+fn create_track_path_id(session_id: &str, relative_path: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(session_id.as_bytes());
-    hasher.update(index.to_le_bytes());
+    hasher.update(relative_path.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+fn count_incremental_changes(
+    previous: &HashMap<String, FileVersion>,
+    current: &HashMap<String, FileVersion>,
+) -> (usize, usize, usize, usize) {
+    let added = current
+        .keys()
+        .filter(|path| !previous.contains_key(*path))
+        .count();
+    let removed = previous
+        .keys()
+        .filter(|path| !current.contains_key(*path))
+        .count();
+    let updated = current
+        .iter()
+        .filter(|(path, version)| {
+            previous
+                .get(*path)
+                .is_some_and(|previous_version| previous_version != *version)
+        })
+        .count();
+    let unchanged = current.len().saturating_sub(added + updated);
+    (added, removed, updated, unchanged)
 }
 
 fn create_scan_session_id(root: &Path) -> Result<String, String> {
@@ -1577,18 +1701,162 @@ async fn choose_and_scan_music_folder(
         .cloned()
         .map(|track| (track.track.scan_id.clone(), track))
         .collect();
+    let truncated = completed.result.truncated;
     let mut current_session = state
         .scan_session
         .lock()
         .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
     *current_session = Some(ScanSession {
+        file_versions: completed.file_versions,
         id: session_id,
+        incremental_scan_active: false,
         root: session_root,
         tracks,
+        truncated,
         library_links: HashMap::new(),
     });
 
     Ok(Some(completed.result))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn scan_music_folder_incrementally(
+    state: State<'_, DesktopState>,
+    session_id: String,
+) -> Result<IncrementalScanResult, String> {
+    let (root, previous_tracks, previous_versions) = {
+        let mut current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let session = current_session
+            .as_mut()
+            .filter(|session| session.id == session_id)
+            .ok_or_else(|| {
+                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+            })?;
+        if session.truncated {
+            return Err(
+                "La vigilancia no está disponible para un resultado truncado. Reduce el tamaño de la carpeta y vuelve a seleccionarla."
+                    .to_owned(),
+            );
+        }
+        if session.incremental_scan_active {
+            return Err("Ya hay un escaneo incremental en curso.".to_owned());
+        }
+        session.incremental_scan_active = true;
+        (
+            session.root.clone(),
+            session.tracks.clone(),
+            session.file_versions.clone(),
+        )
+    };
+    let scan_id = session_id.clone();
+    let previous_scan_ids = previous_tracks
+        .values()
+        .map(|track| {
+            (
+                track.track.relative_path.clone(),
+                track.track.scan_id.clone(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let scan_attempt = tauri::async_runtime::spawn_blocking(move || {
+        scan_music_folder_with_previous(
+            &root,
+            scan_id,
+            Some(&previous_tracks),
+            Some(&previous_versions),
+        )
+        .map(|completed| (completed, previous_versions))
+    })
+    .await
+    .map_err(|error| format!("El escaneo incremental se interrumpió: {error}"))
+    .and_then(|result| result);
+    {
+        let mut current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo liberar el escaneo incremental.".to_owned())?;
+        if let Some(session) = current_session
+            .as_mut()
+            .filter(|session| session.id == session_id)
+        {
+            session.incremental_scan_active = false;
+        }
+    }
+    let (completed, previous_versions) = scan_attempt?;
+    if completed.result.truncated {
+        return Err(
+            "El nuevo resultado alcanzó el límite de seguridad y no se aplicó. Reduce el tamaño de la carpeta o inicia un escaneo completo."
+                .to_owned(),
+        );
+    }
+    let (added_tracks, removed_tracks, updated_tracks, unchanged_tracks) =
+        count_incremental_changes(&previous_versions, &completed.file_versions);
+    let current_scan_ids = completed
+        .session_tracks
+        .iter()
+        .map(|track| {
+            (
+                track.track.relative_path.clone(),
+                track.track.scan_id.clone(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let added_scan_ids = current_scan_ids
+        .iter()
+        .filter(|(path, _)| !previous_versions.contains_key(*path))
+        .map(|(_, scan_id)| scan_id.clone())
+        .collect();
+    let removed_scan_ids = previous_scan_ids
+        .iter()
+        .filter(|(path, _)| !completed.file_versions.contains_key(*path))
+        .map(|(_, scan_id)| scan_id.clone())
+        .collect();
+    let updated_scan_ids = current_scan_ids
+        .iter()
+        .filter(|(path, _)| {
+            completed
+                .file_versions
+                .get(*path)
+                .zip(previous_versions.get(*path))
+                .is_some_and(|(current, previous)| current != previous)
+        })
+        .map(|(_, scan_id)| scan_id.clone())
+        .collect();
+    let tracks = completed
+        .session_tracks
+        .iter()
+        .cloned()
+        .map(|track| (track.track.scan_id.clone(), track))
+        .collect::<HashMap<_, _>>();
+    let active_scan_ids = tracks.keys().cloned().collect::<HashSet<_>>();
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo actualizar la sesión del escaneo.".to_owned())?;
+    let session = current_session
+        .as_mut()
+        .filter(|session| session.id == session_id)
+        .ok_or_else(|| "La sesión cambió durante la vigilancia. Vuelve a escanear.".to_owned())?;
+    session
+        .library_links
+        .retain(|_, scan_id| active_scan_ids.contains(scan_id));
+    session.file_versions = completed.file_versions;
+    session.tracks = tracks;
+    session.truncated = false;
+
+    Ok(IncrementalScanResult {
+        added_scan_ids,
+        added_tracks,
+        removed_scan_ids,
+        removed_tracks,
+        scan: completed.result,
+        unchanged_tracks,
+        updated_scan_ids,
+        updated_tracks,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -2466,6 +2734,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             choose_and_scan_music_folder,
+            scan_music_folder_incrementally,
             link_library_tracks,
             preview_metadata_writes,
             apply_metadata_writes,
@@ -2492,11 +2761,12 @@ mod tests {
     use super::export_path_text;
     use super::{
         apply_metadata_write_batch, audio_extension, build_metadata_write_preview,
-        build_reorganization_plan, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
-        link_library_candidates, parse_bpm, parse_mp4_bpm_value, parse_virtualdj_paths,
-        read_audio_metadata, restore_metadata_backups, safe_export_file_name, safe_path_segment,
-        scan_music_folder, LibraryLinkCandidate, MetadataEditInput, MetadataWriteRequest,
-        OrganizationScheme, ScanSession, ScannedAudioFile, SessionTrack,
+        build_reorganization_plan, build_virtualdj_list_xml, build_virtualdj_m3u8,
+        count_incremental_changes, create_track_path_id, link_library_candidates, parse_bpm,
+        parse_mp4_bpm_value, parse_virtualdj_paths, read_audio_metadata, restore_metadata_backups,
+        safe_export_file_name, safe_path_segment, scan_music_folder,
+        scan_music_folder_with_previous, LibraryLinkCandidate, MetadataEditInput,
+        MetadataWriteRequest, OrganizationScheme, ScanSession, ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use sha2::{Digest, Sha256};
@@ -2599,13 +2869,16 @@ mod tests {
             .expect("folder should be scanned");
         let scan_id = completed.result.tracks[0].scan_id.clone();
         let mut session = ScanSession {
+            file_versions: completed.file_versions,
             id: "metadata-session".to_owned(),
+            incremental_scan_active: false,
             root: root.clone(),
             tracks: completed
                 .session_tracks
                 .into_iter()
                 .map(|track| (track.track.scan_id.clone(), track))
                 .collect(),
+            truncated: false,
             library_links: HashMap::new(),
         };
         let request = MetadataWriteRequest {
@@ -2668,6 +2941,67 @@ mod tests {
         assert_eq!(result.duplicate_tracks, 0);
         assert!(!result.truncated);
 
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn incremental_scan_preserves_ids_and_reconciles_folder_changes() {
+        let root = test_directory();
+        for name in ["Changed.wav", "Removed.wav", "Unchanged.wav"] {
+            fs::write(root.join(name), one_second_wav()).expect("WAV fixture should be written");
+        }
+        let initial = scan_music_folder(&root, "incremental-session".to_owned())
+            .expect("initial folder scan should succeed");
+        let initial_tracks = initial
+            .session_tracks
+            .into_iter()
+            .map(|track| (track.track.scan_id.clone(), track))
+            .collect::<HashMap<_, _>>();
+        let initial_by_path = initial_tracks
+            .values()
+            .map(|track| {
+                (
+                    track.track.relative_path.clone(),
+                    track.track.scan_id.clone(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        fs::remove_file(root.join("Removed.wav")).expect("removed fixture should be deleted");
+        let mut changed = one_second_wav();
+        changed.push(0);
+        fs::write(root.join("Changed.wav"), changed).expect("changed fixture should be replaced");
+        fs::write(root.join("Added.wav"), one_second_wav())
+            .expect("added fixture should be written");
+
+        let incremental = scan_music_folder_with_previous(
+            &root,
+            "incremental-session".to_owned(),
+            Some(&initial_tracks),
+            Some(&initial.file_versions),
+        )
+        .expect("incremental scan should succeed");
+        let incremental_by_path = incremental
+            .result
+            .tracks
+            .iter()
+            .map(|track| (track.relative_path.clone(), track.scan_id.clone()))
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(incremental.result.tracks.len(), 3);
+        assert!(!incremental_by_path.contains_key("Removed.wav"));
+        assert!(incremental_by_path.contains_key("Added.wav"));
+        assert_eq!(
+            incremental_by_path.get("Changed.wav"),
+            initial_by_path.get("Changed.wav")
+        );
+        assert_eq!(
+            incremental_by_path.get("Unchanged.wav"),
+            initial_by_path.get("Unchanged.wav")
+        );
+        assert_eq!(
+            count_incremental_changes(&initial.file_versions, &incremental.file_versions),
+            (1, 1, 1, 1)
+        );
         fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
@@ -2755,8 +3089,8 @@ mod tests {
 
     #[test]
     fn creates_distinct_opaque_track_ids_within_a_session() {
-        let first = create_track_id("session", 0);
-        let second = create_track_id("session", 1);
+        let first = create_track_path_id("session", "Opening.wav");
+        let second = create_track_path_id("session", "Closing.wav");
 
         assert_eq!(first.len(), 64);
         assert_ne!(first, second);
@@ -2912,9 +3246,12 @@ mod tests {
             },
         };
         let session = ScanSession {
+            file_versions: HashMap::new(),
             id: "session".to_owned(),
+            incremental_scan_active: false,
             root: root.clone(),
             tracks: HashMap::from([("scan-id".to_owned(), track)]),
+            truncated: false,
             library_links: HashMap::new(),
         };
 

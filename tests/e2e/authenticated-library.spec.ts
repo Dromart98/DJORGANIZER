@@ -157,4 +157,24 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     .click();
   await expect(orderedTitles.nth(0)).toContainText(secondTitle);
   await expect(orderedTitles.nth(1)).toContainText(firstTitle);
+
+  await orderedTitles
+    .filter({ hasText: firstTitle })
+    .getByRole("link", { name: firstTitle })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: firstTitle }),
+  ).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Eliminar canción" }).click();
+
+  await expect(page).toHaveURL(/\/library\?deleted=1$/, {
+    timeout: 20_000,
+  });
+  await expect(
+    page.getByText("La selección se eliminó correctamente."),
+  ).toBeVisible();
+  await expect(
+    page.locator("tbody").getByText(firstTitle, { exact: true }),
+  ).toHaveCount(0);
 });
