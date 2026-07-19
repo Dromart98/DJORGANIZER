@@ -25,7 +25,9 @@ const MINOR_PROFILE = [
 export type DetectedMusicalKey = {
   camelotKey: string;
   confidence: number;
+  explanation: string;
   musicalKey: string;
+  runnerUpKey: string | null;
 };
 
 function correlation(
@@ -79,14 +81,21 @@ export function estimateMusicalKey(
   const best = candidates[0];
   const second = candidates[1];
   const normalized = normalizeMusicalKey(best.label);
+  const runnerUp = normalizeMusicalKey(second.label);
   if (!normalized) return null;
+  const margin = Math.max(0, best.score - second.score);
+  const profileStrength = Math.max(0, Math.min(1, (best.score + 1) / 2));
+  const separation = Math.max(0, Math.min(1, margin / 0.2));
+  const confidence =
+    Math.round((profileStrength * 0.35 + separation * 0.65) * 1000) / 1000;
+  const clarity =
+    confidence >= 0.8 ? "clara" : confidence >= 0.5 ? "moderada" : "ambigua";
 
   return {
     ...normalized,
-    confidence: Math.max(
-      0,
-      Math.min(1, Math.round((best.score - second.score) * 1000) / 1000),
-    ),
+    confidence,
+    explanation: `Coincidencia cromática ${clarity}; la alternativa más cercana es ${runnerUp?.musicalKey ?? "indeterminada"}.`,
+    runnerUpKey: runnerUp?.musicalKey ?? null,
   };
 }
 

@@ -81,6 +81,12 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     .filter({ hasText: `${secondTitle}.wav` });
   await expect(firstItem).toBeVisible({ timeout: 20_000 });
   await expect(secondItem).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByRole("checkbox", { name: /OpenAI/i }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Sugerir género con OpenAI" }),
+  ).toHaveCount(2);
 
   const fillReviewedAnalysis = async (
     item: ReturnType<typeof page.locator>,

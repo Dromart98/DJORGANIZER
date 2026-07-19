@@ -98,6 +98,24 @@ function isAudioFile(file: File) {
   return file.type.startsWith("audio/") || ACCEPTED_EXTENSIONS.has(extension);
 }
 
+function analysisSourceLabel(
+  source: ImportTrackInput["bpm_source"] | ImportTrackInput["key_source"],
+  confidence: number | null,
+) {
+  const label =
+    source === "local"
+      ? "Análisis local"
+      : source === "metadata"
+        ? "Metadatos"
+        : source === "manual"
+          ? "Revisado manualmente"
+          : null;
+  if (!label) return null;
+  return confidence === null
+    ? label
+    : `${label} · ${Math.round(confidence * 100)}% de confianza`;
+}
+
 function chunks<T>(items: T[], size: number) {
   return Array.from(
     { length: Math.ceil(items.length / size) },
@@ -128,8 +146,6 @@ export function AudioImporter() {
     useState<AutomaticAnalysisProgress | null>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
   const [isAnalyzingKey, setIsAnalyzingKey] = useState(false);
-  const [allowRemoteGenreAnalysis, setAllowRemoteGenreAnalysis] =
-    useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [isAnalyzingBpm, setIsAnalyzingBpm] = useState(false);
   const [isReading, setIsReading] = useState(false);
@@ -410,7 +426,25 @@ export function AudioImporter() {
     setItems((current) =>
       current.map((item) => {
         if (item.id !== id || !item.data) return item;
-        const data = { ...item.data, [field]: value };
+        let data = { ...item.data, [field]: value };
+        if (field === "bpm") {
+          data = {
+            ...data,
+            bpm_confidence: null,
+            bpm_explanation:
+              value === null ? null : "Valor revisado manualmente.",
+            bpm_source: value === null ? null : "manual",
+          };
+        }
+        if (field === "musical_key") {
+          data = {
+            ...data,
+            key_confidence: null,
+            key_explanation:
+              value === null ? null : "Valor revisado manualmente.",
+            key_source: value === null ? null : "manual",
+          };
+        }
         const error = importValidationMessage(data);
         return {
           ...item,
@@ -564,7 +598,13 @@ export function AudioImporter() {
 
               if (shouldAnalyzeBpm) {
                 if (bpmResult.status === "fulfilled" && bpmResult.value) {
-                  data = { ...data, bpm: bpmResult.value };
+                  data = {
+                    ...data,
+                    bpm: bpmResult.value.bpm,
+                    bpm_confidence: bpmResult.value.confidence,
+                    bpm_explanation: bpmResult.value.explanation,
+                    bpm_source: "local",
+                  };
                   bpmError = undefined;
                   bpmStatus = "detected";
                 } else {
@@ -578,6 +618,9 @@ export function AudioImporter() {
                 if (keyResult.status === "fulfilled" && keyResult.value) {
                   data = {
                     ...data,
+                    key_confidence: keyResult.value.confidence,
+                    key_explanation: keyResult.value.explanation,
+                    key_source: "local",
                     musical_key: keyResult.value.musicalKey,
                   };
                   keyError = undefined;
@@ -707,7 +750,13 @@ export function AudioImporter() {
                 return currentItem;
               }
 
-              const data = { ...currentItem.data, bpm };
+              const data = {
+                ...currentItem.data,
+                bpm: bpm.bpm,
+                bpm_confidence: bpm.confidence,
+                bpm_explanation: bpm.explanation,
+                bpm_source: "local" as const,
+              };
               const error = importValidationMessage(data);
               return {
                 ...currentItem,
@@ -792,6 +841,9 @@ export function AudioImporter() {
 
               const data = {
                 ...currentItem.data,
+                key_confidence: result.confidence,
+                key_explanation: result.explanation,
+                key_source: "local" as const,
                 musical_key: result.musicalKey,
               };
               const error = importValidationMessage(data);
@@ -996,7 +1048,6 @@ export function AudioImporter() {
 
   async function classifyGenre(item: ImportItem) {
     if (
-      !allowRemoteGenreAnalysis ||
       !item.file ||
       !item.data ||
       !isAutomaticAnalysisEligibleStatus(item.status)
@@ -1117,25 +1168,6 @@ export function AudioImporter() {
 
       {items.length ? (
         <>
-          <div className="card ai-consent">
-            <label>
-              <input
-                checked={allowRemoteGenreAnalysis}
-                onChange={(event) =>
-                  setAllowRemoteGenreAnalysis(event.target.checked)
-                }
-                type="checkbox"
-              />
-              <span>
-                Permitir clasificación opcional con OpenAI
-                <small>
-                  Solo al pulsar “Sugerir género” se convertirá localmente y
-                  enviará un fragmento mono de hasta 45 segundos. La sugerencia
-                  nunca se aplica sin tu revisión.
-                </small>
-              </span>
-            </label>
-          </div>
           <div className="import-toolbar">
             <p>
               <strong>{items.length}</strong> archivos · {readyCount} listos ·{" "}
@@ -1280,7 +1312,6 @@ export function AudioImporter() {
                         <button
                           className="import-analyze-link"
                           disabled={
-                            !allowRemoteGenreAnalysis ||
                             item.genreStatus === "classifying" ||
                             isSaving
                           }
@@ -1289,8 +1320,15 @@ export function AudioImporter() {
                         >
                           {item.genreStatus === "classifying"
                             ? "Clasificando…"
-                            : "Sugerir género"}
+                            : "Sugerir género con OpenAI"}
                         </button>
+                      ) : null}
+                      {item.file &&
+                      isAutomaticAnalysisEligibleStatus(item.status) ? (
+                        <small className="analysis-evidence">
+                          Al pulsar se enviará un fragmento mono de hasta 45
+                          segundos. La sugerencia solo se aplica tras revisarla.
+                        </small>
                       ) : null}
                       {item.genreSuggestion ? (
                         <span className="genre-suggestion" role="status">
@@ -1358,8 +1396,16 @@ export function AudioImporter() {
                     <label className="field import-bpm-field">
                       <span>
                         BPM
-                        {item.bpmStatus === "detected" ? (
-                          <small>Estimado localmente</small>
+                        {analysisSourceLabel(
+                          item.data.bpm_source,
+                          item.data.bpm_confidence,
+                        ) ? (
+                          <small>
+                            {analysisSourceLabel(
+                              item.data.bpm_source,
+                              item.data.bpm_confidence,
+                            )}
+                          </small>
                         ) : null}
                       </span>
                       <input
@@ -1379,6 +1425,11 @@ export function AudioImporter() {
                         type="number"
                         value={item.data.bpm ?? ""}
                       />
+                      {item.data.bpm_explanation ? (
+                        <small className="analysis-evidence">
+                          {item.data.bpm_explanation}
+                        </small>
+                      ) : null}
                       {item.file &&
                       isAutomaticAnalysisEligibleStatus(item.status) &&
                       item.bpmStatus !== "analyzing" ? (
@@ -1405,8 +1456,16 @@ export function AudioImporter() {
                     <label className="field import-key-field">
                       <span>
                         Tonalidad
-                        {item.keyStatus === "detected" ? (
-                          <small>Estimada localmente</small>
+                        {analysisSourceLabel(
+                          item.data.key_source,
+                          item.data.key_confidence,
+                        ) ? (
+                          <small>
+                            {analysisSourceLabel(
+                              item.data.key_source,
+                              item.data.key_confidence,
+                            )}
+                          </small>
                         ) : null}
                       </span>
                       <input
@@ -1421,6 +1480,11 @@ export function AudioImporter() {
                         }
                         value={item.data.musical_key ?? ""}
                       />
+                      {item.data.key_explanation ? (
+                        <small className="analysis-evidence">
+                          {item.data.key_explanation}
+                        </small>
+                      ) : null}
                       {item.file &&
                       isAutomaticAnalysisEligibleStatus(item.status) &&
                       item.keyStatus !== "analyzing" ? (

@@ -202,6 +202,9 @@ export type Database = {
           artist: string | null;
           artwork_url: string | null;
           bpm: number | null;
+          bpm_confidence: number | null;
+          bpm_explanation: string | null;
+          bpm_source: string | null;
           camelot_key: string | null;
           comments: string | null;
           created_at: string;
@@ -215,6 +218,9 @@ export type Database = {
           genre_confidence: number | null;
           genre_source: string | null;
           id: string;
+          key_confidence: number | null;
+          key_explanation: string | null;
+          key_source: string | null;
           musical_key: string | null;
           rating: number | null;
           release_year: number | null;
@@ -230,6 +236,9 @@ export type Database = {
           artist?: string | null;
           artwork_url?: string | null;
           bpm?: number | null;
+          bpm_confidence?: number | null;
+          bpm_explanation?: string | null;
+          bpm_source?: string | null;
           camelot_key?: string | null;
           comments?: string | null;
           created_at?: string;
@@ -243,6 +252,9 @@ export type Database = {
           genre_confidence?: number | null;
           genre_source?: string | null;
           id?: string;
+          key_confidence?: number | null;
+          key_explanation?: string | null;
+          key_source?: string | null;
           musical_key?: string | null;
           rating?: number | null;
           release_year?: number | null;
@@ -258,6 +270,9 @@ export type Database = {
           artist?: string | null;
           artwork_url?: string | null;
           bpm?: number | null;
+          bpm_confidence?: number | null;
+          bpm_explanation?: string | null;
+          bpm_source?: string | null;
           camelot_key?: string | null;
           comments?: string | null;
           created_at?: string;
@@ -271,6 +286,9 @@ export type Database = {
           genre_confidence?: number | null;
           genre_source?: string | null;
           id?: string;
+          key_confidence?: number | null;
+          key_explanation?: string | null;
+          key_source?: string | null;
           musical_key?: string | null;
           rating?: number | null;
           release_year?: number | null;

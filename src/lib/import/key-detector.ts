@@ -41,7 +41,13 @@ export async function detectKeyFromAudioBuffer(audioBuffer: AudioBuffer) {
   if (!result) {
     throw new Error("El detector no devolvió una tonalidad válida.");
   }
-  return result;
+  const coverage = Math.min(1, frames / 160);
+  return {
+    ...result,
+    confidence:
+      Math.round(result.confidence * (0.5 + coverage * 0.5) * 1000) / 1000,
+    explanation: `${result.explanation} Se compararon ${frames.toLocaleString("es-ES")} fragmentos locales.`,
+  };
 }
 
 

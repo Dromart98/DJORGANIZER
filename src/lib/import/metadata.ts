@@ -46,11 +46,16 @@ export function metadataToImportTrack(
 ): ImportTrackInput {
   const title =
     optionalText(metadata.common.title) ?? titleFromFileName(file.name);
+  const bpm = finiteNumber(metadata.common.bpm, 2);
+  const musicalKey = optionalText(metadata.common.key);
   return {
     acoustic_fingerprint: null,
     album: optionalText(metadata.common.album),
     artist: optionalText(metadata.common.artist),
-    bpm: finiteNumber(metadata.common.bpm, 2),
+    bpm,
+    bpm_confidence: null,
+    bpm_explanation: bpm ? "Leído de las etiquetas del archivo." : null,
+    bpm_source: bpm ? "metadata" : null,
     client_id: clientId,
     duration_seconds: finiteNumber(metadata.format.duration, 3),
     energy: null,
@@ -61,7 +66,10 @@ export function metadataToImportTrack(
     genre: optionalText(metadata.common.genre?.[0]),
     genre_confidence: null,
     genre_source: metadata.common.genre?.[0] ? "metadata" : null,
-    musical_key: optionalText(metadata.common.key),
+    key_confidence: null,
+    key_explanation: musicalKey ? "Leída de las etiquetas del archivo." : null,
+    key_source: musicalKey ? "metadata" : null,
+    musical_key: musicalKey,
     release_year: metadata.common.year ?? null,
     title,
     version_type: inferVersionType(title),

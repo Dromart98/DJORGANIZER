@@ -72,9 +72,13 @@ describe("trackFormSchema", () => {
     });
 
     expect(toTrackInsert(values, "user-id")).toMatchObject({
+      bpm_confidence: null,
+      bpm_source: "manual",
       artist: null,
       bpm: 128,
       camelot_key: "8A",
+      key_confidence: null,
+      key_source: "manual",
       musical_key: "Am",
     });
   });

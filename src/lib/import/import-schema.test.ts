@@ -12,6 +12,9 @@ const validTrack: ImportTrackInput = {
   album: null,
   artist: "Nova",
   bpm: 126,
+  bpm_confidence: null,
+  bpm_explanation: "Leído de metadatos.",
+  bpm_source: "metadata",
   client_id: "67cefe9c-4b34-44ca-b884-30c3f93607fa",
   duration_seconds: 240,
   energy: 70,
@@ -23,6 +26,9 @@ const validTrack: ImportTrackInput = {
   genre: "House",
   genre_confidence: null,
   genre_source: "metadata",
+  key_confidence: null,
+  key_explanation: "Leída de metadatos.",
+  key_source: "metadata",
   musical_key: "Am",
   release_year: 2024,
   title: "Pulse",
@@ -64,6 +70,31 @@ describe("importTrackSchema", () => {
         file_fingerprint: "not-a-fingerprint",
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects analysis evidence without a musical value", () => {
+    expect(
+      importTrackSchema.safeParse({
+        ...validTrack,
+        bpm: null,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("only accepts confidence from local analysis", () => {
+    expect(
+      importTrackSchema.safeParse({
+        ...validTrack,
+        bpm_confidence: 0.8,
+      }).success,
+    ).toBe(false);
+    expect(
+      importTrackSchema.safeParse({
+        ...validTrack,
+        bpm_confidence: 0.8,
+        bpm_source: "local",
+      }).success,
+    ).toBe(true);
   });
 });
 

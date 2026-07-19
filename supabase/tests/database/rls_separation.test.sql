@@ -1,6 +1,6 @@
 begin;
 
-select plan(33);
+select plan(35);
 
 select is(
   (
@@ -223,6 +223,39 @@ select ok(
     where id = '21000000-0000-4000-8000-000000000002'
   ),
   'A track can be stored with no artist'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from pg_constraint
+    where conrelid = 'public.tracks'::regclass
+      and conname in (
+        'tracks_bpm_analysis_requires_value',
+        'tracks_key_analysis_requires_value',
+        'tracks_bpm_confidence_is_local',
+        'tracks_key_confidence_is_local'
+      )
+  ),
+  4,
+  'Analysis provenance constraints are installed'
+);
+
+update public.tracks
+set
+  bpm_source = 'local',
+  bpm_confidence = 0.875,
+  bpm_explanation = 'Three local windows agree.'
+where id = '21000000-0000-4000-8000-000000000002';
+
+select is(
+  (
+    select bpm_confidence
+    from public.tracks
+    where id = '21000000-0000-4000-8000-000000000002'
+  ),
+  0.875::numeric,
+  'A local BPM confidence value is stored'
 );
 
 with changed as (

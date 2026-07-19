@@ -4,6 +4,9 @@ DJOrganizer es una aplicación web para que DJs organicen sus bibliotecas
 musicales. La aplicación incluye autenticación y una biblioteca persistente
 aislada por usuario mediante Supabase.
 
+Para aportar el contexto completo a un Proyecto de ChatGPT, usa
+[`README_CHATGPT_PROJECT.md`](README_CHATGPT_PROJECT.md).
+
 ## Stack
 
 - Next.js 15 con App Router y React 19
@@ -139,10 +142,17 @@ supabase/
   inicial, por lo que una pista puede guardarse trabajando solo con BPM y
   tonalidad.
 - Vista previa editable antes de guardar.
-- Detección opcional de BPM por pista o en lote, ejecutada localmente.
-- Análisis secuencial de una ventana de hasta 90 segundos para limitar memoria.
-- Las estimaciones de BPM quedan identificadas y pueden corregirse manualmente.
-- Detección opcional de tonalidad por pista o en lote mediante cromas.
+- Detección automática de BPM al seleccionar archivos, ejecutada localmente y
+  repetible por pista o en lote.
+- Muestreo de hasta tres ventanas dentro de un máximo de 90 segundos; la
+  concordancia, cobertura y posibles lecturas a mitad o doble de tempo se
+  resumen en una confianza explicada.
+- Detección automática de tonalidad mediante cromas; compara los perfiles
+  mayor/menor, muestra la alternativa más cercana y calibra la confianza por
+  separación y cantidad de fragmentos.
+- La ficha conserva procedencia, confianza y explicación de BPM y tonalidad.
+  Los valores de metadatos, correcciones manuales y datos anteriores se
+  distinguen explícitamente y siguen siendo editables.
 - Conversión de la tonalidad estimada a notación canónica y Camelot al guardar.
 - Cálculo incremental de una huella SHA-256 en el navegador, con progreso.
 - Detección de archivos repetidos en la selección y en la biblioteca existente.
@@ -159,10 +169,17 @@ no concluyentes siempre quedan para revisión manual.
 
 No se guardan archivos de audio o portadas y no se usa Supabase Storage para
 audio. El BPM, tonalidad y energía pueden proceder de etiquetas o estimaciones
-locales revisadas. La clasificación de género con `gpt-audio` es opcional:
-requiere consentimiento por pista, genera localmente un clip WAV mono de hasta
-45 segundos, aplica límites de uso y solo ofrece una sugerencia que el usuario
-debe aceptar manualmente.
+locales revisadas. La clasificación de género con `gpt-audio` se ofrece
+directamente en cada pista: pulsar “Sugerir género con OpenAI” autoriza ese
+fragmento concreto, generado localmente como WAV mono de hasta 45 segundos.
+Aplica límites de uso y solo ofrece una sugerencia que el usuario debe aceptar
+manualmente; nunca analiza ni aplica géneros en segundo plano.
+
+La confianza de BPM y tonalidad no expresa certeza musical absoluta: es una
+medida local de concordancia del detector, entre 0 y 1. No se asigna confianza
+artificial a etiquetas, ediciones manuales ni valores heredados. El contrato,
+los límites y los casos ambiguos se documentan en
+[`docs/audio-analysis-confidence.md`](docs/audio-analysis-confidence.md).
 
 ## Crates y etiquetas
 
