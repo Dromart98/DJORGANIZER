@@ -143,3 +143,4 @@ jobs:
       - name: Test desktop
         working-directory: src-tauri
         run: cargo test --locked
+
