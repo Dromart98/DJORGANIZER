@@ -1,25 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  filterScannedTracks,
+  paginateScannedTracks,
+  type ScanReviewFilter,
+  type ScannedAudioFile,
+} from "@/lib/desktop/scan-review";
 
 interface TauriCore {
   invoke<T>(command: string): Promise<T>;
-}
-
-interface ScannedAudioFile {
-  name: string;
-  relativePath: string;
-  extension: string;
-  sizeBytes: number;
-  metadataRead: boolean;
-  title: string | null;
-  artist: string | null;
-  album: string | null;
-  genre: string | null;
-  durationSeconds: number | null;
-  bpm: number | null;
-  musicalKey: string | null;
-  duplicateGroup: string | null;
 }
 
 interface FolderScanResult {
@@ -92,6 +82,24 @@ export function DesktopFolderScanner() {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<FolderScanResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<ScanReviewFilter>("all");
+  const [page, setPage] = useState(1);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const filteredTracks = useMemo(
+    () => filterScannedTracks(result?.tracks ?? [], query, filter),
+    [filter, query, result],
+  );
+  const pagination = useMemo(
+    () => paginateScannedTracks(filteredTracks, page),
+    [filteredTracks, page],
+  );
+  const visiblePaths = pagination.items.map((track) => track.relativePath);
+  const allVisibleSelected =
+    visiblePaths.length > 0 &&
+    visiblePaths.every((relativePath) => selectedPaths.has(relativePath));
 
   useEffect(() => {
     setDesktopAvailable(Boolean(getTauriCore()));
@@ -116,6 +124,10 @@ export function DesktopFolderScanner() {
       }
 
       setResult(nextResult);
+      setQuery("");
+      setFilter("all");
+      setPage(1);
+      setSelectedPaths(new Set());
     } catch {
       setMessage(
         "No se pudo leer esa carpeta. Comprueba sus permisos y vuelve a intentarlo.",
@@ -123,6 +135,32 @@ export function DesktopFolderScanner() {
     } finally {
       setScanning(false);
     }
+  }
+
+  function toggleTrack(relativePath: string) {
+    setSelectedPaths((current) => {
+      const next = new Set(current);
+      if (next.has(relativePath)) {
+        next.delete(relativePath);
+      } else {
+        next.add(relativePath);
+      }
+      return next;
+    });
+  }
+
+  function toggleVisibleTracks() {
+    setSelectedPaths((current) => {
+      const next = new Set(current);
+      for (const relativePath of visiblePaths) {
+        if (allVisibleSelected) {
+          next.delete(relativePath);
+        } else {
+          next.add(relativePath);
+        }
+      }
+      return next;
+    });
   }
 
   return (
@@ -179,33 +217,117 @@ export function DesktopFolderScanner() {
             .{result.truncated ? " El resultado alcanzó el límite de seguridad." : ""}
           </p>
           {result.tracks.length ? (
-            <ul className="available-track-list">
-              {result.tracks.slice(0, 8).map((track) => (
-                <li key={track.relativePath}>
-                  <div>
-                    <strong>{track.title ?? track.name}</strong>
-                    <span>{formatTrackIdentity(track)}</span>
-                  </div>
+            <>
+              <div className="desktop-scan-toolbar">
+                <label>
+                  Buscar en el escaneo
+                  <input
+                    onChange={(event) => {
+                      setQuery(event.target.value);
+                      setPage(1);
+                    }}
+                    placeholder="Título, artista, carpeta, BPM…"
+                    type="search"
+                    value={query}
+                  />
+                </label>
+                <label>
+                  Mostrar
+                  <select
+                    onChange={(event) => {
+                      setFilter(event.target.value as ScanReviewFilter);
+                      setPage(1);
+                    }}
+                    value={filter}
+                  >
+                    <option value="all">Todas las pistas</option>
+                    <option value="duplicates">Solo duplicados</option>
+                    <option value="metadata-errors">Sin metadatos legibles</option>
+                  </select>
+                </label>
+                <button
+                  className="button button--secondary"
+                  disabled={!pagination.items.length}
+                  onClick={toggleVisibleTracks}
+                  type="button"
+                >
+                  {allVisibleSelected
+                    ? "Deseleccionar página"
+                    : "Seleccionar página"}
+                </button>
+              </div>
+
+              <p className="organization-muted" role="status">
+                {filteredTracks.length.toLocaleString("es-ES")} resultados ·{" "}
+                {selectedPaths.size.toLocaleString("es-ES")} seleccionados. La
+                selección permanece solo en esta ventana y todavía no ejecuta
+                cambios en los archivos.
+              </p>
+
+              {pagination.items.length ? (
+                <ul className="available-track-list desktop-scan-results">
+                  {pagination.items.map((track) => (
+                    <li key={track.relativePath}>
+                      <label className="desktop-track-selection">
+                        <input
+                          aria-label={`Seleccionar ${track.title ?? track.name}`}
+                          checked={selectedPaths.has(track.relativePath)}
+                          onChange={() => toggleTrack(track.relativePath)}
+                          type="checkbox"
+                        />
+                      </label>
+                      <div>
+                        <strong>{track.title ?? track.name}</strong>
+                        <span>{formatTrackIdentity(track)}</span>
+                      </div>
+                      <span>
+                        {track.duplicateGroup
+                          ? `Duplicado local · ${track.duplicateGroup} · `
+                          : ""}
+                        {formatTrackDetails(track)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="organization-muted">
+                  Ninguna pista coincide con esta búsqueda y filtro.
+                </p>
+              )}
+
+              {pagination.totalPages > 1 ? (
+                <nav
+                  aria-label="Paginación del escaneo"
+                  className="desktop-scan-pagination"
+                >
+                  <button
+                    className="button button--secondary"
+                    disabled={pagination.page === 1}
+                    onClick={() => setPage((current) => current - 1)}
+                    type="button"
+                  >
+                    Anterior
+                  </button>
                   <span>
-                    {track.duplicateGroup
-                      ? `Duplicado local · ${track.duplicateGroup} · `
-                      : ""}
-                    {formatTrackDetails(track)}
+                    Página {pagination.page.toLocaleString("es-ES")} de{" "}
+                    {pagination.totalPages.toLocaleString("es-ES")}
                   </span>
-                </li>
-              ))}
-            </ul>
+                  <button
+                    className="button button--secondary"
+                    disabled={pagination.page === pagination.totalPages}
+                    onClick={() => setPage((current) => current + 1)}
+                    type="button"
+                  >
+                    Siguiente
+                  </button>
+                </nav>
+              ) : null}
+            </>
           ) : (
             <p className="organization-muted">
               No se encontraron formatos de audio compatibles en esta carpeta.
             </p>
           )}
-          {result.tracks.length > 8 ? (
-            <p className="organization-muted">
-              Vista previa de 8 pistas. La lista completa, sus metadatos y los
-              grupos de duplicados permanecen únicamente en la memoria de esta ventana.
-            </p>
-          ) : null}
         </section>
       ) : null}
     </div>

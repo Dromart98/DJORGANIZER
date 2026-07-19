@@ -557,3 +557,71 @@ td strong { color: #f0f3f4; font-weight: 650; }
     text-align: center;
   }
 }
+
+.desktop-scan-toolbar {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(12rem, 0.55fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.desktop-scan-toolbar label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.desktop-scan-toolbar input,
+.desktop-scan-toolbar select {
+  width: 100%;
+}
+
+.desktop-scan-results li {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.desktop-track-selection {
+  display: grid;
+  min-width: 2rem;
+  min-height: 2rem;
+  place-items: center;
+}
+
+.desktop-track-selection input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.desktop-scan-pagination {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.desktop-scan-pagination > span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .desktop-scan-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .desktop-scan-results li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .desktop-scan-results li > span {
+    grid-column: 2;
+  }
+
+  .desktop-scan-pagination {
+    justify-content: space-between;
+  }
+}
