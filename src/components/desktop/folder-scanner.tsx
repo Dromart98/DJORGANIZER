@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getDesktopLibraryLinkCandidatesAction } from "@/app/import/actions";
 import {
   createOrganizationPreview,
   filterScannedTracks,
@@ -30,6 +31,12 @@ interface FolderScanResult {
 interface VirtualDjExportResult {
   cancelled: boolean;
   exportedTracks: number;
+}
+
+interface LibraryLinkResult {
+  fingerprintFailures: number;
+  linkedTracks: number;
+  unmatchedTracks: number;
 }
 
 type VirtualDjExportFormat = "xml" | "m3u8";
@@ -92,6 +99,9 @@ export function DesktopFolderScanner() {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<FolderScanResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [libraryLinkMessage, setLibraryLinkMessage] = useState<string | null>(
+    null,
+  );
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ScanReviewFilter>("all");
   const [page, setPage] = useState(1);
@@ -134,6 +144,44 @@ export function DesktopFolderScanner() {
 
   if (!desktopAvailable) return null;
 
+
+  async function linkLibraryTracks(
+    core: TauriCore,
+    scanResult: FolderScanResult,
+  ) {
+    setLibraryLinkMessage("Comparando con tu biblioteca de DJOrganizer…");
+
+    try {
+      const library = await getDesktopLibraryLinkCandidatesAction();
+      if (!library.candidates.length) {
+        setLibraryLinkMessage(
+          library.message ??
+            "No hay pistas con huella en tu biblioteca para vincular.",
+        );
+        return;
+      }
+
+      const linkResult = await core.invoke<LibraryLinkResult>(
+        "link_library_tracks",
+        {
+          sessionId: scanResult.sessionId,
+          candidates: library.candidates,
+        },
+      );
+      const failureMessage = linkResult.fingerprintFailures
+        ? ` No se pudieron comprobar ${linkResult.fingerprintFailures.toLocaleString("es-ES")} archivos locales.`
+        : "";
+      const limitMessage = library.message ? ` ${library.message}` : "";
+      setLibraryLinkMessage(
+        `${linkResult.linkedTracks.toLocaleString("es-ES")} pistas de la biblioteca vinculadas a este dispositivo; ${linkResult.unmatchedTracks.toLocaleString("es-ES")} sin coincidencia local.${failureMessage}${limitMessage}`,
+      );
+    } catch {
+      setLibraryLinkMessage(
+        "El escaneo terminó, pero no se pudo vincular con la biblioteca. Puedes volver a intentarlo seleccionando la carpeta de nuevo.",
+      );
+    }
+  }
+
   async function chooseAndScan() {
     const core = getTauriCore();
     if (!core) return;
@@ -157,6 +205,7 @@ export function DesktopFolderScanner() {
       setVirtualDjListName(nextResult.rootName);
       setVirtualDjMessage(null);
       setSelectedTrackIds(new Set());
+      await linkLibraryTracks(core, nextResult);
     } catch {
       setMessage(
         "No se pudo leer esa carpeta. Comprueba sus permisos y vuelve a intentarlo.",
@@ -234,8 +283,9 @@ export function DesktopFolderScanner() {
           <h2 id="desktop-scan-title">Escanear una carpeta musical</h2>
           <p>
             El selector nativo requiere una confirmación explícita. El escaneo lee
-            etiquetas, propiedades técnicas y copias exactas en este dispositivo;
-            no mueve, modifica, reproduce, sube ni guarda audio.
+            etiquetas, propiedades técnicas y copias exactas en este dispositivo,
+            y vincula coincidencias con tu biblioteca. No mueve, modifica,
+            reproduce, sube ni guarda audio.
           </p>
         </div>
         <button
@@ -263,6 +313,11 @@ export function DesktopFolderScanner() {
             </div>
             <span>{result.tracks.length.toLocaleString("es-ES")} pistas</span>
           </div>
+          {libraryLinkMessage ? (
+            <p className="organization-muted" role="status">
+              {libraryLinkMessage}
+            </p>
+          ) : null}
           <p className="organization-muted">
             Se revisaron {result.examinedEntries.toLocaleString("es-ES")} entradas
             {result.skippedEntries
