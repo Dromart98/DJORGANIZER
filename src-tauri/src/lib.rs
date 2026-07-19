@@ -687,9 +687,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_extension, build_virtualdj_list_xml, create_track_id, parse_bpm,
-        parse_mp4_bpm_value, read_audio_metadata, safe_export_file_name, scan_music_folder,
-        ScannedAudioFile, SessionTrack,
+        audio_extension, build_virtualdj_list_xml, create_track_id, parse_bpm, parse_mp4_bpm_value,
+        read_audio_metadata, safe_export_file_name, scan_music_folder, ScannedAudioFile,
+        SessionTrack,
     };
     use lofty::mp4::AtomData;
     use std::{
