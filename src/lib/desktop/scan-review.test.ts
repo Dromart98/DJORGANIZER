@@ -79,6 +79,9 @@ describe("desktop organization preview", () => {
     expect(safePathSegment('Artist: Live/Set?', "Fallback")).toBe(
       "Artist Live Set",
     );
+    expect(safePathSegment(`${"a".repeat(79)}.trailing`, "Fallback")).toBe(
+      "a".repeat(79),
+    );
   });
 
   it("builds deterministic paths and resolves case-insensitive collisions", () => {
