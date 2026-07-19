@@ -1,6 +1,7 @@
 # Escaneo de carpetas en escritorio
 
-DJOrganizer incorpora una capacidad nativa de solo lectura mediante Tauri 2.
+DJOrganizer incorpora mediante Tauri 2 un escaneo nativo de solo lectura por
+defecto y operaciones de escritura separadas, explícitas y reversibles.
 
 ## Flujo de consentimiento
 
@@ -59,10 +60,10 @@ autenticada y guarda las coincidencias dentro de la sesión nativa activa.
 `export_virtualdj_list` solo acepta identificadores que pertenecen a esa sesión;
 la web no puede suministrarle rutas absolutas arbitrarias.
 
-No se conceden plugins de sistema de archivos, shell o proceso. Las únicas
-escrituras permitidas son archivos de lista XML o M3U8 en el destino que la
-persona confirme mediante el selector nativo. La fase no mueve, renombra, elimina,
-reproduce, sube ni modifica audio. La detección es de igualdad binaria: una
+No se conceden plugins genéricos de sistema de archivos, shell o proceso. Las
+escrituras se limitan a Lists confirmadas, movimientos derivados de IDs del
+escaneo y etiquetas previsualizadas para un máximo de 25 IDs activos. No
+reproduce, sube ni elimina audio. La detección nativa inicial es de igualdad binaria: una
 copia idéntica se agrupa aunque cambie de nombre, pero un archivo reetiquetado o
 recodificado se considera distinto.
 
@@ -75,9 +76,36 @@ y limita su longitud. Las rutas de destino se comparan sin distinguir
 mayúsculas y minúsculas; si dos pistas colisionan, la propuesta añade un sufijo
 numérico determinista.
 
-El plan contiene exclusivamente rutas relativas y se calcula en la memoria de
-la ventana. No se envía a Supabase ni al comando nativo y no existe en esta fase
-ninguna acción que aplique el plan al sistema de archivos.
+La vista recibe exclusivamente rutas relativas. Al aplicar, Rust reconstruye
+el plan desde los IDs opacos, vuelve a comprobar existencia y tamaño, evita
+sobrescrituras y revierte los movimientos anteriores si uno falla. El historial
+de la sesión permite deshacer y se invalida al cambiar de escaneo.
+
+## Escritura reversible de metadatos
+
+Las etiquetas nunca se escriben durante el escaneo ni al editar la biblioteca
+sincronizada. La persona selecciona hasta 25 pistas, revisa título, artista,
+álbum, género, BPM y tonalidad, solicita una previsualización campo a campo y
+confirma la escritura en un diálogo adicional. La web transmite únicamente el
+ID opaco del escaneo y los valores revisados; Rust resuelve la ruta conservada
+en la sesión.
+
+Antes de tocar un archivo, el comando:
+
+1. valida texto y BPM, pertenencia a la sesión, existencia, tamaño y soporte de
+   escritura del contenedor;
+2. copia el archivo completo, conservando su ruta relativa, dentro de
+   `.djorganizer-backups/<operación>/`;
+3. escribe la etiqueta principal con Lofty, la relee y compara todos los campos;
+4. calcula una huella del resultado para detectar cambios externos posteriores.
+
+Si falla cualquier pista, se restauran todas las copias del lote. El historial
+local permite deshacer mientras la sesión siga activa; antes de restaurar,
+compara la huella actual con la escrita por DJOrganizer y cancela todo el
+deshacer si otro programa cambió un archivo. También protege temporalmente el
+estado actual para poder revertir un fallo durante la restauración. Las copias
+permanecen locales, nunca se devuelven a React o Supabase y su carpeta se omite
+en escaneos posteriores.
 
 
 ## Exportación de listas para VirtualDJ
@@ -87,9 +115,18 @@ VirtualDJ 2024+ usa listas XML nativas en **My Lists**. DJOrganizer genera un
 ruta absoluta requerida, tamaño e información musical disponible. El formato
 sigue la [especificación oficial de Lists de VirtualDJ](https://virtualdj.com/wiki/lists.html).
 
+La especificación de **My Lists** documenta ruta, tamaño, artista, título,
+remix, duración, BPM, tonalidad y algunos campos de karaoke/reproducción. No
+define un contrato para cues, rating, color ni historial. Aunque VirtualDJ
+gestiona esos conceptos en su interfaz y base de datos interna, DJOrganizer no
+los inventa en las Lists ni modifica `database.xml`: esa interoperabilidad se
+revisará solo si existe una especificación pública y estable.
+
 Las rutas absolutas nunca se devuelven a React ni a Supabase. Rust las conserva
 solo en memoria durante el escaneo y rechaza una exportación si el identificador
 de sesión ya no coincide o si una pista no pertenece al resultado activo. El
-usuario elige expresamente el archivo XML de destino. La compatibilidad M3U8,
-la exportación de crates persistentes y la sincronización con **My Lists** se
-mantienen como fases separadas en el roadmap.
+usuario elige expresamente el destino. Existe compatibilidad M3U8, exportación
+por lotes de crates y jerarquías con copia previa de Lists existentes, e
+importación recursiva de **My Lists**. Las rutas se vinculan localmente con IDs
+persistentes; las no resueltas se muestran como conflictos y la reconciliación
+solo se aplica al pulsar combinar o reemplazar.

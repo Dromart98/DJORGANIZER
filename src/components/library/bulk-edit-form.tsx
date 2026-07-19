@@ -31,6 +31,10 @@ export function BulkEditForm({
     <form
       action={bulkUpdateTracksAction}
       className="bulk-edit-form"
+      data-offline-action="track-bulk-update"
+      data-offline-confirm={`¿Aplicar este cambio a ${selectedIds.length} ${
+        selectedIds.length === 1 ? "canción" : "canciones"
+      }?`}
       onSubmit={(event) => {
         if (
           !window.confirm(

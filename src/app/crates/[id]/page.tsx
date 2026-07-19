@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   addTrackToCrateAction,
   moveTrackInCrateAction,
@@ -26,6 +26,8 @@ type CrateMembership = Pick<
   Tables<"crate_tracks">,
   "position" | "track_id"
 >;
+
+const CRATE_TRACKS_PER_PAGE = 100;
 
 const errorMessages: Record<string, string> = {
   "add-track": "No se pudo añadir la pista.",
@@ -60,8 +62,24 @@ export default async function CrateDetailPage({
 
   const query = await searchParams;
   const search = typeof query.q === "string" ? query.q.trim().slice(0, 100) : "";
+  const requestedPage =
+    typeof query.cratePage === "string" &&
+    Number.isInteger(Number(query.cratePage)) &&
+    Number(query.cratePage) > 0
+      ? Number(query.cratePage)
+      : 1;
+  const rangeFrom = (requestedPage - 1) * CRATE_TRACKS_PER_PAGE;
+  const rangeTo = rangeFrom + CRATE_TRACKS_PER_PAGE - 1;
   const supabase = await createClient();
-  const [{ data: crate, error: crateError }, { data: memberships, error: memberError }] =
+  const [
+    { data: crate, error: crateError },
+    {
+      count: membershipCount,
+      data: memberships,
+      error: memberError,
+    },
+    { data: allCrates, error: allCratesError },
+  ] =
     await Promise.all([
       supabase
         .from("crates")
@@ -71,17 +89,34 @@ export default async function CrateDetailPage({
         .maybeSingle(),
       supabase
         .from("crate_tracks")
-        .select("track_id, position")
+        .select("track_id, position", { count: "exact" })
         .eq("crate_id", parsedId.data)
         .eq("user_id", user.id)
         .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
+        .order("created_at", { ascending: true })
+        .range(rangeFrom, rangeTo),
+      supabase
+        .from("crates")
+        .select("id, name, parent_id")
+        .eq("user_id", user.id)
+        .order("name"),
     ]);
 
-  if (crateError || memberError) {
+  if (crateError || memberError || allCratesError) {
     throw new Error("No se pudo cargar el crate.");
   }
   if (!crate) notFound();
+  const totalMemberships = membershipCount ?? 0;
+  const cratePageCount = Math.max(
+    1,
+    Math.ceil(totalMemberships / CRATE_TRACKS_PER_PAGE),
+  );
+  if (totalMemberships > 0 && requestedPage > cratePageCount) {
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    params.set("cratePage", String(cratePageCount));
+    redirect(`/crates/${crate.id}?${params.toString()}`);
+  }
 
   const membershipRows: CrateMembership[] = memberships ?? [];
   const memberIds = membershipRows.map((membership) => membership.track_id);
@@ -120,8 +155,23 @@ export default async function CrateDetailPage({
   if (candidatesError) {
     throw new Error("No se pudo buscar en la biblioteca.");
   }
-  const memberSet = new Set(memberIds);
   const candidateRows: Tables<"tracks">[] = candidates ?? [];
+  const candidateIds = candidateRows.map((track) => track.id);
+  const { data: existingCandidates, error: existingCandidatesError } =
+    candidateIds.length
+      ? await supabase
+          .from("crate_tracks")
+          .select("track_id")
+          .eq("crate_id", crate.id)
+          .eq("user_id", user.id)
+          .in("track_id", candidateIds)
+      : { data: [], error: null };
+  if (existingCandidatesError) {
+    throw new Error("No se pudo comprobar el contenido del crate.");
+  }
+  const memberSet = new Set(
+    (existingCandidates ?? []).map((membership) => membership.track_id),
+  );
   const availableTracks = candidateRows.filter(
     (track: Tables<"tracks">) => !memberSet.has(track.id),
   );
@@ -142,7 +192,13 @@ export default async function CrateDetailPage({
   return (
     <>
       <PageHeader
-        action={<DeleteCrateForm crateId={crate.id} name={crate.name} />}
+        action={
+          <DeleteCrateForm
+            crateId={crate.id}
+            name={crate.name}
+            revision={crate.updated_at}
+          />
+        }
         description={
           crate.description ||
           "Ordena las pistas en la secuencia que quieras usar durante la sesión."
@@ -167,7 +223,7 @@ export default async function CrateDetailPage({
           <div className="organization-section-heading">
             <div>
               <p className="eyebrow">Orden de sesión</p>
-              <h2>{orderedTracks.length} pistas</h2>
+              <h2>{totalMemberships} pistas</h2>
             </div>
             <Link className="button button--secondary" href="/crates">
               Volver
@@ -176,47 +232,59 @@ export default async function CrateDetailPage({
 
           {orderedTracks.length ? (
             <ol className="crate-track-list">
-              {orderedTracks.map((track, index) => (
+              {orderedTracks.map((track, index) => {
+                const globalIndex = rangeFrom + index;
+                return (
                 <li className="card crate-track" key={track.id}>
-                  <span className="crate-track__position">{index + 1}</span>
+                  <span className="crate-track__position">{globalIndex + 1}</span>
                   <div>
                     <Link href={`/library/${track.id}`}>{track.title}</Link>
-                    <strong>{track.artist}</strong>
+                    <strong>{track.artist ?? "Artista desconocido"}</strong>
                     <small>{trackSummary(track)}</small>
                   </div>
                   <div className="crate-track__actions">
-                    <form action={moveTrackInCrateAction}>
+                    <form
+                      action={moveTrackInCrateAction}
+                      data-offline-action="crate-track-move"
+                    >
                       <input name="crateId" type="hidden" value={crate.id} />
                       <input name="trackId" type="hidden" value={track.id} />
                       <input name="direction" type="hidden" value="up" />
                       <button
                         aria-label={`Subir ${track.title}`}
-                        disabled={index === 0}
+                        disabled={globalIndex === 0}
                         type="submit"
                       >
                         ↑
                       </button>
                     </form>
-                    <form action={moveTrackInCrateAction}>
+                    <form
+                      action={moveTrackInCrateAction}
+                      data-offline-action="crate-track-move"
+                    >
                       <input name="crateId" type="hidden" value={crate.id} />
                       <input name="trackId" type="hidden" value={track.id} />
                       <input name="direction" type="hidden" value="down" />
                       <button
                         aria-label={`Bajar ${track.title}`}
-                        disabled={index === orderedTracks.length - 1}
+                        disabled={globalIndex === totalMemberships - 1}
                         type="submit"
                       >
                         ↓
                       </button>
                     </form>
-                    <form action={removeTrackFromCrateAction}>
+                    <form
+                      action={removeTrackFromCrateAction}
+                      data-offline-action="crate-track-remove"
+                    >
                       <input name="crateId" type="hidden" value={crate.id} />
                       <input name="trackId" type="hidden" value={track.id} />
                       <button type="submit">Quitar</button>
                     </form>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ol>
           ) : (
             <EmptyState
@@ -225,15 +293,53 @@ export default async function CrateDetailPage({
               title="Este crate está vacío"
             />
           )}
+          {totalMemberships > CRATE_TRACKS_PER_PAGE ? (
+            <nav aria-label="Paginación del crate" className="pagination">
+              {requestedPage > 1 ? (
+                <Link
+                  className="button button--secondary"
+                  href={`/crates/${crate.id}?${new URLSearchParams({
+                    ...(search ? { q: search } : {}),
+                    cratePage: String(requestedPage - 1),
+                  })}`}
+                >
+                  Anterior
+                </Link>
+              ) : (
+                <span />
+              )}
+              <span>
+                {requestedPage} / {cratePageCount}
+              </span>
+              {requestedPage < cratePageCount ? (
+                <Link
+                  className="button button--secondary"
+                  href={`/crates/${crate.id}?${new URLSearchParams({
+                    ...(search ? { q: search } : {}),
+                    cratePage: String(requestedPage + 1),
+                  })}`}
+                >
+                  Siguiente
+                </Link>
+              ) : (
+                <span />
+              )}
+            </nav>
+          ) : null}
         </div>
 
         <aside className="organization-sidebar">
-          <form action={updateCrateAction} className="card organization-form">
+          <form
+            action={updateCrateAction}
+            className="card organization-form"
+            data-offline-action="crate-update"
+          >
             <div>
               <p className="eyebrow">Datos</p>
               <h2>Editar crate</h2>
             </div>
             <input name="id" type="hidden" value={crate.id} />
+            <input name="revision" type="hidden" value={crate.updated_at} />
             <label className="field">
               Nombre
               <input
@@ -251,6 +357,19 @@ export default async function CrateDetailPage({
                 name="description"
                 rows={3}
               />
+            </label>
+            <label className="field">
+              Carpeta superior
+              <select defaultValue={crate.parent_id ?? ""} name="parentId">
+                <option value="">Nivel principal</option>
+                {(allCrates ?? [])
+                  .filter((candidate) => candidate.id !== crate.id)
+                  .map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                    </option>
+                  ))}
+              </select>
             </label>
             <button className="button button--primary" type="submit">
               Guardar cambios
@@ -283,9 +402,12 @@ export default async function CrateDetailPage({
                   <li key={track.id}>
                     <div>
                       <strong>{track.title}</strong>
-                      <span>{track.artist}</span>
+                      <span>{track.artist ?? "Artista desconocido"}</span>
                     </div>
-                    <form action={addTrackToCrateAction}>
+                    <form
+                      action={addTrackToCrateAction}
+                      data-offline-action="crate-track-add"
+                    >
                       <input name="crateId" type="hidden" value={crate.id} />
                       <input name="trackId" type="hidden" value={track.id} />
                       <button type="submit">Añadir</button>

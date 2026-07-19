@@ -33,20 +33,25 @@ describe("metadataToImportTrack", () => {
         "f6a8b3c23a7f0dfe4b9a0e96b0a6515f162c0f77c643fcf1f1f86a892f4f7c22",
       ),
     ).toEqual({
+      acoustic_fingerprint: null,
       album: "Club Tools",
       artist: "Nova",
       bpm: 127.46,
       client_id: "a8209c99-ccf2-4d8c-a245-97abcb45e761",
       duration_seconds: 242.988,
+      energy: null,
       file_fingerprint:
         "f6a8b3c23a7f0dfe4b9a0e96b0a6515f162c0f77c643fcf1f1f86a892f4f7c22",
       file_name: "pulse.flac",
       file_size: 2048,
       file_type: "audio/flac",
       genre: "House",
+      genre_confidence: null,
+      genre_source: "metadata",
       musical_key: "Am",
       release_year: 2025,
       title: "Pulse",
+      version_type: "original",
     });
   });
 
@@ -59,7 +64,7 @@ describe("metadataToImportTrack", () => {
     );
 
     expect(track.title).toBe("Unknown Track");
-    expect(track.artist).toBe("");
+    expect(track.artist).toBeNull();
     expect(track.file_type).toBe("application/octet-stream");
   });
 });

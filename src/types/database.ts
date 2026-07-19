@@ -20,6 +20,27 @@ export type Database = {
   };
   public: {
     Tables: {
+      ai_analysis_events: {
+        Row: {
+          analysis_kind: string;
+          created_at: string;
+          id: string;
+          user_id: string;
+        };
+        Insert: {
+          analysis_kind: string;
+          created_at?: string;
+          id?: string;
+          user_id: string;
+        };
+        Update: {
+          analysis_kind?: string;
+          created_at?: string;
+          id?: string;
+          user_id?: string;
+        };
+        Relationships: Relationship[];
+      };
       crate_tracks: {
         Row: {
           crate_id: string;
@@ -50,6 +71,7 @@ export type Database = {
           description: string | null;
           id: string;
           name: string;
+          parent_id: string | null;
           updated_at: string;
           user_id: string;
         };
@@ -58,6 +80,7 @@ export type Database = {
           description?: string | null;
           id?: string;
           name: string;
+          parent_id?: string | null;
           updated_at?: string;
           user_id: string;
         };
@@ -66,10 +89,44 @@ export type Database = {
           description?: string | null;
           id?: string;
           name?: string;
+          parent_id?: string | null;
           updated_at?: string;
           user_id?: string;
         };
         Relationships: [];
+      };
+      integration_syncs: {
+        Row: {
+          conflict_count: number;
+          created_at: string;
+          direction: string;
+          id: string;
+          list_name: string;
+          provider: string;
+          track_ids: string[];
+          user_id: string;
+        };
+        Insert: {
+          conflict_count?: number;
+          created_at?: string;
+          direction: string;
+          id?: string;
+          list_name: string;
+          provider: string;
+          track_ids?: string[];
+          user_id: string;
+        };
+        Update: {
+          conflict_count?: number;
+          created_at?: string;
+          direction?: string;
+          id?: string;
+          list_name?: string;
+          provider?: string;
+          track_ids?: string[];
+          user_id?: string;
+        };
+        Relationships: Relationship[];
       };
       profiles: {
         Row: {
@@ -139,9 +196,10 @@ export type Database = {
       };
       tracks: {
         Row: {
+          acoustic_fingerprint: string | null;
           album: string | null;
           analysis_status: string;
-          artist: string;
+          artist: string | null;
           artwork_url: string | null;
           bpm: number | null;
           camelot_key: string | null;
@@ -154,6 +212,8 @@ export type Database = {
           file_size: number | null;
           file_type: string | null;
           genre: string | null;
+          genre_confidence: number | null;
+          genre_source: string | null;
           id: string;
           musical_key: string | null;
           rating: number | null;
@@ -161,11 +221,13 @@ export type Database = {
           title: string;
           updated_at: string;
           user_id: string;
+          version_type: string | null;
         };
         Insert: {
+          acoustic_fingerprint?: string | null;
           album?: string | null;
           analysis_status?: string;
-          artist: string;
+          artist?: string | null;
           artwork_url?: string | null;
           bpm?: number | null;
           camelot_key?: string | null;
@@ -178,6 +240,8 @@ export type Database = {
           file_size?: number | null;
           file_type?: string | null;
           genre?: string | null;
+          genre_confidence?: number | null;
+          genre_source?: string | null;
           id?: string;
           musical_key?: string | null;
           rating?: number | null;
@@ -185,11 +249,13 @@ export type Database = {
           title: string;
           updated_at?: string;
           user_id: string;
+          version_type?: string | null;
         };
         Update: {
+          acoustic_fingerprint?: string | null;
           album?: string | null;
           analysis_status?: string;
-          artist?: string;
+          artist?: string | null;
           artwork_url?: string | null;
           bpm?: number | null;
           camelot_key?: string | null;
@@ -202,6 +268,8 @@ export type Database = {
           file_size?: number | null;
           file_type?: string | null;
           genre?: string | null;
+          genre_confidence?: number | null;
+          genre_source?: string | null;
           id?: string;
           musical_key?: string | null;
           rating?: number | null;
@@ -209,12 +277,22 @@ export type Database = {
           title?: string;
           updated_at?: string;
           user_id?: string;
+          version_type?: string | null;
         };
         Relationships: [];
       };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      reconcile_crate_tracks: {
+        Args: {
+          desired_track_ids: string[];
+          remove_missing?: boolean;
+          target_crate_id: string;
+        };
+        Returns: Json;
+      };
+    };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
   };

@@ -42,7 +42,11 @@ export default async function TrackDetailPage({
     <>
       <PageHeader
         action={
-          <DeleteTrackForm title={track.title} trackId={track.id} />
+          <DeleteTrackForm
+            revision={track.updated_at}
+            title={track.title}
+            trackId={track.id}
+          />
         }
         description={`Añadida el ${new Intl.DateTimeFormat("es-ES", {
           dateStyle: "long",
@@ -74,7 +78,7 @@ export default async function TrackDetailPage({
                   key={candidate.id}
                 >
                   <strong>{candidate.title}</strong>
-                  <span>{candidate.artist}</span>
+                  <span>{candidate.artist ?? "Artista desconocido"}</span>
                   <small>
                     {candidate.camelot_key} · {candidate.bpm ?? "—"} BPM
                   </small>

@@ -129,6 +129,13 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                     </div>
                     <div>
                       <strong>{crate.name}</strong>
+                      {crate.parent_id ? (
+                        <small>
+                          Dentro de{" "}
+                          {crateRows.find((item) => item.id === crate.parent_id)
+                            ?.name ?? "otro crate"}
+                        </small>
+                      ) : null}
                       <p>
                         {crate.description || "Sin descripción"}
                       </p>
@@ -150,7 +157,11 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
         </div>
 
         <aside className="organization-sidebar">
-          <form action={createCrateAction} className="card organization-form">
+          <form
+            action={createCrateAction}
+            className="card organization-form"
+            data-offline-action="crate-create"
+          >
             <div>
               <p className="eyebrow">Nuevo</p>
               <h2>Crear crate</h2>
@@ -163,6 +174,17 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
               Descripción
               <textarea maxLength={1000} name="description" rows={3} />
             </label>
+            <label className="field">
+              Carpeta superior
+              <select defaultValue="" name="parentId">
+                <option value="">Nivel principal</option>
+                {crateRows.map((crate) => (
+                  <option key={crate.id} value={crate.id}>
+                    {crate.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button className="button button--primary" type="submit">
               Crear crate
             </button>
@@ -173,7 +195,11 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
               <p className="eyebrow">Clasificación</p>
               <h2>Etiquetas</h2>
             </div>
-            <form action={createTagAction} className="tag-create-form">
+            <form
+              action={createTagAction}
+              className="tag-create-form"
+              data-offline-action="tag-create"
+            >
               <label className="field">
                 Nombre
                 <input maxLength={80} name="name" required />
@@ -188,7 +214,11 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                   <li key={tag.id}>
                     <span>{tag.name}</span>
                     <small>{tagCounts.get(tag.id) ?? 0} pistas</small>
-                    <DeleteTagForm name={tag.name} tagId={tag.id} />
+                    <DeleteTagForm
+                      name={tag.name}
+                      revision={tag.updated_at}
+                      tagId={tag.id}
+                    />
                   </li>
                 ))}
               </ul>

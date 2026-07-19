@@ -147,3 +147,10 @@ vite.config.ts.timestamp-*
 
 # Tauri / Rust build output
 src-tauri/target/
+src-tauri/gen/
+
+# Local browser and validation artifacts
+.playwright-browsers/
+playwright-report/
+test-results/
+.next-server.*.log

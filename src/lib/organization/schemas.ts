@@ -13,6 +13,7 @@ export const crateValuesSchema = z.object({
     .trim()
     .min(1, "Añade un nombre.")
     .max(120, "El nombre no puede superar 120 caracteres."),
+  parent_id: z.string().uuid().nullable(),
 });
 
 export const tagNameSchema = z
@@ -39,6 +40,11 @@ export function crateValuesFromFormData(formData: FormData) {
   return crateValuesSchema.parse({
     description: formData.get("description"),
     name: formData.get("name"),
+    parent_id:
+      typeof formData.get("parentId") === "string" &&
+      String(formData.get("parentId")).trim()
+        ? formData.get("parentId")
+        : null,
   });
 }
 

@@ -29,12 +29,15 @@ request independiente, con pruebas, revisión y despliegue de producción desde
 - [x] Exportar también M3U8 como formato de compatibilidad heredada.
 - [x] Asociar de forma local una pista persistente de DJOrganizer con su archivo
   en cada dispositivo mediante huella y ruta, sin publicar la ruta absoluta.
-- [ ] Exportar crates de DJOrganizer a Lists de VirtualDJ conservando su orden.
-- [ ] Exportar varios crates y jerarquías de listas en una sola operación.
-- [ ] Previsualizar e importar cambios de **My Lists** sin sobrescribir datos.
-- [ ] Añadir reconciliación de conflictos, copias de seguridad e historial.
-- [ ] Evaluar cues, rating, color e historial solo tras validar oficialmente cada
-  campo; no modificar `database.xml` directamente en el MVP.
+- [x] Exportar crates de DJOrganizer a Lists de VirtualDJ conservando su orden.
+- [x] Exportar varios crates y jerarquías de listas en una sola operación.
+- [x] Previsualizar e importar cambios de **My Lists** sin sobrescribir datos.
+- [x] Reconciliar mediante combinación o reemplazo confirmado, conservar copias
+  de las Lists existentes y registrar conflictos no resueltos.
+- [x] Evaluar cues, rating, color e historial: la especificación oficial de
+  **My Lists** no define esos campos, por lo que DJOrganizer no los exporta ni
+  modifica `database.xml`. Se reabrirá únicamente si VirtualDJ publica un
+  contrato estable y documentado.
 
 VirtualDJ 2024+ usa XML en **My Lists**; M3U se mantiene como compatibilidad
 heredada. Referencias oficiales:
@@ -44,10 +47,10 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 
 ### Gestión real del sistema de archivos
 
-- [ ] Aplicar el plan de reorganización con confirmación y simulación final.
-- [ ] Registrar cada movimiento y ofrecer deshacer o recuperación.
-- [ ] Detectar cambios externos y evitar sobrescrituras o colisiones.
-- [ ] Escribir metadatos en archivos solo como opción explícita, con copia de
+- [x] Aplicar el plan de reorganización con confirmación y simulación final.
+- [x] Registrar cada movimiento y ofrecer historial y deshacer durante la sesión.
+- [x] Detectar cambios externos y evitar sobrescrituras o colisiones.
+- [x] Escribir metadatos en archivos solo como opción explícita, con copia de
   seguridad y reversión.
 - [ ] Vigilar carpetas e incorporar escaneos incrementales.
 
@@ -56,34 +59,54 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 - [x] Analizar automáticamente BPM y tonalidad en cuanto se seleccionen archivos
   para importar, sin requerir un botón adicional; mostrar progreso, permitir
   cancelar y conservar la corrección manual. El análisis sigue siendo local.
-- [ ] Clasificar géneros con la API de OpenAI y la familia `gpt-audio`. Esta
+- [x] Clasificar géneros con la API de OpenAI y `gpt-audio`. Esta
   función será opcional y requerirá consentimiento explícito antes de enviar un
   fragmento autorizado; la clave permanecerá en el servidor. Definir taxonomía,
   respuesta estructurada, confianza, límites de coste, caché por huella y
-  corrección manual. Confirmar el modelo de audio vigente al implementar.
+  corrección manual. El clip WAV mono de hasta 45 segundos se genera localmente,
+  no se almacena y existe un límite por usuario.
   Referencia: [gpt-audio](https://developers.openai.com/api/docs/models/gpt-audio).
-- [ ] Calcular energía real con una escala documentada y editable.
-- [ ] Detectar duplicados acústicos o versiones recodificadas, además de copias
+- [x] Calcular energía real con una escala documentada y editable.
+- [x] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
 - [ ] Mejorar confianza y explicación de BPM y tonalidad.
-- [ ] Añadir comparación de versiones, remixes y ediciones.
-- [ ] Mantener género automático como función opcional y revisable.
+- [x] Añadir comparación de versiones, remixes y ediciones.
+- [x] Mantener género automático como función opcional y revisable.
 
 ### Offline, rendimiento y distribución
 
-- [ ] Cola de edición offline y sincronización segura con resolución de conflictos.
-- [ ] Virtualización y pruebas con bibliotecas de decenas de miles de pistas.
-- [ ] Instaladores firmados para Windows y macOS.
-- [ ] Actualizaciones automáticas verificadas para la aplicación de escritorio.
-- [ ] Copias de seguridad, exportación general de datos y restauración.
-- [ ] Observabilidad respetuosa con la privacidad y diagnóstico de fallos.
+- [x] Cola offline compactada para importación de metadatos, reintento al volver
+  la conexión y contratos de detección de conflictos.
+- [x] Extender la cola offline a altas, ediciones y eliminaciones de pistas,
+  crates, orden de crates y etiquetas, con compactación, revisión optimista,
+  conflictos y reintento explícito.
+- [x] Mantener ventanas acotadas en servidor y cliente: biblioteca en páginas de
+  25, crates en páginas de 100 y escaneo local paginado. La suite incluye una
+  biblioteca sintética de 50.000 pistas.
+- [x] Pipeline de instaladores firmados para Windows, macOS y Linux.
+- [x] Actualizaciones verificadas para la aplicación de escritorio.
+- [x] Copias de seguridad, exportación general de datos y restauración.
+- [x] Diagnóstico local opt-in para exportación manual: conserva como máximo 100
+  eventos técnicos saneados y nunca envía biblioteca, audio, rutas, cookies,
+  cuenta o credenciales.
 
 ### Calidad de producto
 
-- [ ] Pruebas end-to-end de autenticación, importación, biblioteca y crates.
-- [ ] Auditoría automatizada de RLS y separación entre usuarios.
-- [ ] Accesibilidad completa con teclado y lectores de pantalla.
+- [x] Base E2E en Chromium de escritorio y móvil para navegación, protección de
+  rutas, teclado e idioma.
+- [x] E2E autenticado de importación, biblioteca y crates con Supabase efímero:
+  genera WAV en memoria, guarda pistas sin artista, verifica la biblioteca,
+  crea un crate y comprueba su orden persistente.
+- [x] Auditoría automatizada de RLS y separación entre usuarios con pgTAP:
+  valida todas las tablas personales, operaciones cruzadas y reconciliación,
+  y se ejecuta contra una base efímera en CI.
+- [x] Navegación semántica, enlace de salto, foco visible, estados accesibles y
+  validación responsive por teclado.
+- [ ] Completar auditoría con lector de pantalla en los flujos autenticados.
 - [ ] Onboarding, ayuda contextual y recuperación ante estados vacíos o errores.
-- [ ] Internacionalización.
-- [ ] Integraciones posteriores con Rekordbox, Serato, Traktor y ecosistemas CDJ,
+- [x] Infraestructura bilingüe español/inglés, cookie de preferencia y shell
+  traducida.
+- [ ] Traducir todo el contenido funcional restante al inglés.
+- [x] Contratos de capacidades para Rekordbox, Serato y Traktor.
+- [ ] Implementaciones posteriores con Rekordbox, Serato, Traktor y ecosistemas CDJ,
   después de estabilizar VirtualDJ.

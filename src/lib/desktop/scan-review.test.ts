@@ -72,6 +72,24 @@ describe("paginateScannedTracks", () => {
     expect(paginateScannedTracks(manyTracks, 99, 25).page).toBe(3);
     expect(paginateScannedTracks(manyTracks, -1, 25).page).toBe(1);
   });
+
+  it("keeps the rendered window bounded with 50,000 scanned tracks", () => {
+    const largeLibrary = Array.from({ length: 50_000 }, (_, index) => ({
+      ...tracks[0],
+      name: `Track ${index}.mp3`,
+      relativePath: `Library/${index}/Track ${index}.mp3`,
+      scanId: `track-${index}`,
+      title: `Track ${index}`,
+    }));
+    const filtered = filterScannedTracks(largeLibrary, "track 49999", "all");
+    const page = paginateScannedTracks(largeLibrary, 1_500, 25);
+
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].scanId).toBe("track-49999");
+    expect(page.items).toHaveLength(25);
+    expect(page.total).toBe(50_000);
+    expect(page.totalPages).toBe(2_000);
+  });
 });
 
 
