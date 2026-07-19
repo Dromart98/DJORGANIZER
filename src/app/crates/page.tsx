@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { createCrateAction, createTagAction } from "@/app/crates/actions";
 import { DeleteTagForm } from "@/components/organization/delete-organization-forms";
+import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
+import { getMessages } from "@/lib/i18n/i18n";
+import { getCurrentLocale } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Tables } from "@/types/database";
 
@@ -25,14 +28,18 @@ const errorMessages: Record<string, string> = {
 export const metadata = { title: "Crates y etiquetas" };
 
 export default async function CratesPage({ searchParams }: CratesPageProps) {
-  const user = await requireUser();
-  const query = await searchParams;
+  const [user, query, locale] = await Promise.all([
+    requireUser(),
+    searchParams,
+    getCurrentLocale(),
+  ]);
   const supabase = await createClient();
   const [
     { data: crates, error: cratesError },
     { data: crateTracks, error: crateTracksError },
     { data: tags, error: tagsError },
     { data: trackTags, error: trackTagsError },
+    { count: trackCount, error: trackCountError },
   ] = await Promise.all([
     supabase
       .from("crates")
@@ -49,9 +56,19 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
       .eq("user_id", user.id)
       .order("name", { ascending: true }),
     supabase.from("track_tags").select("tag_id").eq("user_id", user.id),
+    supabase
+      .from("tracks")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id),
   ]);
 
-  if (cratesError || crateTracksError || tagsError || trackTagsError) {
+  if (
+    cratesError ||
+    crateTracksError ||
+    tagsError ||
+    trackTagsError ||
+    trackCountError
+  ) {
     throw new Error("No se pudo cargar la organización de tu biblioteca.");
   }
 
@@ -59,6 +76,8 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
   const crateTrackRows = crateTracks ?? [];
   const tagRows = tags ?? [];
   const trackTagRows = trackTags ?? [];
+  const hasTracks = (trackCount ?? 0) > 0;
+  const emptyCopy = getMessages(locale).cratesEmpty;
   const crateCounts = new Map<string, number>();
   for (const membership of crateTrackRows) {
     crateCounts.set(
@@ -149,46 +168,90 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
             </div>
           ) : (
             <EmptyState
-              description="Crea un crate para preparar una sesión, una sala o un momento."
+              action={
+                hasTracks ? (
+                  <Link
+                    className="button button--primary"
+                    href="#create-crate"
+                  >
+                    {emptyCopy.createAction}
+                  </Link>
+                ) : (
+                  <div className="empty-state__actions">
+                    <Link className="button button--primary" href="/import">
+                      {emptyCopy.primaryAction}
+                    </Link>
+                    <Link
+                      className="button button--secondary"
+                      href="/library/new"
+                    >
+                      {emptyCopy.manualAction}
+                    </Link>
+                  </div>
+                )
+              }
+              description={
+                hasTracks
+                  ? emptyCopy.createDescription
+                  : emptyCopy.noTracksDescription
+              }
               icon={<Icon name="crates" />}
-              title="Todavía no hay crates"
+              title={
+                hasTracks ? emptyCopy.createTitle : emptyCopy.noTracksTitle
+              }
             />
           )}
         </div>
 
         <aside className="organization-sidebar">
-          <form
-            action={createCrateAction}
-            className="card organization-form"
-            data-offline-action="crate-create"
-          >
-            <div>
-              <p className="eyebrow">Nuevo</p>
-              <h2>Crear crate</h2>
-            </div>
-            <label className="field">
-              Nombre
-              <input maxLength={120} name="name" required />
-            </label>
-            <label className="field">
-              Descripción
-              <textarea maxLength={1000} name="description" rows={3} />
-            </label>
-            <label className="field">
-              Carpeta superior
-              <select defaultValue="" name="parentId">
-                <option value="">Nivel principal</option>
-                {crateRows.map((crate) => (
-                  <option key={crate.id} value={crate.id}>
-                    {crate.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="button button--primary" type="submit">
-              Crear crate
-            </button>
-          </form>
+          {hasTracks ? (
+            <form
+              action={createCrateAction}
+              className="card organization-form"
+              data-offline-action="crate-create"
+              id="create-crate"
+            >
+              <div>
+                <p className="eyebrow">Nuevo</p>
+                <h2>Crear crate</h2>
+              </div>
+              <label className="field">
+                Nombre
+                <input maxLength={120} name="name" required />
+              </label>
+              <label className="field">
+                Descripción
+                <textarea maxLength={1000} name="description" rows={3} />
+              </label>
+              <label className="field">
+                Carpeta superior
+                <select defaultValue="" name="parentId">
+                  <option value="">Nivel principal</option>
+                  {crateRows.map((crate) => (
+                    <option key={crate.id} value={crate.id}>
+                      {crate.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="button button--primary" type="submit">
+                Crear crate
+              </button>
+            </form>
+          ) : (
+            <Card className="organization-form organization-guidance">
+              <div>
+                <p className="eyebrow">Crates</p>
+                <h2>{emptyCopy.sidebarTitle}</h2>
+              </div>
+              <p className="organization-muted">
+                {emptyCopy.sidebarDescription}
+              </p>
+              <Link className="button button--primary" href="/import">
+                {emptyCopy.primaryAction}
+              </Link>
+            </Card>
+          )}
 
           <div className="card organization-form">
             <div>
