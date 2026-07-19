@@ -545,7 +545,7 @@ fn safe_export_file_name(list_name: &str) -> String {
     if sanitized.is_empty() {
         "DJOrganizer".to_owned()
     } else {
-        sanitized
+        sanitized.to_owned()
     }
 }
 
