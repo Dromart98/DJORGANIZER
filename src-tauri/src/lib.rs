@@ -2488,6 +2488,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use super::export_path_text;
     use super::{
         apply_metadata_write_batch, audio_extension, build_metadata_write_preview,
         build_reorganization_plan, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
