@@ -38,6 +38,7 @@ struct AudioMetadata {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScannedAudioFile {
+    scan_id: String,
     name: String,
     relative_path: String,
     extension: String,
@@ -388,6 +389,7 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
             candidates.push(ScanCandidate {
                 path,
                 track: ScannedAudioFile {
+                    scan_id: String::new(),
                     name,
                     relative_path,
                     extension,
@@ -409,6 +411,9 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
     candidates.sort_by_key(|candidate| candidate.track.relative_path.to_ascii_lowercase());
     let (duplicate_groups, duplicate_tracks, fingerprint_failures) =
         mark_exact_duplicates(&mut candidates);
+    for (index, candidate) in candidates.iter_mut().enumerate() {
+        candidate.track.scan_id = create_track_id(&session_id, index);
+    }
     let session_tracks = candidates
         .iter()
         .map(|candidate| SessionTrack {
@@ -436,6 +441,13 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
         },
         session_tracks,
     })
+}
+
+fn create_track_id(session_id: &str, index: usize) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(session_id.as_bytes());
+    hasher.update(index.to_le_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn create_scan_session_id(root: &Path) -> Result<String, String> {
@@ -566,7 +578,7 @@ async fn choose_and_scan_music_folder(
         .session_tracks
         .iter()
         .cloned()
-        .map(|track| (track.track.relative_path.clone(), track))
+        .map(|track| (track.track.scan_id.clone(), track))
         .collect();
     let mut current_session = state
         .scan_session
@@ -585,18 +597,18 @@ async fn export_virtualdj_list(
     app: AppHandle,
     state: State<'_, DesktopState>,
     session_id: String,
-    relative_paths: Vec<String>,
+    track_ids: Vec<String>,
     list_name: String,
 ) -> Result<VirtualDjExportResult, String> {
     let list_name = list_name.trim();
     if list_name.is_empty() || list_name.chars().count() > 120 {
         return Err("El nombre de la lista debe tener entre 1 y 120 caracteres.".to_owned());
     }
-    if relative_paths.is_empty() || relative_paths.len() > MAX_TRACKS {
+    if track_ids.is_empty() || track_ids.len() > MAX_TRACKS {
         return Err("Selecciona entre 1 y 10.000 pistas para exportar.".to_owned());
     }
 
-    let mut unique_paths = HashSet::with_capacity(relative_paths.len());
+    let mut unique_ids = HashSet::with_capacity(track_ids.len());
     let selected_tracks = {
         let current_session = state
             .scan_session
@@ -609,15 +621,15 @@ async fn export_virtualdj_list(
                 "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
             })?;
 
-        relative_paths
+        track_ids
             .iter()
-            .map(|relative_path| {
-                if !unique_paths.insert(relative_path) {
+            .map(|track_id| {
+                if !unique_ids.insert(track_id) {
                     return Err("La selección contiene una pista repetida.".to_owned());
                 }
                 session
                     .tracks
-                    .get(relative_path)
+                    .get(track_id)
                     .cloned()
                     .ok_or_else(|| "La selección no pertenece al escaneo activo.".to_owned())
             })
@@ -675,9 +687,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_extension, build_virtualdj_list_xml, parse_bpm, parse_mp4_bpm_value,
-        read_audio_metadata, safe_export_file_name, scan_music_folder, ScannedAudioFile,
-        SessionTrack,
+        audio_extension, build_virtualdj_list_xml, create_track_id, parse_bpm,
+        parse_mp4_bpm_value, read_audio_metadata, safe_export_file_name, scan_music_folder,
+        ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use std::{
@@ -827,6 +839,16 @@ mod tests {
     }
 
     #[test]
+    fn creates_distinct_opaque_track_ids_within_a_session() {
+        let first = create_track_id("session", 0);
+        let second = create_track_id("session", 1);
+
+        assert_eq!(first.len(), 64);
+        assert_ne!(first, second);
+        assert!(!first.contains("session"));
+    }
+
+    #[test]
     fn rejects_a_file_as_the_scan_root() {
         let root = test_directory();
         let file = root.join("track.wav");
@@ -845,6 +867,7 @@ mod tests {
             SessionTrack {
                 absolute_path: "/music/A&B/Opening \"Live\".mp3".into(),
                 track: ScannedAudioFile {
+                    scan_id: String::new(),
                     name: "Opening.mp3".to_owned(),
                     relative_path: "A/Opening.mp3".to_owned(),
                     extension: "mp3".to_owned(),
@@ -863,6 +886,7 @@ mod tests {
             SessionTrack {
                 absolute_path: "/music/Closing.flac".into(),
                 track: ScannedAudioFile {
+                    scan_id: String::new(),
                     name: "Closing.flac".to_owned(),
                     relative_path: "Closing.flac".to_owned(),
                     extension: "flac".to_owned(),
