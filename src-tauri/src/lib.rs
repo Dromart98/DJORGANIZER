@@ -1,3 +1,10 @@
+use lofty::{
+    config::ParseOptions,
+    file::{AudioFile, TaggedFileExt},
+    mp4::{AtomData, AtomIdent, Ilst, Mp4File},
+    read_from_path,
+    tag::{Accessor, ItemKey},
+};
 use serde::Serialize;
 use std::{
     fs,
@@ -12,13 +19,32 @@ const AUDIO_EXTENSIONS: &[&str] = &[
 const MAX_ENTRIES: usize = 100_000;
 const MAX_TRACKS: usize = 10_000;
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, PartialEq)]
+struct AudioMetadata {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    genre: Option<String>,
+    duration_seconds: Option<f64>,
+    bpm: Option<f64>,
+    musical_key: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScannedAudioFile {
     name: String,
     relative_path: String,
     extension: String,
     size_bytes: u64,
+    metadata_read: bool,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    genre: Option<String>,
+    duration_seconds: Option<f64>,
+    bpm: Option<f64>,
+    musical_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +54,7 @@ struct FolderScanResult {
     tracks: Vec<ScannedAudioFile>,
     examined_entries: usize,
     skipped_entries: usize,
+    metadata_failures: usize,
     truncated: bool,
 }
 
@@ -36,6 +63,103 @@ fn audio_extension(path: &Path) -> Option<String> {
     AUDIO_EXTENSIONS
         .contains(&extension.as_str())
         .then_some(extension)
+}
+
+fn cleaned_text(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+fn parse_bpm(value: &str) -> Option<f64> {
+    let bpm = value.trim().replace(',', ".").parse::<f64>().ok()?;
+    (20.0..=300.0).contains(&bpm).then_some(bpm)
+}
+
+fn parse_mp4_bpm_value(value: &AtomData) -> Option<f64> {
+    match value {
+        AtomData::SignedInteger(value) => parse_bpm(&value.to_string()),
+        AtomData::UnsignedInteger(value) => parse_bpm(&value.to_string()),
+        AtomData::UTF8(value) | AtomData::UTF16(value) => parse_bpm(value),
+        AtomData::Unknown { data, .. } if !data.is_empty() && data.len() <= 4 => {
+            let value = data.iter().try_fold(0_u32, |value, byte| {
+                value.checked_mul(256)?.checked_add(*byte as u32)
+            })?;
+            parse_bpm(&value.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn mp4_text(ilst: &Ilst, key: ItemKey) -> Option<String> {
+    let ident = AtomIdent::try_from(key).ok()?;
+    let atom = ilst.get(&ident)?;
+
+    atom.data().find_map(|value| match value {
+        AtomData::UTF8(value) | AtomData::UTF16(value) => cleaned_text(value),
+        _ => None,
+    })
+}
+
+fn read_mp4_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mp4_file =
+        Mp4File::read_from(&mut file, ParseOptions::new()).map_err(|error| error.to_string())?;
+    let duration = mp4_file.properties().duration().as_secs_f64();
+    let mut metadata = AudioMetadata {
+        duration_seconds: (duration > 0.0).then_some(duration),
+        ..AudioMetadata::default()
+    };
+
+    if let Some(ilst) = mp4_file.ilst() {
+        metadata.title = ilst.title().as_deref().and_then(cleaned_text);
+        metadata.artist = ilst.artist().as_deref().and_then(cleaned_text);
+        metadata.album = ilst.album().as_deref().and_then(cleaned_text);
+        metadata.genre = ilst.genre().as_deref().and_then(cleaned_text);
+        metadata.bpm = mp4_text(ilst, ItemKey::Bpm)
+            .as_deref()
+            .and_then(parse_bpm)
+            .or_else(|| {
+                ilst.get(&AtomIdent::Fourcc(*b"tmpo"))
+                    .and_then(|atom| atom.data().find_map(parse_mp4_bpm_value))
+            });
+        metadata.musical_key = mp4_text(ilst, ItemKey::InitialKey);
+    }
+
+    Ok(metadata)
+}
+
+fn read_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
+    if path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("m4a"))
+    {
+        return read_mp4_audio_metadata(path);
+    }
+
+    let tagged_file = read_from_path(path).map_err(|error| error.to_string())?;
+    let duration = tagged_file.properties().duration().as_secs_f64();
+    let mut metadata = AudioMetadata {
+        duration_seconds: (duration > 0.0).then_some(duration),
+        ..AudioMetadata::default()
+    };
+
+    if let Some(tag) = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+    {
+        metadata.title = tag.title().as_deref().and_then(cleaned_text);
+        metadata.artist = tag.artist().as_deref().and_then(cleaned_text);
+        metadata.album = tag.album().as_deref().and_then(cleaned_text);
+        metadata.genre = tag.genre().as_deref().and_then(cleaned_text);
+        metadata.bpm = tag
+            .get_string(ItemKey::Bpm)
+            .or_else(|| tag.get_string(ItemKey::IntegerBpm))
+            .and_then(parse_bpm);
+        metadata.musical_key = tag.get_string(ItemKey::InitialKey).and_then(cleaned_text);
+    }
+
+    Ok(metadata)
 }
 
 fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
@@ -54,6 +178,7 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
     let mut tracks = Vec::new();
     let mut examined_entries = 0;
     let mut skipped_entries = 0;
+    let mut metadata_failures = 0;
     let mut truncated = false;
 
     'folders: while let Some(directory) = pending.pop() {
@@ -107,7 +232,7 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
             let Some(extension) = audio_extension(&path) else {
                 continue;
             };
-            let metadata = match entry.metadata() {
+            let file_metadata = match entry.metadata() {
                 Ok(metadata) => metadata,
                 Err(_) => {
                     skipped_entries += 1;
@@ -124,12 +249,27 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
                 .and_then(|name| name.to_str())
                 .unwrap_or("Archivo sin nombre")
                 .to_owned();
+            let (metadata, metadata_read) = match read_audio_metadata(&path) {
+                Ok(metadata) => (metadata, true),
+                Err(_) => {
+                    metadata_failures += 1;
+                    (AudioMetadata::default(), false)
+                }
+            };
 
             tracks.push(ScannedAudioFile {
                 name,
                 relative_path,
                 extension,
-                size_bytes: metadata.len(),
+                size_bytes: file_metadata.len(),
+                metadata_read,
+                title: metadata.title,
+                artist: metadata.artist,
+                album: metadata.album,
+                genre: metadata.genre,
+                duration_seconds: metadata.duration_seconds,
+                bpm: metadata.bpm,
+                musical_key: metadata.musical_key,
             });
         }
     }
@@ -141,6 +281,7 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
         tracks,
         examined_entries,
         skipped_entries,
+        metadata_failures,
         truncated,
     })
 }
@@ -160,14 +301,19 @@ async fn choose_and_scan_music_folder(app: AppHandle) -> Result<Option<FolderSca
         .into_path()
         .map_err(|error| format!("La carpeta seleccionada no es una ruta local válida: {error}"))?;
 
-    scan_music_folder(&root).map(Some)
+    let scan = tauri::async_runtime::spawn_blocking(move || scan_music_folder(&root))
+        .await
+        .map_err(|error| format!("El escaneo local se interrumpió: {error}"))??;
+
+    Ok(Some(scan))
 }
 
 /// Starts the desktop application.
 ///
 /// The sole native command always opens an operating-system folder picker and
-/// then performs a bounded, read-only scan. It never accepts a path supplied by
-/// remote web content and never writes, moves, renames, uploads, or hashes files.
+/// then performs a bounded, read-only scan. It reads file metadata and embedded
+/// tags but never accepts a path supplied by remote web content and never writes,
+/// moves, renames, uploads, hashes, or persists files.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -179,7 +325,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{audio_extension, scan_music_folder};
+    use super::{
+        audio_extension, parse_bpm, parse_mp4_bpm_value, read_audio_metadata, scan_music_folder,
+    };
+    use lofty::mp4::AtomData;
     use std::{
         fs,
         path::Path,
@@ -199,6 +348,26 @@ mod tests {
         path
     }
 
+    fn one_second_wav() -> Vec<u8> {
+        let sample_rate = 8_000_u32;
+        let data_length = sample_rate;
+        let mut wav = Vec::with_capacity((44 + data_length) as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_length).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&8_u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_length.to_le_bytes());
+        wav.resize((44 + data_length) as usize, 128);
+        wav
+    }
+
     #[test]
     fn recognizes_supported_extensions_case_insensitively() {
         assert_eq!(
@@ -213,7 +382,43 @@ mod tests {
     }
 
     #[test]
-    fn scans_nested_audio_files_and_ignores_other_content() {
+    fn parses_only_plausible_bpm_values() {
+        assert_eq!(parse_bpm("128"), Some(128.0));
+        assert_eq!(parse_bpm("124,5"), Some(124.5));
+        assert_eq!(parse_bpm("0"), None);
+        assert_eq!(parse_bpm("not-a-number"), None);
+    }
+
+    #[test]
+    fn parses_numeric_mp4_bpm_values() {
+        assert_eq!(
+            parse_mp4_bpm_value(&AtomData::SignedInteger(128)),
+            Some(128.0)
+        );
+        assert_eq!(
+            parse_mp4_bpm_value(&AtomData::UnsignedInteger(124)),
+            Some(124.0)
+        );
+        assert_eq!(parse_mp4_bpm_value(&AtomData::SignedInteger(0)), None);
+    }
+
+    #[test]
+    fn reads_audio_properties_without_requiring_tags() {
+        let root = test_directory();
+        let file = root.join("one-second.wav");
+        fs::write(&file, one_second_wav()).expect("WAV fixture should be written");
+
+        let metadata = read_audio_metadata(&file).expect("WAV metadata should be read");
+
+        assert!(metadata
+            .duration_seconds
+            .is_some_and(|duration| (0.9..=1.1).contains(&duration)));
+        assert_eq!(metadata.title, None);
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn keeps_files_when_embedded_metadata_cannot_be_read() {
         let root = test_directory();
         let set = root.join("Set A");
         fs::create_dir_all(&set).expect("nested directory should be created");
@@ -227,6 +432,8 @@ mod tests {
         assert_eq!(result.tracks[0].relative_path, "Set A/Opening.MP3");
         assert_eq!(result.tracks[0].extension, "mp3");
         assert_eq!(result.tracks[0].size_bytes, 3);
+        assert!(!result.tracks[0].metadata_read);
+        assert_eq!(result.metadata_failures, 1);
         assert!(!result.truncated);
 
         fs::remove_dir_all(root).expect("test directory should be removed");

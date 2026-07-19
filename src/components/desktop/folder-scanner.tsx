@@ -11,6 +11,14 @@ interface ScannedAudioFile {
   relativePath: string;
   extension: string;
   sizeBytes: number;
+  metadataRead: boolean;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  genre: string | null;
+  durationSeconds: number | null;
+  bpm: number | null;
+  musicalKey: string | null;
 }
 
 interface FolderScanResult {
@@ -18,6 +26,7 @@ interface FolderScanResult {
   tracks: ScannedAudioFile[];
   examinedEntries: number;
   skippedEntries: number;
+  metadataFailures: number;
   truncated: boolean;
 }
 
@@ -40,6 +49,38 @@ function formatFileSize(bytes: number) {
     unit: bytes >= 1_000_000 ? "megabyte" : "kilobyte",
     unitDisplay: "short",
   }).format(bytes >= 1_000_000 ? bytes / 1_000_000 : bytes / 1_000);
+}
+
+function formatDuration(seconds: number) {
+  const totalSeconds = Math.round(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
+function formatTrackDetails(track: ScannedAudioFile) {
+  const details: string[] = [];
+
+  if (track.bpm !== null) {
+    details.push(
+      `${track.bpm.toLocaleString("es-ES", { maximumFractionDigits: 1 })} BPM`,
+    );
+  }
+  if (track.musicalKey) details.push(track.musicalKey);
+  if (track.durationSeconds !== null) {
+    details.push(formatDuration(track.durationSeconds));
+  }
+  details.push(track.extension.toUpperCase());
+  details.push(formatFileSize(track.sizeBytes));
+
+  return details.join(" · ");
+}
+
+function formatTrackIdentity(track: ScannedAudioFile) {
+  const identity = [track.artist, track.album, track.genre].filter(
+    (value): value is string => Boolean(value),
+  );
+  return identity.length ? identity.join(" · ") : track.relativePath;
 }
 
 export function DesktopFolderScanner() {
@@ -87,8 +128,8 @@ export function DesktopFolderScanner() {
           <p className="eyebrow">Aplicación de escritorio</p>
           <h2 id="desktop-scan-title">Escanear una carpeta musical</h2>
           <p>
-            El selector nativo requiere una confirmación explícita. El escaneo
-            solo lee nombres, extensiones, rutas relativas y tamaños; no mueve,
+            El selector nativo requiere una confirmación explícita. El escaneo lee
+            etiquetas y propiedades técnicas en este dispositivo; no mueve,
             modifica, reproduce, sube ni guarda audio.
           </p>
         </div>
@@ -98,7 +139,7 @@ export function DesktopFolderScanner() {
           onClick={() => void chooseAndScan()}
           type="button"
         >
-          {scanning ? "Escaneando…" : "Seleccionar carpeta"}
+          {scanning ? "Leyendo metadatos…" : "Seleccionar carpeta"}
         </button>
       </section>
 
@@ -122,6 +163,9 @@ export function DesktopFolderScanner() {
             {result.skippedEntries
               ? ` y se omitieron ${result.skippedEntries.toLocaleString("es-ES")} sin acceso`
               : ""}
+            {result.metadataFailures
+              ? `; ${result.metadataFailures.toLocaleString("es-ES")} pistas conservaron solo los datos del archivo`
+              : ""}
             .{result.truncated ? " El resultado alcanzó el límite de seguridad." : ""}
           </p>
           {result.tracks.length ? (
@@ -129,12 +173,10 @@ export function DesktopFolderScanner() {
               {result.tracks.slice(0, 8).map((track) => (
                 <li key={track.relativePath}>
                   <div>
-                    <strong>{track.name}</strong>
-                    <span>{track.relativePath}</span>
+                    <strong>{track.title ?? track.name}</strong>
+                    <span>{formatTrackIdentity(track)}</span>
                   </div>
-                  <span>
-                    {track.extension.toUpperCase()} · {formatFileSize(track.sizeBytes)}
-                  </span>
+                  <span>{formatTrackDetails(track)}</span>
                 </li>
               ))}
             </ul>
@@ -145,8 +187,8 @@ export function DesktopFolderScanner() {
           )}
           {result.tracks.length > 8 ? (
             <p className="organization-muted">
-              Vista previa de 8 pistas. La lista completa permanece únicamente en
-              la memoria de esta ventana.
+              Vista previa de 8 pistas. La lista completa y sus metadatos permanecen
+              únicamente en la memoria de esta ventana.
             </p>
           ) : null}
         </section>

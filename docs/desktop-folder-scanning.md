@@ -1,6 +1,6 @@
 # Escaneo de carpetas en escritorio
 
-Esta fase introduce la primera capacidad nativa de DJOrganizer mediante Tauri 2.
+DJOrganizer incorpora una capacidad nativa de solo lectura mediante Tauri 2.
 
 ## Flujo de consentimiento
 
@@ -14,15 +14,17 @@ nativa, lo que evita reutilizar silenciosamente una ubicación arbitraria.
 
 ## Datos leídos
 
-El escáner obtiene exclusivamente:
+Para cada archivo compatible, el escáner obtiene:
 
-- nombre del archivo;
-- ruta relativa a la carpeta seleccionada;
-- extensión normalizada;
-- tamaño en bytes.
+- nombre, ruta relativa, extensión y tamaño;
+- título, artista, álbum y género cuando existen en las etiquetas;
+- duración indicada por las propiedades del archivo;
+- BPM y tonalidad cuando están presentes en los metadatos.
 
-No abre ni decodifica el contenido del audio. No calcula huellas, no extrae
-etiquetas y no envía resultados al servidor en esta fase.
+La lectura se realiza con Lofty desde Rust. No decodifica muestras de audio, no
+calcula BPM o tonalidad, no genera huellas y no envía ni persiste resultados.
+Si una etiqueta está dañada o no es compatible, la pista se conserva con los
+datos básicos del archivo y el fallo se contabiliza.
 
 Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 
@@ -30,8 +32,10 @@ Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 
 - máximo de 100.000 entradas examinadas;
 - máximo de 10.000 pistas devueltas;
+- lectura de metadatos ejecutada fuera del hilo principal;
 - enlaces simbólicos omitidos para no escapar del árbol elegido;
 - carpetas o entradas sin permiso omitidas y contabilizadas;
+- errores de etiquetas aislados por pista;
 - resultado marcado como truncado al alcanzar un límite;
 - rutas absolutas no se devuelven a la interfaz.
 

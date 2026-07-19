@@ -221,9 +221,11 @@ exclusivamente `https://djorganizer-beta.vercel.app`.
 
 La aplicación de escritorio expone un único comando nativo al origen oficial de
 producción. Ese comando siempre abre el selector de carpetas del sistema y
-realiza un escaneo acotado y de solo lectura: recoge nombres, rutas relativas,
-extensiones y tamaños. No acepta rutas enviadas por la web y no mueve, renombra,
-modifica, reproduce, sube ni guarda archivos de audio.
+realiza un escaneo acotado y de solo lectura. Recoge nombres, rutas relativas,
+extensiones y tamaños, y lee etiquetas de título, artista, álbum, género, BPM,
+tonalidad y duración cuando existen. No acepta rutas enviadas por la web, no
+decodifica muestras y no mueve, renombra, modifica, reproduce, sube ni guarda
+archivos de audio.
 
 Para validar el núcleo Rust:
 

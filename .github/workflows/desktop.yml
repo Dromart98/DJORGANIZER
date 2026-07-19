@@ -39,3 +39,11 @@ jobs:
           else
             cargo check --manifest-path src-tauri/Cargo.toml --all-targets
           fi
+
+      - name: Run desktop tests
+        run: |
+          if [ -f src-tauri/Cargo.lock ]; then
+            cargo test --locked --manifest-path src-tauri/Cargo.toml
+          else
+            cargo test --manifest-path src-tauri/Cargo.toml
+          fi
