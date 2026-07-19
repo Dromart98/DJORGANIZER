@@ -8,14 +8,20 @@ import {
   type ImportResult,
 } from "@/app/import/actions";
 import { Button } from "@/components/ui/button";
-import { detectBpmFromFile } from "@/lib/import/bpm-detector";
+import {
+  detectBpmFromAudioBuffer,
+  detectBpmFromFile,
+} from "@/lib/import/bpm-detector";
 import { duplicateClientIds } from "@/lib/import/duplicates";
 import { fingerprintBlob } from "@/lib/import/fingerprint";
 import {
   importValidationMessage,
   type ImportTrackInput,
 } from "@/lib/import/import-schema";
-import { detectKeyFromFile } from "@/lib/import/key-detector";
+import {
+  detectKeyFromAudioBuffer,
+  detectKeyFromFile,
+} from "@/lib/import/key-detector";
 import { metadataToImportTrack } from "@/lib/import/metadata";
 
 type ImportStatus =
@@ -28,6 +34,11 @@ type ImportStatus =
   | "saved"
   | "duplicate"
   | "error";
+
+type AutomaticAnalysisProgress = {
+  completed: number;
+  total: number;
+};
 
 type ImportItem = {
   bpmError?: string;
@@ -89,6 +100,10 @@ function statusLabel(status: ImportStatus) {
 
 export function AudioImporter() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const automaticAnalysisRunRef = useRef(0);
+  const automaticAudioContextRef = useRef<AudioContext | null>(null);
+  const [automaticAnalysisProgress, setAutomaticAnalysisProgress] =
+    useState<AutomaticAnalysisProgress | null>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
   const [isAnalyzingKey, setIsAnalyzingKey] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -101,21 +116,6 @@ export function AudioImporter() {
   const duplicateCount = items.filter(
     (item) => item.status === "duplicate",
   ).length;
-  const missingBpmItems = items.filter(
-    (item) =>
-      item.status === "ready" &&
-      item.file &&
-      item.data &&
-      item.data.bpm === null,
-  );
-  const missingKeyItems = items.filter(
-    (item) =>
-      item.status === "ready" &&
-      item.file &&
-      item.data &&
-      item.data.musical_key === null,
-  );
-
   function updateItem(id: string, update: Partial<ImportItem>) {
     setItems((current) =>
       current.map((item) => (item.id === id ? { ...item, ...update } : item)),
@@ -201,6 +201,8 @@ export function AudioImporter() {
     const completed = new Map<string, ImportItem>();
     const workerCount = Math.min(4, queue.length);
 
+    let automaticTargets: ImportItem[] = [];
+
     try {
       await Promise.all(
         Array.from({ length: workerCount }, async () => {
@@ -223,6 +225,7 @@ export function AudioImporter() {
         ...completedItems.flatMap((item) => (item.data ? [item.data] : [])),
       ];
       const localDuplicateIds = new Set(duplicateClientIds(fingerprinted));
+      const excludedFromAnalysis = new Set(localDuplicateIds);
 
       setItems((current) =>
         current.map((item) => {
@@ -253,6 +256,14 @@ export function AudioImporter() {
               duplicate,
             ]),
           );
+          for (const item of completedItems) {
+            if (
+              item.data &&
+              serverDuplicates.has(item.data.file_fingerprint)
+            ) {
+              excludedFromAnalysis.add(item.id);
+            }
+          }
 
           setItems((current) =>
             current.map((item) => {
@@ -297,10 +308,20 @@ export function AudioImporter() {
           );
         }
       }
+
+      automaticTargets = completedItems.filter(
+        (item) =>
+          item.status === "ready" &&
+          !excludedFromAnalysis.has(item.id) &&
+          Boolean(item.data) &&
+          Boolean(item.file),
+      );
     } finally {
       setIsReading(false);
       if (inputRef.current) inputRef.current.value = "";
     }
+
+    await analyzeAutomatically(automaticTargets);
   }
 
   function updateField(
@@ -326,6 +347,216 @@ export function AudioImporter() {
         };
       }),
     );
+  }
+
+
+  function cancelAutomaticAnalysis() {
+    automaticAnalysisRunRef.current += 1;
+    const audioContext = automaticAudioContextRef.current;
+    automaticAudioContextRef.current = null;
+    if (audioContext && audioContext.state !== "closed") {
+      void audioContext.close().catch(() => undefined);
+    }
+    setItems((current) =>
+      current.map((item) => ({
+        ...item,
+        bpmStatus: item.bpmStatus === "analyzing" ? "idle" : item.bpmStatus,
+        keyStatus: item.keyStatus === "analyzing" ? "idle" : item.keyStatus,
+      })),
+    );
+    setAutomaticAnalysisProgress(null);
+    setIsAnalyzingBpm(false);
+    setIsAnalyzingKey(false);
+    setNotice(
+      "Análisis automático cancelado. Puedes reintentar cada pista o completar los datos manualmente.",
+    );
+  }
+
+  async function analyzeAutomatically(targets: ImportItem[]) {
+    const analyzable = targets.filter(
+      (item): item is ImportItem & {
+        data: ImportTrackInput;
+        file: File;
+      } =>
+        item.status === "ready" &&
+        Boolean(item.data) &&
+        Boolean(item.file) &&
+        (item.data?.bpm === null || item.data?.musical_key === null),
+    );
+    if (!analyzable.length) return;
+
+    const runId = automaticAnalysisRunRef.current + 1;
+    automaticAnalysisRunRef.current = runId;
+    const analyzesBpm = analyzable.some((item) => item.data.bpm === null);
+    const analyzesKey = analyzable.some(
+      (item) => item.data.musical_key === null,
+    );
+    setIsAnalyzingBpm(analyzesBpm);
+    setIsAnalyzingKey(analyzesKey);
+    setAutomaticAnalysisProgress({
+      completed: 0,
+      total: analyzable.length,
+    });
+    setNotice(
+      "Analizando automáticamente BPM y tonalidad en este dispositivo…",
+    );
+
+    let audioContext: AudioContext | null = null;
+
+    try {
+      audioContext = new AudioContext();
+      automaticAudioContextRef.current = audioContext;
+      await audioContext.resume();
+
+      for (const [index, item] of analyzable.entries()) {
+        if (automaticAnalysisRunRef.current !== runId) break;
+
+        const shouldAnalyzeBpm = item.data.bpm === null;
+        const shouldAnalyzeKey = item.data.musical_key === null;
+        updateItem(item.id, {
+          bpmError: shouldAnalyzeBpm ? undefined : item.bpmError,
+          bpmStatus: shouldAnalyzeBpm ? "analyzing" : item.bpmStatus,
+          keyError: shouldAnalyzeKey ? undefined : item.keyError,
+          keyStatus: shouldAnalyzeKey ? "analyzing" : item.keyStatus,
+        });
+
+        try {
+          const audioBuffer = await audioContext.decodeAudioData(
+            await item.file.arrayBuffer(),
+          );
+          if (automaticAnalysisRunRef.current !== runId) break;
+
+          const [bpmResult, keyResult] = await Promise.allSettled([
+            shouldAnalyzeBpm
+              ? detectBpmFromAudioBuffer(audioBuffer)
+              : Promise.resolve(null),
+            shouldAnalyzeKey
+              ? detectKeyFromAudioBuffer(audioBuffer)
+              : Promise.resolve(null),
+          ]);
+          if (automaticAnalysisRunRef.current !== runId) break;
+
+          setItems((current) =>
+            current.map((currentItem) => {
+              if (currentItem.id !== item.id || !currentItem.data) {
+                return currentItem;
+              }
+
+              let data = currentItem.data;
+              let bpmError = currentItem.bpmError;
+              let bpmStatus = currentItem.bpmStatus;
+              let keyError = currentItem.keyError;
+              let keyStatus = currentItem.keyStatus;
+
+              if (shouldAnalyzeBpm) {
+                if (bpmResult.status === "fulfilled" && bpmResult.value) {
+                  data = { ...data, bpm: bpmResult.value };
+                  bpmError = undefined;
+                  bpmStatus = "detected";
+                } else {
+                  bpmError =
+                    "No se pudo estimar el BPM. Puedes reintentarlo o escribirlo manualmente.";
+                  bpmStatus = "error";
+                }
+              }
+
+              if (shouldAnalyzeKey) {
+                if (keyResult.status === "fulfilled" && keyResult.value) {
+                  data = {
+                    ...data,
+                    musical_key: keyResult.value.musicalKey,
+                  };
+                  keyError = undefined;
+                  keyStatus = "detected";
+                } else {
+                  keyError =
+                    "No se pudo estimar la tonalidad. Puedes reintentarlo o escribirla manualmente.";
+                  keyStatus = "error";
+                }
+              }
+
+              const error = importValidationMessage(data);
+              return {
+                ...currentItem,
+                bpmError,
+                bpmStatus,
+                data,
+                error: error ?? undefined,
+                keyError,
+                keyStatus,
+                status: error ? "invalid" : "ready",
+              };
+            }),
+          );
+        } catch {
+          updateItem(item.id, {
+            bpmError: shouldAnalyzeBpm
+              ? "No se pudo decodificar el audio para estimar el BPM."
+              : item.bpmError,
+            bpmStatus: shouldAnalyzeBpm ? "error" : item.bpmStatus,
+            keyError: shouldAnalyzeKey
+              ? "No se pudo decodificar el audio para estimar la tonalidad."
+              : item.keyError,
+            keyStatus: shouldAnalyzeKey ? "error" : item.keyStatus,
+          });
+        }
+
+        if (automaticAnalysisRunRef.current === runId) {
+          setAutomaticAnalysisProgress({
+            completed: index + 1,
+            total: analyzable.length,
+          });
+        }
+      }
+
+      if (automaticAnalysisRunRef.current === runId) {
+        setNotice(
+          "Análisis automático terminado. Revisa las estimaciones antes de guardar.",
+        );
+      }
+    } catch {
+      if (automaticAnalysisRunRef.current === runId) {
+        const targetIds = new Set(analyzable.map((item) => item.id));
+        setItems((current) =>
+          current.map((item) =>
+            targetIds.has(item.id) &&
+            (item.bpmStatus === "analyzing" ||
+              item.keyStatus === "analyzing")
+              ? {
+                  ...item,
+                  bpmStatus:
+                    item.bpmStatus === "analyzing" ? "error" : item.bpmStatus,
+                  bpmError:
+                    item.bpmStatus === "analyzing"
+                      ? "El navegador no pudo iniciar el análisis automático."
+                      : item.bpmError,
+                  keyStatus:
+                    item.keyStatus === "analyzing" ? "error" : item.keyStatus,
+                  keyError:
+                    item.keyStatus === "analyzing"
+                      ? "El navegador no pudo iniciar el análisis automático."
+                      : item.keyError,
+                }
+              : item,
+          ),
+        );
+        setNotice(
+          "No se pudo iniciar el analizador automático en este navegador.",
+        );
+      }
+    } finally {
+      if (automaticAudioContextRef.current === audioContext) {
+        automaticAudioContextRef.current = null;
+      }
+      if (audioContext && audioContext.state !== "closed") {
+        await audioContext.close().catch(() => undefined);
+      }
+      if (automaticAnalysisRunRef.current === runId) {
+        setAutomaticAnalysisProgress(null);
+        setIsAnalyzingBpm(false);
+        setIsAnalyzingKey(false);
+      }
+    }
   }
 
   async function analyzeBpm(targets: ImportItem[]) {
@@ -588,9 +819,10 @@ export function AudioImporter() {
           <h2>El audio no sale de este dispositivo</h2>
           <p>
             DJOrganizer calcula una huella SHA-256 local para detectar archivos
-            exactamente iguales y puede estimar BPM y tonalidad en el
-            navegador. Solo envía a Supabase la huella y los campos que revises;
-            no sube audio ni portadas.
+            exactamente iguales y estima automáticamente BPM y tonalidad al
+            seleccionarlos. El análisis ocurre en el navegador. Solo envía a
+            Supabase la huella y los campos que revises; no sube audio ni
+            portadas.
           </p>
         </div>
         <input
@@ -624,37 +856,29 @@ export function AudioImporter() {
               {savedCount} guardados · {duplicateCount} duplicados
             </p>
             <div className="import-actions">
-              <Button
-                disabled={
-                  !missingBpmItems.length ||
-                  isSaving ||
-                  isReading ||
-                  isAnalyzingBpm
-                }
-                onClick={() => void analyzeBpm(missingBpmItems)}
-                type="button"
-                variant="secondary"
-              >
-                {isAnalyzingBpm
-                  ? "Analizando BPM…"
-                  : `Detectar BPM (${missingBpmItems.length})`}
-              </Button>
-              <Button
-                disabled={
-                  !missingKeyItems.length ||
-                  isSaving ||
-                  isReading ||
-                  isAnalyzingBpm ||
-                  isAnalyzingKey
-                }
-                onClick={() => void analyzeKeys(missingKeyItems)}
-                type="button"
-                variant="secondary"
-              >
-                {isAnalyzingKey
-                  ? "Analizando tonalidad…"
-                  : `Detectar tonalidad (${missingKeyItems.length})`}
-              </Button>
+              {automaticAnalysisProgress ? (
+                <div
+                  className="import-analysis-progress"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span>
+                    Analizando {automaticAnalysisProgress.completed} de{" "}
+                    {automaticAnalysisProgress.total}
+                  </span>
+                  <progress
+                    max={automaticAnalysisProgress.total}
+                    value={automaticAnalysisProgress.completed}
+                  />
+                  <Button
+                    onClick={cancelAutomaticAnalysis}
+                    type="button"
+                    variant="secondary"
+                  >
+                    Cancelar análisis
+                  </Button>
+                </div>
+              ) : null}
               <Button
                 disabled={
                   !readyCount ||
@@ -797,7 +1021,7 @@ export function AudioImporter() {
                           type="button"
                         >
                           {item.data.bpm === null
-                            ? "Detectar automáticamente"
+                            ? "Reintentar detección"
                             : "Volver a analizar"}
                         </button>
                       ) : null}
@@ -844,7 +1068,7 @@ export function AudioImporter() {
                           type="button"
                         >
                           {item.data.musical_key === null
-                            ? "Detectar automáticamente"
+                            ? "Reintentar detección"
                             : "Volver a analizar"}
                         </button>
                       ) : null}
