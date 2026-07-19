@@ -3,13 +3,7 @@ import {
   normalizeDetectedBpm,
 } from "@/lib/import/bpm";
 
-export async function detectBpmFromFile(
-  file: File,
-  audioContext: AudioContext,
-) {
-  const audioBuffer = await audioContext.decodeAudioData(
-    await file.arrayBuffer(),
-  );
+export async function detectBpmFromAudioBuffer(audioBuffer: AudioBuffer) {
   const window = bpmAnalysisWindow(audioBuffer.duration);
 
   if (!window) {
@@ -31,3 +25,13 @@ export async function detectBpmFromFile(
   return bpm;
 }
 
+
+export async function detectBpmFromFile(
+  file: File,
+  audioContext: AudioContext,
+) {
+  const audioBuffer = await audioContext.decodeAudioData(
+    await file.arrayBuffer(),
+  );
+  return detectBpmFromAudioBuffer(audioBuffer);
+}
