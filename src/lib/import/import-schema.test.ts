@@ -51,6 +51,19 @@ describe("importTrackSchema", () => {
     ).toBeNull();
   });
 
+  it("normalizes translated manual explanations before persistence", () => {
+    const parsed = importTrackSchema.parse({
+      ...validTrack,
+      bpm_explanation: "Manually reviewed value.",
+      bpm_source: "manual",
+      key_explanation: "Manually reviewed value.",
+      key_source: "manual",
+    });
+
+    expect(parsed.bpm_explanation).toBe("Valor revisado manualmente.");
+    expect(parsed.key_explanation).toBe("Valor revisado manualmente.");
+  });
+
   it("rejects invalid tag values", () => {
     expect(
       importValidationMessage({ ...validTrack, bpm: 500 }),
