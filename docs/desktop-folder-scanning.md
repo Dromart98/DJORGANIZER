@@ -54,3 +54,16 @@ No se conceden plugins de sistema de archivos, shell o proceso. Esta fase no
 mueve, renombra, elimina, escribe, reproduce, sube ni persiste archivos. La
 detección es de igualdad binaria: una copia idéntica se agrupa aunque cambie de
 nombre, pero un archivo reetiquetado o recodificado se considera distinto.
+
+## Previsualización de organización
+
+La selección local puede generar tres propuestas: artista/álbum,
+género/artista o tonalidad/BPM. Cada segmento se normaliza, elimina
+separadores y caracteres de control, neutraliza nombres reservados de Windows
+y limita su longitud. Las rutas de destino se comparan sin distinguir
+mayúsculas y minúsculas; si dos pistas colisionan, la propuesta añade un sufijo
+numérico determinista.
+
+El plan contiene exclusivamente rutas relativas y se calcula en la memoria de
+la ventana. No se envía a Supabase ni al comando nativo y no existe en esta fase
+ninguna acción que aplique el plan al sistema de archivos.
