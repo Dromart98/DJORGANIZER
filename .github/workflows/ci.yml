@@ -114,15 +114,6 @@ jobs:
       - name: Test authenticated import, library and crates
         run: npm run test:e2e -- --project=chromium --grep @authenticated
 
-      - name: Upload authenticated Playwright failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: authenticated-playwright-failure
-          path: test-results
-          if-no-files-found: warn
-          retention-days: 1
-
   desktop:
     runs-on: windows-latest
     timeout-minutes: 20
