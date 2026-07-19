@@ -660,7 +660,6 @@ fn selected_session_tracks(
         .collect()
 }
 
-
 fn parse_library_fingerprint(value: &str) -> Result<[u8; 32], String> {
     if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("La biblioteca contiene una huella no válida.".to_owned());
@@ -690,7 +689,9 @@ fn link_library_candidates(
             || candidate.track_id.len() > 128
             || !unique_track_ids.insert(candidate.track_id.clone())
         {
-            return Err("La selección de biblioteca contiene identificadores no válidos.".to_owned());
+            return Err(
+                "La selección de biblioteca contiene identificadores no válidos.".to_owned(),
+            );
         }
         let fingerprint = parse_library_fingerprint(&candidate.file_fingerprint)?;
         candidates_by_size
@@ -710,16 +711,14 @@ fn link_library_candidates(
         let Some(fingerprints) = candidates_by_size.get(&session_track.track.size_bytes) else {
             continue;
         };
-        let fingerprint = match hash_file(
-            &session_track.absolute_path,
-            session_track.track.size_bytes,
-        ) {
-            Ok(fingerprint) => fingerprint,
-            Err(_) => {
-                fingerprint_failures += 1;
-                continue;
-            }
-        };
+        let fingerprint =
+            match hash_file(&session_track.absolute_path, session_track.track.size_bytes) {
+                Ok(fingerprint) => fingerprint,
+                Err(_) => {
+                    fingerprint_failures += 1;
+                    continue;
+                }
+            };
         let Some(track_ids) = fingerprints.get(&fingerprint) else {
             continue;
         };
@@ -789,7 +788,6 @@ async fn choose_and_scan_music_folder(
 
     Ok(Some(completed.result))
 }
-
 
 #[tauri::command(rename_all = "camelCase")]
 async fn link_library_tracks(
@@ -952,8 +950,8 @@ mod tests {
     use super::{
         audio_extension, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
         export_path_text, link_library_candidates, parse_bpm, parse_mp4_bpm_value,
-        read_audio_metadata, safe_export_file_name, scan_music_folder,
-        LibraryLinkCandidate, ScannedAudioFile, SessionTrack,
+        read_audio_metadata, safe_export_file_name, scan_music_folder, LibraryLinkCandidate,
+        ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use sha2::{Digest, Sha256};
@@ -1103,7 +1101,6 @@ mod tests {
         fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
-
     #[test]
     fn links_library_tracks_by_size_and_exact_fingerprint() {
         let root = test_directory();
@@ -1142,10 +1139,12 @@ mod tests {
             },
         ];
 
-        let result =
-            link_library_candidates(&tracks, &candidates).expect("linking should succeed");
+        let result = link_library_candidates(&tracks, &candidates).expect("linking should succeed");
 
-        assert_eq!(result.links.get("library-track"), Some(&"opaque-scan-id".to_owned()));
+        assert_eq!(
+            result.links.get("library-track"),
+            Some(&"opaque-scan-id".to_owned())
+        );
         assert_eq!(result.links.get("missing-track"), None);
         assert_eq!(result.unmatched_tracks, 1);
         assert_eq!(result.fingerprint_failures, 0);
