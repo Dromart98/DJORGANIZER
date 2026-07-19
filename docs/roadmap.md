@@ -27,7 +27,7 @@ request independiente, con pruebas, revisión y despliegue de producción desde
 ### Integración con VirtualDJ
 
 - [x] Exportar también M3U8 como formato de compatibilidad heredada.
-- [ ] Asociar de forma local una pista persistente de DJOrganizer con su archivo
+- [x] Asociar de forma local una pista persistente de DJOrganizer con su archivo
   en cada dispositivo mediante huella y ruta, sin publicar la ruta absoluta.
 - [ ] Exportar crates de DJOrganizer a Lists de VirtualDJ conservando su orden.
 - [ ] Exportar varios crates y jerarquías de listas en una sola operación.
