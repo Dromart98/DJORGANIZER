@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import type { TrackQuery } from "@/lib/library/track-query";
