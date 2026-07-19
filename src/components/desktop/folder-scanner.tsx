@@ -33,9 +33,15 @@ interface VirtualDjExportResult {
   exportedTracks: number;
 }
 
+interface LibraryTrackLink {
+  scanId: string;
+  trackId: string;
+}
+
 interface LibraryLinkResult {
   fingerprintFailures: number;
   linkedTracks: number;
+  links: LibraryTrackLink[];
   unmatchedTracks: number;
 }
 
@@ -101,6 +107,9 @@ export function DesktopFolderScanner() {
   const [message, setMessage] = useState<string | null>(null);
   const [libraryLinkMessage, setLibraryLinkMessage] = useState<string | null>(
     null,
+  );
+  const [linkedScanIds, setLinkedScanIds] = useState<Set<string>>(
+    () => new Set(),
   );
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ScanReviewFilter>("all");
@@ -168,6 +177,9 @@ export function DesktopFolderScanner() {
           candidates: library.candidates,
         },
       );
+      setLinkedScanIds(
+        new Set(linkResult.links.map((link) => link.scanId)),
+      );
       const failureMessage = linkResult.fingerprintFailures
         ? ` No se pudieron comprobar ${linkResult.fingerprintFailures.toLocaleString("es-ES")} archivos locales.`
         : "";
@@ -205,6 +217,7 @@ export function DesktopFolderScanner() {
       setVirtualDjListName(nextResult.rootName);
       setVirtualDjMessage(null);
       setSelectedTrackIds(new Set());
+      setLinkedScanIds(new Set());
       await linkLibraryTracks(core, nextResult);
     } catch {
       setMessage(
@@ -399,6 +412,9 @@ export function DesktopFolderScanner() {
                         <span>{formatTrackIdentity(track)}</span>
                       </div>
                       <span>
+                        {linkedScanIds.has(track.scanId)
+                          ? "En tu biblioteca · "
+                          : ""}
                         {track.duplicateGroup
                           ? `Duplicado local · ${track.duplicateGroup} · `
                           : ""}
