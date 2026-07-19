@@ -391,6 +391,29 @@ export function AudioImporter() {
     const analyzesKey = analyzable.some(
       (item) => item.data.musical_key === null,
     );
+    const bpmTargetIds = new Set(
+      analyzable
+        .filter((item) => item.data.bpm === null)
+        .map((item) => item.id),
+    );
+    const keyTargetIds = new Set(
+      analyzable
+        .filter((item) => item.data.musical_key === null)
+        .map((item) => item.id),
+    );
+    setItems((current) =>
+      current.map((item) => ({
+        ...item,
+        bpmError: bpmTargetIds.has(item.id) ? undefined : item.bpmError,
+        bpmStatus: bpmTargetIds.has(item.id)
+          ? "analyzing"
+          : item.bpmStatus,
+        keyError: keyTargetIds.has(item.id) ? undefined : item.keyError,
+        keyStatus: keyTargetIds.has(item.id)
+          ? "analyzing"
+          : item.keyStatus,
+      })),
+    );
     setIsAnalyzingBpm(analyzesBpm);
     setIsAnalyzingKey(analyzesKey);
     setAutomaticAnalysisProgress({
