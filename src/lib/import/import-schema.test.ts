@@ -8,25 +8,41 @@ import {
 } from "@/lib/import/import-schema";
 
 const validTrack: ImportTrackInput = {
+  acoustic_fingerprint: null,
   album: null,
   artist: "Nova",
   bpm: 126,
   client_id: "67cefe9c-4b34-44ca-b884-30c3f93607fa",
   duration_seconds: 240,
+  energy: 70,
   file_fingerprint:
     "f6a8b3c23a7f0dfe4b9a0e96b0a6515f162c0f77c643fcf1f1f86a892f4f7c22",
   file_name: "pulse.mp3",
   file_size: 2048,
   file_type: "audio/mpeg",
   genre: "House",
+  genre_confidence: null,
+  genre_source: "metadata",
   musical_key: "Am",
   release_year: 2024,
   title: "Pulse",
+  version_type: "original",
 };
 
 describe("importTrackSchema", () => {
   it("accepts serializable metadata without an audio payload", () => {
     expect(importTrackSchema.parse(validTrack)).toEqual(validTrack);
+  });
+
+  it("accepts an imported track without artist metadata", () => {
+    expect(
+      importTrackSchema.parse({
+        ...validTrack,
+        artist: null,
+        bpm: 128,
+        musical_key: "Am",
+      }).artist,
+    ).toBeNull();
   });
 
   it("rejects invalid tag values", () => {

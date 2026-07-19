@@ -8,8 +8,12 @@ import {
 describe("crateValuesSchema", () => {
   it("trims values and normalizes an empty description", () => {
     expect(
-      crateValuesSchema.parse({ description: "  ", name: "  Warm up  " }),
-    ).toEqual({ description: null, name: "Warm up" });
+      crateValuesSchema.parse({
+        description: "  ",
+        name: "  Warm up  ",
+        parent_id: null,
+      }),
+    ).toEqual({ description: null, name: "Warm up", parent_id: null });
   });
 });
 

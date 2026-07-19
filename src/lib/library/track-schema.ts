@@ -29,7 +29,7 @@ const camelotKey = z
 
 export const trackFormSchema = z.object({
   album: optionalText(300),
-  artist: z.string().trim().min(1, "El artista es obligatorio.").max(300),
+  artist: optionalText(300),
   bpm: optionalNumber(20, 300),
   camelot_key: camelotKey,
   comments: optionalText(5000),

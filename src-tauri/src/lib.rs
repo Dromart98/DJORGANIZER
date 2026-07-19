@@ -1,9 +1,9 @@
 use lofty::{
-    config::ParseOptions,
+    config::{ParseOptions, WriteOptions},
     file::{AudioFile, TaggedFileExt},
     mp4::{AtomData, AtomIdent, Ilst, Mp4File},
     read_from_path,
-    tag::{Accessor, ItemKey},
+    tag::{Accessor, ItemKey, Tag},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -17,12 +17,15 @@ use std::{
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_updater::UpdaterExt;
 
 const AUDIO_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "flac", "m4a", "mp3", "ogg", "opus", "wav",
 ];
 const MAX_ENTRIES: usize = 100_000;
 const MAX_TRACKS: usize = 10_000;
+const MAX_METADATA_WRITE_TRACKS: usize = 25;
+const METADATA_BACKUP_DIRECTORY: &str = ".djorganizer-backups";
 
 #[derive(Debug, Default, PartialEq)]
 struct AudioMetadata {
@@ -90,12 +93,15 @@ struct CompletedScan {
 #[derive(Debug)]
 struct ScanSession {
     id: String,
+    root: PathBuf,
     tracks: HashMap<String, SessionTrack>,
     library_links: HashMap<String, String>,
 }
 
 #[derive(Debug, Default)]
 struct DesktopState {
+    metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
+    reorganization_history: Mutex<Vec<ReorganizationRun>>,
     scan_session: Mutex<Option<ScanSession>>,
 }
 
@@ -104,6 +110,179 @@ struct DesktopState {
 struct VirtualDjExportResult {
     cancelled: bool,
     exported_tracks: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum OrganizationScheme {
+    ArtistAlbum,
+    GenreArtist,
+    KeyBpm,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReorganizationRequest {
+    scheme: OrganizationScheme,
+    session_id: String,
+    track_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReorganizationMove {
+    scan_id: String,
+    source_path: String,
+    target_path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReorganizationResult {
+    applied: bool,
+    moves: Vec<ReorganizationMove>,
+    run_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct AppliedMove {
+    scan_id: String,
+    source: PathBuf,
+    target: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct ReorganizationRun {
+    created_at: u64,
+    id: String,
+    moves: Vec<AppliedMove>,
+    session_id: String,
+    undone: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReorganizationHistoryItem {
+    created_at: u64,
+    move_count: usize,
+    run_id: String,
+    undone: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MetadataEditInput {
+    album: String,
+    artist: String,
+    bpm: Option<f64>,
+    genre: String,
+    musical_key: String,
+    scan_id: String,
+    title: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MetadataWriteRequest {
+    edits: Vec<MetadataEditInput>,
+    session_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataFieldChange {
+    after: Option<String>,
+    before: Option<String>,
+    field: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataFilePreview {
+    changes: Vec<MetadataFieldChange>,
+    relative_path: String,
+    scan_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataWritePreview {
+    files: Vec<MetadataFilePreview>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataWriteResult {
+    applied_files: usize,
+    run_id: Option<String>,
+    updated_tracks: Vec<ScannedAudioFile>,
+}
+
+#[derive(Clone, Debug)]
+struct MetadataBackup {
+    backup_path: PathBuf,
+    original_path: PathBuf,
+    scan_id: String,
+    written_fingerprint: [u8; 32],
+}
+
+#[derive(Clone, Debug)]
+struct MetadataWriteRun {
+    backups: Vec<MetadataBackup>,
+    created_at: u64,
+    id: String,
+    session_id: String,
+    undone: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataWriteHistoryItem {
+    created_at: u64,
+    file_count: usize,
+    run_id: String,
+    undone: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct VirtualDjCrateInput {
+    hierarchy: Vec<String>,
+    name: String,
+    track_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VirtualDjBatchExportResult {
+    backed_up_files: usize,
+    cancelled: bool,
+    exported_lists: usize,
+    exported_tracks: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VirtualDjImportedList {
+    linked_track_ids: Vec<String>,
+    name: String,
+    relative_path: String,
+    unresolved_paths: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VirtualDjImportPreview {
+    cancelled: bool,
+    lists: Vec<VirtualDjImportedList>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopUpdateStatus {
+    available: bool,
+    notes: Option<String>,
+    version: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -383,6 +562,9 @@ fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, S
 
             let path = entry.path();
             if file_type.is_dir() {
+                if entry.file_name() == METADATA_BACKUP_DIRECTORY {
+                    continue;
+                }
                 pending.push(path);
                 continue;
             }
@@ -624,6 +806,624 @@ fn safe_export_file_name(list_name: &str) -> String {
     }
 }
 
+fn safe_path_segment(value: Option<&str>, fallback: &str) -> String {
+    let mut sanitized = value
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .map(|character| match character {
+            '\0'..='\u{1f}' | '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => ' ',
+            _ => character,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_start_matches('.')
+        .trim()
+        .trim_end_matches(&['.', ' '][..])
+        .chars()
+        .take(80)
+        .collect::<String>();
+    if sanitized.is_empty() {
+        sanitized = fallback.to_owned();
+    }
+    let base = sanitized
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if matches!(
+        base.as_str(),
+        "con"
+            | "prn"
+            | "aux"
+            | "nul"
+            | "com1"
+            | "com2"
+            | "com3"
+            | "com4"
+            | "com5"
+            | "com6"
+            | "com7"
+            | "com8"
+            | "com9"
+            | "lpt1"
+            | "lpt2"
+            | "lpt3"
+            | "lpt4"
+            | "lpt5"
+            | "lpt6"
+            | "lpt7"
+            | "lpt8"
+            | "lpt9"
+    ) {
+        sanitized.insert(0, '_');
+    }
+    sanitized
+}
+
+fn organization_folders(track: &ScannedAudioFile, scheme: &OrganizationScheme) -> Vec<String> {
+    match scheme {
+        OrganizationScheme::GenreArtist => vec![
+            safe_path_segment(track.genre.as_deref(), "Género desconocido"),
+            safe_path_segment(track.artist.as_deref(), "Artista desconocido"),
+        ],
+        OrganizationScheme::KeyBpm => vec![
+            safe_path_segment(track.musical_key.as_deref(), "Tonalidad desconocida"),
+            track
+                .bpm
+                .map(|bpm| format!("{} BPM", bpm.round()))
+                .unwrap_or_else(|| "BPM desconocido".to_owned()),
+        ],
+        OrganizationScheme::ArtistAlbum => vec![
+            safe_path_segment(track.artist.as_deref(), "Artista desconocido"),
+            safe_path_segment(track.album.as_deref(), "Sin álbum"),
+        ],
+    }
+}
+
+fn build_reorganization_plan(
+    session: &ScanSession,
+    track_ids: &[String],
+    scheme: &OrganizationScheme,
+) -> Result<Vec<AppliedMove>, String> {
+    let selected = selected_session_tracks_from_session(session, track_ids)?;
+    let mut used_targets = HashSet::with_capacity(selected.len());
+    let mut moves = Vec::with_capacity(selected.len());
+
+    for session_track in selected {
+        if !session_track.absolute_path.exists() {
+            return Err(format!(
+                "El archivo {} cambió o dejó de existir. Vuelve a escanear.",
+                session_track.track.relative_path
+            ));
+        }
+        let current_size = fs::metadata(&session_track.absolute_path)
+            .map_err(|error| format!("No se pudo verificar un archivo: {error}"))?
+            .len();
+        if current_size != session_track.track.size_bytes {
+            return Err(format!(
+                "El archivo {} cambió desde el escaneo. No se aplicó el plan.",
+                session_track.track.relative_path
+            ));
+        }
+
+        let folders = organization_folders(&session_track.track, scheme);
+        let original_stem = Path::new(&session_track.track.name)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("Pista sin nombre");
+        let stem = safe_path_segment(session_track.track.title.as_deref(), original_stem);
+        let extension = session_track
+            .track
+            .extension
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_ascii_lowercase();
+        let extension = if extension.is_empty() {
+            "audio".to_owned()
+        } else {
+            extension
+        };
+        let mut relative_directory = PathBuf::new();
+        for folder in &folders {
+            relative_directory.push(folder);
+        }
+        let mut suffix = 1_u32;
+        let mut relative_target = relative_directory.join(format!("{stem}.{extension}"));
+        let mut target = session.root.join(&relative_target);
+
+        while target != session_track.absolute_path
+            && (target.exists()
+                || used_targets.contains(&target.to_string_lossy().to_ascii_lowercase()))
+        {
+            suffix += 1;
+            relative_target = relative_directory.join(format!("{stem} ({suffix}).{extension}"));
+            target = session.root.join(&relative_target);
+        }
+        used_targets.insert(target.to_string_lossy().to_ascii_lowercase());
+        if target != session_track.absolute_path {
+            moves.push(AppliedMove {
+                scan_id: session_track.track.scan_id,
+                source: session_track.absolute_path,
+                target,
+            });
+        }
+    }
+    Ok(moves)
+}
+
+fn selected_session_tracks_from_session(
+    session: &ScanSession,
+    track_ids: &[String],
+) -> Result<Vec<SessionTrack>, String> {
+    if track_ids.is_empty() || track_ids.len() > MAX_TRACKS {
+        return Err("Selecciona entre 1 y 10.000 pistas.".to_owned());
+    }
+    let mut unique_ids = HashSet::with_capacity(track_ids.len());
+    track_ids
+        .iter()
+        .map(|track_id| {
+            if !unique_ids.insert(track_id) {
+                return Err("La selección contiene una pista repetida.".to_owned());
+            }
+            session
+                .tracks
+                .get(track_id)
+                .cloned()
+                .ok_or_else(|| "La selección no pertenece al escaneo activo.".to_owned())
+        })
+        .collect()
+}
+
+fn relative_display(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn rollback_moves(moves: &[AppliedMove]) {
+    for applied in moves.iter().rev() {
+        if applied.target.exists() && !applied.source.exists() {
+            if let Some(parent) = applied.source.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::rename(&applied.target, &applied.source);
+        }
+    }
+}
+
+fn operation_id(label: &str) -> Result<String, String> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "No se pudo crear el identificador de la operación.".to_owned())?;
+    let mut hasher = Sha256::new();
+    hasher.update(label.as_bytes());
+    hasher.update(elapsed.as_nanos().to_le_bytes());
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn normalized_metadata_text(
+    value: &str,
+    field: &str,
+    max_chars: usize,
+) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if value.chars().any(char::is_control) {
+        return Err(format!(
+            "{field} contiene caracteres de control no permitidos."
+        ));
+    }
+    if value.chars().count() > max_chars {
+        return Err(format!(
+            "{field} supera el límite de {max_chars} caracteres."
+        ));
+    }
+    Ok((!value.is_empty()).then(|| value.to_owned()))
+}
+
+fn normalized_metadata_edit(edit: &MetadataEditInput) -> Result<MetadataEditInput, String> {
+    if edit.scan_id.is_empty() || edit.scan_id.len() > 128 {
+        return Err("La edición contiene un identificador de pista no válido.".to_owned());
+    }
+    let bpm = match edit.bpm {
+        Some(bpm) if bpm.is_finite() && (20.0..=300.0).contains(&bpm) => Some(bpm),
+        Some(_) => return Err("El BPM debe estar entre 20 y 300.".to_owned()),
+        None => None,
+    };
+    Ok(MetadataEditInput {
+        album: normalized_metadata_text(&edit.album, "El álbum", 300)?.unwrap_or_default(),
+        artist: normalized_metadata_text(&edit.artist, "El artista", 300)?.unwrap_or_default(),
+        bpm,
+        genre: normalized_metadata_text(&edit.genre, "El género", 120)?.unwrap_or_default(),
+        musical_key: normalized_metadata_text(&edit.musical_key, "La tonalidad", 24)?
+            .unwrap_or_default(),
+        scan_id: edit.scan_id.clone(),
+        title: normalized_metadata_text(&edit.title, "El título", 300)?.unwrap_or_default(),
+    })
+}
+
+fn bpm_metadata_text(value: f64) -> String {
+    let text = format!("{value:.3}");
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
+fn optional_bpm_text(value: Option<f64>) -> Option<String> {
+    value.map(bpm_metadata_text)
+}
+
+fn metadata_change(
+    changes: &mut Vec<MetadataFieldChange>,
+    field: &str,
+    before: Option<String>,
+    after: Option<String>,
+) {
+    if before != after {
+        changes.push(MetadataFieldChange {
+            after,
+            before,
+            field: field.to_owned(),
+        });
+    }
+}
+
+fn metadata_file_changes(
+    track: &ScannedAudioFile,
+    edit: &MetadataEditInput,
+) -> Vec<MetadataFieldChange> {
+    let mut changes = Vec::new();
+    metadata_change(
+        &mut changes,
+        "title",
+        track.title.clone(),
+        cleaned_text(&edit.title),
+    );
+    metadata_change(
+        &mut changes,
+        "artist",
+        track.artist.clone(),
+        cleaned_text(&edit.artist),
+    );
+    metadata_change(
+        &mut changes,
+        "album",
+        track.album.clone(),
+        cleaned_text(&edit.album),
+    );
+    metadata_change(
+        &mut changes,
+        "genre",
+        track.genre.clone(),
+        cleaned_text(&edit.genre),
+    );
+    metadata_change(
+        &mut changes,
+        "bpm",
+        optional_bpm_text(track.bpm),
+        optional_bpm_text(edit.bpm),
+    );
+    metadata_change(
+        &mut changes,
+        "musicalKey",
+        track.musical_key.clone(),
+        cleaned_text(&edit.musical_key),
+    );
+    changes
+}
+
+fn ensure_metadata_writable(path: &Path) -> Result<(), String> {
+    let tagged_file = read_from_path(path)
+        .map_err(|error| format!("No se pudo abrir el audio para editar etiquetas: {error}"))?;
+    let tag_type = tagged_file.primary_tag_type();
+    if !tagged_file.tag_support(tag_type).is_writable() {
+        return Err("El contenedor de audio no admite escritura segura de etiquetas.".to_owned());
+    }
+    Ok(())
+}
+
+fn build_metadata_write_preview(
+    session: &ScanSession,
+    request: &MetadataWriteRequest,
+) -> Result<(MetadataWritePreview, Vec<MetadataEditInput>), String> {
+    if request.edits.is_empty() || request.edits.len() > MAX_METADATA_WRITE_TRACKS {
+        return Err(format!(
+            "Selecciona entre 1 y {MAX_METADATA_WRITE_TRACKS} pistas para editar metadatos."
+        ));
+    }
+
+    let mut unique_ids = HashSet::with_capacity(request.edits.len());
+    let mut normalized_edits = Vec::with_capacity(request.edits.len());
+    let mut files = Vec::with_capacity(request.edits.len());
+    for raw_edit in &request.edits {
+        let edit = normalized_metadata_edit(raw_edit)?;
+        if !unique_ids.insert(edit.scan_id.clone()) {
+            return Err("La edición contiene una pista repetida.".to_owned());
+        }
+        let session_track = session
+            .tracks
+            .get(&edit.scan_id)
+            .ok_or_else(|| "La edición no pertenece al escaneo activo.".to_owned())?;
+        let current_size = fs::metadata(&session_track.absolute_path)
+            .map_err(|_| {
+                format!(
+                    "El archivo {} ya no está disponible. Vuelve a escanear.",
+                    session_track.track.relative_path
+                )
+            })?
+            .len();
+        if current_size != session_track.track.size_bytes {
+            return Err(format!(
+                "El archivo {} cambió desde el escaneo. No se editará.",
+                session_track.track.relative_path
+            ));
+        }
+        ensure_metadata_writable(&session_track.absolute_path)
+            .map_err(|error| format!("{}: {error}", session_track.track.relative_path))?;
+        let changes = metadata_file_changes(&session_track.track, &edit);
+        if !changes.is_empty() {
+            files.push(MetadataFilePreview {
+                changes,
+                relative_path: session_track.track.relative_path.clone(),
+                scan_id: edit.scan_id.clone(),
+            });
+        }
+        normalized_edits.push(edit);
+    }
+    Ok((MetadataWritePreview { files }, normalized_edits))
+}
+
+fn set_optional_tag_text(
+    tag: &mut Tag,
+    value: &str,
+    setter: impl FnOnce(&mut Tag, String),
+    remover: impl FnOnce(&mut Tag),
+) {
+    match cleaned_text(value) {
+        Some(value) => setter(tag, value),
+        None => remover(tag),
+    }
+}
+
+fn write_metadata_to_file(path: &Path, edit: &MetadataEditInput) -> Result<AudioMetadata, String> {
+    let mut tagged_file = read_from_path(path)
+        .map_err(|error| format!("No se pudo leer el contenedor de audio: {error}"))?;
+    let tag_type = tagged_file.primary_tag_type();
+    if !tagged_file.tag_support(tag_type).is_writable() {
+        return Err("El contenedor no admite escritura de su etiqueta principal.".to_owned());
+    }
+    if tagged_file.primary_tag().is_none() {
+        tagged_file.insert_tag(Tag::new(tag_type));
+    }
+    let tag = tagged_file
+        .primary_tag_mut()
+        .ok_or_else(|| "No se pudo preparar la etiqueta principal.".to_owned())?;
+    set_optional_tag_text(tag, &edit.title, Tag::set_title, Tag::remove_title);
+    set_optional_tag_text(tag, &edit.artist, Tag::set_artist, Tag::remove_artist);
+    set_optional_tag_text(tag, &edit.album, Tag::set_album, Tag::remove_album);
+    set_optional_tag_text(tag, &edit.genre, Tag::set_genre, Tag::remove_genre);
+    tag.remove_key(ItemKey::Bpm);
+    tag.remove_key(ItemKey::IntegerBpm);
+    if let Some(bpm) = edit.bpm {
+        tag.insert_text(ItemKey::Bpm, bpm_metadata_text(bpm));
+    }
+    tag.remove_key(ItemKey::InitialKey);
+    if let Some(musical_key) = cleaned_text(&edit.musical_key) {
+        tag.insert_text(ItemKey::InitialKey, musical_key);
+    }
+    tagged_file
+        .save_to_path(path, WriteOptions::default())
+        .map_err(|error| format!("No se pudo guardar la etiqueta: {error}"))?;
+
+    let written = read_audio_metadata(path)
+        .map_err(|error| format!("No se pudo verificar la etiqueta escrita: {error}"))?;
+    let expected = metadata_file_changes(
+        &ScannedAudioFile {
+            scan_id: String::new(),
+            name: String::new(),
+            relative_path: String::new(),
+            extension: String::new(),
+            size_bytes: 0,
+            metadata_read: true,
+            title: written.title.clone(),
+            artist: written.artist.clone(),
+            album: written.album.clone(),
+            genre: written.genre.clone(),
+            duration_seconds: written.duration_seconds,
+            bpm: written.bpm,
+            musical_key: written.musical_key.clone(),
+            duplicate_group: None,
+        },
+        edit,
+    );
+    if !expected.is_empty() {
+        return Err(
+            "El formato descartó uno o más campos; se restaurará la copia original.".to_owned(),
+        );
+    }
+    Ok(written)
+}
+
+fn restore_metadata_backups(backups: &[MetadataBackup]) -> bool {
+    let mut restored_all = true;
+    for backup in backups.iter().rev() {
+        if fs::copy(&backup.backup_path, &backup.original_path).is_err() {
+            restored_all = false;
+        }
+    }
+    restored_all
+}
+
+fn update_session_track_after_write(
+    session: &mut ScanSession,
+    scan_id: &str,
+    metadata: AudioMetadata,
+    size_bytes: u64,
+) -> Result<ScannedAudioFile, String> {
+    let session_track = session
+        .tracks
+        .get_mut(scan_id)
+        .ok_or_else(|| "La pista dejó de pertenecer a la sesión activa.".to_owned())?;
+    session_track.track.size_bytes = size_bytes;
+    session_track.track.metadata_read = true;
+    session_track.track.title = metadata.title;
+    session_track.track.artist = metadata.artist;
+    session_track.track.album = metadata.album;
+    session_track.track.genre = metadata.genre;
+    session_track.track.duration_seconds = metadata.duration_seconds;
+    session_track.track.bpm = metadata.bpm;
+    session_track.track.musical_key = metadata.musical_key;
+    Ok(session_track.track.clone())
+}
+
+fn apply_metadata_write_batch(
+    session: &mut ScanSession,
+    request: &MetadataWriteRequest,
+) -> Result<(MetadataWriteRun, MetadataWriteResult), String> {
+    let (preview, edits) = build_metadata_write_preview(session, request)?;
+    if preview.files.is_empty() {
+        return Err("No hay cambios de metadatos que aplicar.".to_owned());
+    }
+    let edits_by_id = edits
+        .into_iter()
+        .map(|edit| (edit.scan_id.clone(), edit))
+        .collect::<HashMap<_, _>>();
+    let run_id = operation_id("metadata-write")?;
+    let backup_root = session.root.join(METADATA_BACKUP_DIRECTORY).join(&run_id);
+    let mut backups = Vec::with_capacity(preview.files.len());
+    let mut written_metadata = HashMap::with_capacity(preview.files.len());
+
+    for file in &preview.files {
+        let session_track = session
+            .tracks
+            .get(&file.scan_id)
+            .cloned()
+            .ok_or_else(|| "La pista dejó de pertenecer al escaneo activo.".to_owned())?;
+        let backup_path = backup_root.join(Path::new(&session_track.track.relative_path));
+        if let Some(parent) = backup_path.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                restore_metadata_backups(&backups);
+                return Err(format!("No se pudo crear la copia de seguridad: {error}"));
+            }
+        }
+        if let Err(error) = fs::copy(&session_track.absolute_path, &backup_path) {
+            restore_metadata_backups(&backups);
+            return Err(format!(
+                "No se pudo copiar el archivo antes de editarlo: {error}"
+            ));
+        }
+        backups.push(MetadataBackup {
+            backup_path,
+            original_path: session_track.absolute_path.clone(),
+            scan_id: file.scan_id.clone(),
+            written_fingerprint: [0; 32],
+        });
+        let edit = edits_by_id
+            .get(&file.scan_id)
+            .ok_or_else(|| "No se encontró la edición validada.".to_owned())?;
+        match write_metadata_to_file(&session_track.absolute_path, edit).and_then(|metadata| {
+            let size = fs::metadata(&session_track.absolute_path)
+                .map_err(|error| format!("No se pudo verificar el archivo escrito: {error}"))?
+                .len();
+            let fingerprint = hash_file(&session_track.absolute_path, size)?;
+            Ok((metadata, size, fingerprint))
+        }) {
+            Ok((metadata, size, fingerprint)) => {
+                backups
+                    .last_mut()
+                    .expect("the backup was just inserted")
+                    .written_fingerprint = fingerprint;
+                written_metadata.insert(file.scan_id.clone(), (metadata, size));
+            }
+            Err(error) => {
+                let restored = restore_metadata_backups(&backups);
+                return Err(if restored {
+                    format!("No se pudo escribir el lote y se restauraron los originales: {error}")
+                } else {
+                    format!(
+                        "No se pudo escribir el lote ni completar la restauración automática. Conserva la carpeta {METADATA_BACKUP_DIRECTORY}: {error}"
+                    )
+                });
+            }
+        }
+    }
+
+    let mut updated_tracks = Vec::with_capacity(written_metadata.len());
+    for backup in &backups {
+        let (metadata, size_bytes) = written_metadata
+            .remove(&backup.scan_id)
+            .ok_or_else(|| "Falta la verificación de una pista escrita.".to_owned())?;
+        updated_tracks.push(update_session_track_after_write(
+            session,
+            &backup.scan_id,
+            metadata,
+            size_bytes,
+        )?);
+    }
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "No se pudo fechar la escritura de metadatos.".to_owned())?
+        .as_secs();
+    let run = MetadataWriteRun {
+        backups,
+        created_at,
+        id: run_id.clone(),
+        session_id: request.session_id.clone(),
+        undone: false,
+    };
+    let result = MetadataWriteResult {
+        applied_files: updated_tracks.len(),
+        run_id: Some(run_id),
+        updated_tracks,
+    };
+    Ok((run, result))
+}
+
+fn extract_xml_path(tag: &str) -> Option<String> {
+    for quote in ['"', '\''] {
+        let marker = format!("path={quote}");
+        let Some(marker_position) = tag.find(&marker) else {
+            continue;
+        };
+        let start = marker_position + marker.len();
+        let Some(relative_end) = tag[start..].find(quote) else {
+            continue;
+        };
+        let end = relative_end + start;
+        return Some(
+            tag[start..end]
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&"),
+        );
+    }
+    None
+}
+
+fn parse_virtualdj_paths(xml: &str) -> Result<Vec<String>, String> {
+    if xml.len() > 10_000_000 || !xml.contains("<VirtualFolder") {
+        return Err("El archivo no contiene una List válida de VirtualDJ.".to_owned());
+    }
+    let mut paths = Vec::new();
+    let mut remainder = xml;
+    while let Some(start) = remainder.find("<song") {
+        remainder = &remainder[start..];
+        let Some(end) = remainder.find('>') else {
+            break;
+        };
+        let tag = &remainder[..=end];
+        let path = extract_xml_path(tag)
+            .ok_or_else(|| "Una pista de VirtualDJ no contiene ruta.".to_owned())?;
+        paths.push(path);
+        remainder = &remainder[end + 1..];
+    }
+    Ok(paths)
+}
+
 fn selected_session_tracks(
     state: &DesktopState,
     session_id: &str,
@@ -762,6 +1562,7 @@ async fn choose_and_scan_music_folder(
     let root = selection
         .into_path()
         .map_err(|error| format!("La carpeta seleccionada no es una ruta local válida: {error}"))?;
+    let session_root = root.clone();
     let session_id = create_scan_session_id(&root)?;
     let scan_session_id = session_id.clone();
 
@@ -782,6 +1583,7 @@ async fn choose_and_scan_music_folder(
         .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
     *current_session = Some(ScanSession {
         id: session_id,
+        root: session_root,
         tracks,
         library_links: HashMap::new(),
     });
@@ -842,6 +1644,682 @@ async fn link_library_tracks(
         linked_tracks,
         links,
         unmatched_tracks: matches.unmatched_tracks,
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn preview_metadata_writes(
+    state: State<'_, DesktopState>,
+    request: MetadataWriteRequest,
+) -> Result<MetadataWritePreview, String> {
+    let current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    let session = current_session
+        .as_ref()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+        })?;
+    build_metadata_write_preview(session, &request).map(|(preview, _)| preview)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn apply_metadata_writes(
+    state: State<'_, DesktopState>,
+    request: MetadataWriteRequest,
+) -> Result<MetadataWriteResult, String> {
+    let (run, result) = {
+        let mut current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let session = current_session
+            .as_mut()
+            .filter(|session| session.id == request.session_id)
+            .ok_or_else(|| {
+                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+            })?;
+        apply_metadata_write_batch(session, &request)?
+    };
+    state
+        .metadata_write_history
+        .lock()
+        .map_err(|_| "No se pudo guardar el historial local de metadatos.".to_owned())?
+        .push(run);
+    Ok(result)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn undo_metadata_writes(
+    state: State<'_, DesktopState>,
+    session_id: String,
+    run_id: String,
+) -> Result<MetadataWriteResult, String> {
+    let run = {
+        let history = state
+            .metadata_write_history
+            .lock()
+            .map_err(|_| "No se pudo leer el historial local de metadatos.".to_owned())?;
+        history
+            .iter()
+            .find(|run| run.id == run_id && run.session_id == session_id && !run.undone)
+            .cloned()
+            .ok_or_else(|| "La escritura ya no está disponible para deshacer.".to_owned())?
+    };
+
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo actualizar la sesión local.".to_owned())?;
+    let session = current_session
+        .as_mut()
+        .filter(|session| session.id == session_id)
+        .ok_or_else(|| {
+            "Este historial pertenece a otro escaneo. Selecciona de nuevo la carpeta original."
+                .to_owned()
+        })?;
+
+    for backup in &run.backups {
+        let current_size = fs::metadata(&backup.original_path)
+            .map_err(|_| {
+                "Un archivo editado ya no está disponible; no se deshizo nada.".to_owned()
+            })?
+            .len();
+        let current_fingerprint = hash_file(&backup.original_path, current_size)?;
+        if current_fingerprint != backup.written_fingerprint {
+            return Err(
+                "Un archivo cambió después de escribir sus etiquetas. No se deshizo nada."
+                    .to_owned(),
+            );
+        }
+    }
+
+    let undo_root = session
+        .root
+        .join(METADATA_BACKUP_DIRECTORY)
+        .join(&run.id)
+        .join("undo-current");
+    let mut current_copies = Vec::with_capacity(run.backups.len());
+    for backup in &run.backups {
+        let current_copy = undo_root.join(&backup.scan_id);
+        if let Some(parent) = current_copy.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("No se pudo preparar el deshacer: {error}"))?;
+        }
+        fs::copy(&backup.original_path, &current_copy)
+            .map_err(|error| format!("No se pudo proteger el estado actual: {error}"))?;
+        current_copies.push((current_copy, backup.original_path.clone()));
+    }
+
+    let mut restored_count = 0;
+    for backup in &run.backups {
+        if let Err(error) = fs::copy(&backup.backup_path, &backup.original_path) {
+            for (current_copy, original_path) in &current_copies {
+                let _ = fs::copy(current_copy, original_path);
+            }
+            return Err(format!(
+                "No se pudo completar el deshacer; se restauró el estado previo al intento: {error}"
+            ));
+        }
+        restored_count += 1;
+    }
+
+    let mut restored_metadata = Vec::with_capacity(run.backups.len());
+    for backup in &run.backups {
+        let metadata = match read_audio_metadata(&backup.original_path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                for (current_copy, original_path) in &current_copies {
+                    let _ = fs::copy(current_copy, original_path);
+                }
+                return Err(format!(
+                    "No se pudo verificar el archivo restaurado; se revirtió el intento de deshacer: {error}"
+                ));
+            }
+        };
+        let size_bytes = match fs::metadata(&backup.original_path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                for (current_copy, original_path) in &current_copies {
+                    let _ = fs::copy(current_copy, original_path);
+                }
+                return Err(format!(
+                    "No se pudo verificar el tamaño restaurado; se revirtió el intento de deshacer: {error}"
+                ));
+            }
+        };
+        restored_metadata.push((backup.scan_id.clone(), metadata, size_bytes));
+    }
+    let mut updated_tracks = Vec::with_capacity(run.backups.len());
+    for (scan_id, metadata, size_bytes) in restored_metadata {
+        updated_tracks.push(update_session_track_after_write(
+            session, &scan_id, metadata, size_bytes,
+        )?);
+    }
+    let _ = fs::remove_dir_all(&undo_root);
+    drop(current_session);
+
+    let mut history = state
+        .metadata_write_history
+        .lock()
+        .map_err(|_| "No se pudo actualizar el historial local de metadatos.".to_owned())?;
+    if let Some(entry) = history.iter_mut().find(|entry| entry.id == run_id) {
+        entry.undone = true;
+    }
+    Ok(MetadataWriteResult {
+        applied_files: restored_count,
+        run_id: Some(run_id),
+        updated_tracks,
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn list_metadata_write_history(
+    state: State<'_, DesktopState>,
+    session_id: String,
+) -> Result<Vec<MetadataWriteHistoryItem>, String> {
+    let history = state
+        .metadata_write_history
+        .lock()
+        .map_err(|_| "No se pudo leer el historial local de metadatos.".to_owned())?;
+    Ok(history
+        .iter()
+        .rev()
+        .filter(|run| run.session_id == session_id)
+        .take(20)
+        .map(|run| MetadataWriteHistoryItem {
+            created_at: run.created_at,
+            file_count: run.backups.len(),
+            run_id: run.id.clone(),
+            undone: run.undone,
+        })
+        .collect())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn preview_reorganization_plan(
+    state: State<'_, DesktopState>,
+    request: ReorganizationRequest,
+) -> Result<ReorganizationResult, String> {
+    let current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    let session = current_session
+        .as_ref()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+        })?;
+    let moves = build_reorganization_plan(session, &request.track_ids, &request.scheme)?;
+    Ok(ReorganizationResult {
+        applied: false,
+        moves: moves
+            .into_iter()
+            .map(|item| ReorganizationMove {
+                scan_id: item.scan_id,
+                source_path: relative_display(&session.root, &item.source),
+                target_path: relative_display(&session.root, &item.target),
+            })
+            .collect(),
+        run_id: None,
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn apply_reorganization_plan(
+    state: State<'_, DesktopState>,
+    request: ReorganizationRequest,
+) -> Result<ReorganizationResult, String> {
+    let (run, result_moves) = {
+        let mut current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let session = current_session
+            .as_mut()
+            .filter(|session| session.id == request.session_id)
+            .ok_or_else(|| {
+                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+            })?;
+        let moves = build_reorganization_plan(session, &request.track_ids, &request.scheme)?;
+        if moves.is_empty() {
+            return Ok(ReorganizationResult {
+                applied: true,
+                moves: Vec::new(),
+                run_id: None,
+            });
+        }
+
+        let run_id = operation_id("reorganization")?;
+        let created_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "No se pudo fechar la operación.".to_owned())?
+            .as_secs();
+        let mut completed = Vec::with_capacity(moves.len());
+        for planned in &moves {
+            if let Some(parent) = planned.target.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    rollback_moves(&completed);
+                    format!("No se pudo crear una carpeta del plan: {error}")
+                })?;
+            }
+            if planned.target.exists() {
+                rollback_moves(&completed);
+                return Err(
+                    "Apareció una colisión después de la previsualización. No se aplicó el plan."
+                        .to_owned(),
+                );
+            }
+            if let Err(error) = fs::rename(&planned.source, &planned.target) {
+                rollback_moves(&completed);
+                return Err(format!(
+                    "No se pudo mover un archivo; los movimientos anteriores se revirtieron: {error}"
+                ));
+            }
+            completed.push(planned.clone());
+        }
+
+        for applied in &completed {
+            if let Some(session_track) = session.tracks.get_mut(&applied.scan_id) {
+                session_track.absolute_path = applied.target.clone();
+                session_track.track.relative_path =
+                    relative_display(&session.root, &applied.target);
+            }
+        }
+
+        let result_moves = completed
+            .iter()
+            .map(|item| ReorganizationMove {
+                scan_id: item.scan_id.clone(),
+                source_path: relative_display(&session.root, &item.source),
+                target_path: relative_display(&session.root, &item.target),
+            })
+            .collect::<Vec<_>>();
+        (
+            ReorganizationRun {
+                created_at,
+                id: run_id,
+                moves: completed,
+                session_id: request.session_id.clone(),
+                undone: false,
+            },
+            result_moves,
+        )
+    };
+
+    let run_id = run.id.clone();
+    state
+        .reorganization_history
+        .lock()
+        .map_err(|_| "No se pudo guardar el historial local.".to_owned())?
+        .push(run);
+    Ok(ReorganizationResult {
+        applied: true,
+        moves: result_moves,
+        run_id: Some(run_id),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn undo_reorganization(
+    state: State<'_, DesktopState>,
+    run_id: String,
+) -> Result<ReorganizationResult, String> {
+    let run = {
+        let history = state
+            .reorganization_history
+            .lock()
+            .map_err(|_| "No se pudo leer el historial local.".to_owned())?;
+        history
+            .iter()
+            .find(|run| run.id == run_id && !run.undone)
+            .cloned()
+            .ok_or_else(|| "La operación ya no está disponible para deshacer.".to_owned())?
+    };
+
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo actualizar la sesión local.".to_owned())?;
+    let session = current_session
+        .as_mut()
+        .filter(|session| session.id == run.session_id)
+        .ok_or_else(|| {
+            "Este historial pertenece a otro escaneo. Selecciona de nuevo la carpeta original."
+                .to_owned()
+        })?;
+
+    let mut reversed = Vec::with_capacity(run.moves.len());
+    for original in run.moves.iter().rev() {
+        if !original.target.exists() || original.source.exists() {
+            rollback_moves(&reversed);
+            return Err(
+                "Los archivos cambiaron desde la reorganización. No se deshizo nada.".to_owned(),
+            );
+        }
+        if let Some(parent) = original.source.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                rollback_moves(&reversed);
+                return Err(format!("No se pudo restaurar una carpeta: {error}"));
+            }
+        }
+        fs::rename(&original.target, &original.source).map_err(|error| {
+            rollback_moves(&reversed);
+            format!("No se pudo completar el deshacer: {error}")
+        })?;
+        reversed.push(AppliedMove {
+            scan_id: original.scan_id.clone(),
+            source: original.target.clone(),
+            target: original.source.clone(),
+        });
+    }
+
+    for original in &run.moves {
+        if let Some(session_track) = session.tracks.get_mut(&original.scan_id) {
+            session_track.absolute_path = original.source.clone();
+            session_track.track.relative_path = relative_display(&session.root, &original.source);
+        }
+    }
+    let result_moves = run
+        .moves
+        .iter()
+        .rev()
+        .map(|item| ReorganizationMove {
+            scan_id: item.scan_id.clone(),
+            source_path: relative_display(&session.root, &item.target),
+            target_path: relative_display(&session.root, &item.source),
+        })
+        .collect();
+    drop(current_session);
+
+    let mut history = state
+        .reorganization_history
+        .lock()
+        .map_err(|_| "No se pudo actualizar el historial local.".to_owned())?;
+    if let Some(entry) = history.iter_mut().find(|entry| entry.id == run_id) {
+        entry.undone = true;
+    }
+    Ok(ReorganizationResult {
+        applied: true,
+        moves: result_moves,
+        run_id: Some(run_id),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn list_reorganization_history(
+    state: State<'_, DesktopState>,
+    session_id: String,
+) -> Result<Vec<ReorganizationHistoryItem>, String> {
+    let history = state
+        .reorganization_history
+        .lock()
+        .map_err(|_| "No se pudo leer el historial local.".to_owned())?;
+    Ok(history
+        .iter()
+        .rev()
+        .filter(|run| run.session_id == session_id)
+        .take(20)
+        .map(|run| ReorganizationHistoryItem {
+            created_at: run.created_at,
+            move_count: run.moves.len(),
+            run_id: run.id.clone(),
+            undone: run.undone,
+        })
+        .collect())
+}
+
+fn session_tracks_for_library_ids(
+    session: &ScanSession,
+    track_ids: &[String],
+) -> Result<Vec<SessionTrack>, String> {
+    if track_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let scan_ids = track_ids
+        .iter()
+        .map(|track_id| {
+            session.library_links.get(track_id).cloned().ok_or_else(|| {
+                "Una pista del crate no está vinculada a un archivo del escaneo activo.".to_owned()
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    selected_session_tracks_from_session(session, &scan_ids)
+}
+
+fn write_with_backup(destination: &Path, contents: &str) -> Result<bool, String> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "El destino de exportación no es válido.".to_owned())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("No se pudo crear la jerarquía de listas: {error}"))?;
+    let temporary = destination.with_extension("xml.djorganizer.tmp");
+    fs::write(&temporary, contents)
+        .map_err(|error| format!("No se pudo preparar una lista: {error}"))?;
+    let backup = destination.with_extension(format!(
+        "xml.bak-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "No se pudo crear la copia de seguridad.".to_owned())?
+            .as_secs()
+    ));
+    let backed_up = destination.exists();
+    if backed_up {
+        fs::rename(destination, &backup)
+            .map_err(|error| format!("No se pudo proteger la lista existente: {error}"))?;
+    }
+    if let Err(error) = fs::rename(&temporary, destination) {
+        if backed_up {
+            let _ = fs::rename(&backup, destination);
+        }
+        return Err(format!("No se pudo guardar la lista: {error}"));
+    }
+    Ok(backed_up)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn export_virtualdj_crates(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    crates: Vec<VirtualDjCrateInput>,
+    session_id: String,
+) -> Result<VirtualDjBatchExportResult, String> {
+    if crates.is_empty() || crates.len() > 200 {
+        return Err("Selecciona entre 1 y 200 crates.".to_owned());
+    }
+    let total_tracks = crates
+        .iter()
+        .map(|item| item.track_ids.len())
+        .sum::<usize>();
+    if total_tracks > MAX_TRACKS {
+        return Err("La exportación admite hasta 10.000 pistas.".to_owned());
+    }
+    let destination = app
+        .dialog()
+        .file()
+        .set_title("Selecciona la carpeta My Lists de VirtualDJ")
+        .blocking_pick_folder();
+    let Some(destination) = destination else {
+        return Ok(VirtualDjBatchExportResult {
+            backed_up_files: 0,
+            cancelled: true,
+            exported_lists: 0,
+            exported_tracks: 0,
+        });
+    };
+    let destination = destination
+        .into_path()
+        .map_err(|error| format!("La carpeta elegida no es una ruta local válida: {error}"))?;
+
+    let prepared = {
+        let current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let session = current_session
+            .as_ref()
+            .filter(|session| session.id == session_id)
+            .ok_or_else(|| {
+                "Vuelve a escanear tu biblioteca antes de exportar crates.".to_owned()
+            })?;
+        crates
+            .iter()
+            .map(|item| {
+                validate_virtualdj_list_name(&item.name)?;
+                if item.hierarchy.len() > 8 {
+                    return Err("La jerarquía supera ocho niveles.".to_owned());
+                }
+                let tracks = session_tracks_for_library_ids(session, &item.track_ids)?;
+                let xml = build_virtualdj_list_xml(&tracks)?;
+                let mut relative = PathBuf::new();
+                for level in &item.hierarchy {
+                    relative.push(safe_path_segment(Some(level), "Sin nombre"));
+                }
+                relative.push(format!(
+                    "{}.xml",
+                    safe_path_segment(Some(&item.name), "DJOrganizer")
+                ));
+                Ok((relative, xml, tracks.len()))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+
+    let mut unique_destinations = HashSet::with_capacity(prepared.len());
+    for (relative, _, _) in &prepared {
+        if !unique_destinations.insert(relative.to_string_lossy().to_ascii_lowercase()) {
+            return Err(
+                "Dos crates generan la misma ruta de VirtualDJ después de sanear sus nombres."
+                    .to_owned(),
+            );
+        }
+    }
+
+    let mut backed_up_files = 0;
+    let mut exported_tracks = 0;
+    for (relative, xml, tracks) in &prepared {
+        if write_with_backup(&destination.join(relative), xml)? {
+            backed_up_files += 1;
+        }
+        exported_tracks += *tracks;
+    }
+    Ok(VirtualDjBatchExportResult {
+        backed_up_files,
+        cancelled: false,
+        exported_lists: prepared.len(),
+        exported_tracks,
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn import_virtualdj_my_lists(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    session_id: String,
+) -> Result<VirtualDjImportPreview, String> {
+    let selection = app
+        .dialog()
+        .file()
+        .set_title("Selecciona la carpeta My Lists de VirtualDJ")
+        .blocking_pick_folder();
+    let Some(selection) = selection else {
+        return Ok(VirtualDjImportPreview {
+            cancelled: true,
+            lists: Vec::new(),
+        });
+    };
+    let root = selection
+        .into_path()
+        .map_err(|error| format!("La carpeta elegida no es una ruta local válida: {error}"))?;
+
+    let path_to_track_id = {
+        let current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let Some(session) = current_session
+            .as_ref()
+            .filter(|session| session.id == session_id)
+        else {
+            return Err("Vuelve a escanear tu biblioteca antes de importar Lists.".to_owned());
+        };
+        let reverse_links = session
+            .library_links
+            .iter()
+            .map(|(track_id, scan_id)| (scan_id, track_id))
+            .collect::<HashMap<_, _>>();
+        session
+            .tracks
+            .values()
+            .filter_map(|track| {
+                reverse_links.get(&track.track.scan_id).map(|track_id| {
+                    (
+                        track.absolute_path.to_string_lossy().to_ascii_lowercase(),
+                        (*track_id).clone(),
+                    )
+                })
+            })
+            .collect::<HashMap<_, _>>()
+    };
+
+    let mut files = Vec::new();
+    let mut pending = vec![root.clone()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory)
+            .map_err(|error| format!("No se pudo leer My Lists: {error}"))?
+        {
+            let entry = entry.map_err(|error| format!("No se pudo leer una entrada: {error}"))?;
+            let path = entry.path();
+            let kind = entry
+                .file_type()
+                .map_err(|error| format!("No se pudo comprobar una entrada: {error}"))?;
+            if kind.is_dir() {
+                pending.push(path);
+            } else if kind.is_file()
+                && path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("xml"))
+            {
+                files.push(path);
+                if files.len() > 500 {
+                    return Err("My Lists contiene más de 500 listas.".to_owned());
+                }
+            }
+        }
+    }
+    files.sort();
+
+    let mut lists = Vec::with_capacity(files.len());
+    for file in files {
+        let xml = fs::read_to_string(&file)
+            .map_err(|error| format!("No se pudo leer una List: {error}"))?;
+        let paths = parse_virtualdj_paths(&xml)?;
+        let mut linked_track_ids = Vec::new();
+        let mut unresolved_paths = Vec::new();
+        for path in paths {
+            if let Some(track_id) = path_to_track_id.get(&path.to_ascii_lowercase()) {
+                linked_track_ids.push(track_id.clone());
+            } else {
+                unresolved_paths.push(path);
+            }
+        }
+        lists.push(VirtualDjImportedList {
+            linked_track_ids,
+            name: file
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("VirtualDJ")
+                .to_owned(),
+            relative_path: relative_display(&root, &file),
+            unresolved_paths,
+        });
+    }
+    Ok(VirtualDjImportPreview {
+        cancelled: false,
+        lists,
     })
 }
 
@@ -923,23 +2401,86 @@ async fn export_virtualdj_m3u8(
     })
 }
 
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<DesktopUpdateStatus, String> {
+    let update = app
+        .updater()
+        .map_err(|error| format!("El actualizador no está configurado: {error}"))?
+        .check()
+        .await
+        .map_err(|error| format!("No se pudo comprobar la actualización: {error}"))?;
+
+    Ok(match update {
+        Some(update) => DesktopUpdateStatus {
+            available: true,
+            notes: update.body,
+            version: Some(update.version),
+        },
+        None => DesktopUpdateStatus {
+            available: false,
+            notes: None,
+            version: None,
+        },
+    })
+}
+
+#[tauri::command]
+async fn install_available_update(app: AppHandle) -> Result<DesktopUpdateStatus, String> {
+    let Some(update) = app
+        .updater()
+        .map_err(|error| format!("El actualizador no está configurado: {error}"))?
+        .check()
+        .await
+        .map_err(|error| format!("No se pudo comprobar la actualización: {error}"))?
+    else {
+        return Ok(DesktopUpdateStatus {
+            available: false,
+            notes: None,
+            version: None,
+        });
+    };
+    let version = update.version.clone();
+    let notes = update.body.clone();
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|error| format!("No se pudo instalar la actualización: {error}"))?;
+    Ok(DesktopUpdateStatus {
+        available: true,
+        notes,
+        version: Some(version),
+    })
+}
+
 /// Starts the desktop application.
 ///
 /// The native scan command opens an operating-system folder picker and performs
-/// a bounded local scan. The VirtualDJ export commands accept only opaque track
-/// identifiers from the active native scan session, open a save dialog, and write
-/// either a native XML List or a compatible UTF-8 M3U8 playlist. No command moves,
-/// renames, uploads, or modifies audio files.
+/// a bounded local scan. Every file operation accepts only opaque identifiers
+/// from that scan, derives paths inside the confirmed root and verifies external
+/// changes immediately before applying a reversible operation.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(DesktopState::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             choose_and_scan_music_folder,
             link_library_tracks,
+            preview_metadata_writes,
+            apply_metadata_writes,
+            undo_metadata_writes,
+            list_metadata_write_history,
+            preview_reorganization_plan,
+            apply_reorganization_plan,
+            undo_reorganization,
+            list_reorganization_history,
             export_virtualdj_list,
-            export_virtualdj_m3u8
+            export_virtualdj_m3u8,
+            export_virtualdj_crates,
+            import_virtualdj_my_lists,
+            check_for_updates,
+            install_available_update
         ])
         .run(tauri::generate_context!())
         .expect("failed to run DJOrganizer desktop");
@@ -948,14 +2489,17 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_extension, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
-        export_path_text, link_library_candidates, parse_bpm, parse_mp4_bpm_value,
-        read_audio_metadata, safe_export_file_name, scan_music_folder, LibraryLinkCandidate,
-        ScannedAudioFile, SessionTrack,
+        apply_metadata_write_batch, audio_extension, build_metadata_write_preview,
+        build_reorganization_plan, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
+        link_library_candidates, parse_bpm, parse_mp4_bpm_value, parse_virtualdj_paths,
+        read_audio_metadata, restore_metadata_backups, safe_export_file_name, safe_path_segment,
+        scan_music_folder, LibraryLinkCandidate, MetadataEditInput, MetadataWriteRequest,
+        OrganizationScheme, ScanSession, ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use sha2::{Digest, Sha256};
     use std::{
+        collections::HashMap,
         fs,
         path::Path,
         time::{SystemTime, UNIX_EPOCH},
@@ -1040,6 +2584,62 @@ mod tests {
             .duration_seconds
             .is_some_and(|duration| (0.9..=1.1).contains(&duration)));
         assert_eq!(metadata.title, None);
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn previews_writes_and_restores_the_full_audio_backup() {
+        let root = test_directory();
+        let file = root.join("editable.wav");
+        let original = one_second_wav();
+        fs::write(&file, &original).expect("WAV fixture should be written");
+        let completed = scan_music_folder(&root, "metadata-session".to_owned())
+            .expect("folder should be scanned");
+        let scan_id = completed.result.tracks[0].scan_id.clone();
+        let mut session = ScanSession {
+            id: "metadata-session".to_owned(),
+            root: root.clone(),
+            tracks: completed
+                .session_tracks
+                .into_iter()
+                .map(|track| (track.track.scan_id.clone(), track))
+                .collect(),
+            library_links: HashMap::new(),
+        };
+        let request = MetadataWriteRequest {
+            edits: vec![MetadataEditInput {
+                album: String::new(),
+                artist: String::new(),
+                bpm: None,
+                genre: String::new(),
+                musical_key: String::new(),
+                scan_id: scan_id.clone(),
+                title: "Opening Tool".to_owned(),
+            }],
+            session_id: session.id.clone(),
+        };
+
+        let (preview, _) =
+            build_metadata_write_preview(&session, &request).expect("preview should be valid");
+        assert_eq!(preview.files.len(), 1);
+        assert_eq!(preview.files[0].changes[0].field, "title");
+
+        let (run, result) =
+            apply_metadata_write_batch(&mut session, &request).expect("write should succeed");
+        assert_eq!(result.applied_files, 1);
+        assert_eq!(
+            read_audio_metadata(&file)
+                .expect("written metadata should be readable")
+                .title
+                .as_deref(),
+            Some("Opening Tool")
+        );
+        assert!(run.backups[0].backup_path.exists());
+        assert!(restore_metadata_backups(&run.backups));
+        assert_eq!(
+            fs::read(&file).expect("restored audio should be readable"),
+            original
+        );
         fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
@@ -1266,5 +2866,66 @@ mod tests {
         );
         assert_eq!(safe_export_file_name("..."), "DJOrganizer");
         assert!(!safe_export_file_name(&format!("{}.", "a".repeat(80))).ends_with('.'));
+    }
+
+    #[test]
+    fn parses_virtualdj_paths_with_both_xml_quote_styles() {
+        let xml = r#"<?xml version="1.0"?>
+<VirtualFolder ordered="yes">
+  <song path="C:\Music\A &amp; B.mp3" idx="0" />
+  <song path='C:\Music\Closing.wav' idx='1' />
+</VirtualFolder>"#;
+
+        assert_eq!(
+            parse_virtualdj_paths(xml).expect("VirtualDJ paths should parse"),
+            vec![
+                r"C:\Music\A & B.mp3".to_owned(),
+                r"C:\Music\Closing.wav".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn reorganization_targets_stay_inside_the_confirmed_root() {
+        let root = test_directory();
+        let source = root.join("Unsafe.mp3");
+        fs::write(&source, [1_u8, 2, 3]).expect("audio fixture should be written");
+        let track = SessionTrack {
+            absolute_path: source,
+            track: ScannedAudioFile {
+                scan_id: "scan-id".to_owned(),
+                name: "Unsafe.mp3".to_owned(),
+                relative_path: "Unsafe.mp3".to_owned(),
+                extension: "mp3".to_owned(),
+                size_bytes: 3,
+                metadata_read: true,
+                title: Some("../Opening".to_owned()),
+                artist: Some("../CON".to_owned()),
+                album: Some("Warm-up".to_owned()),
+                genre: None,
+                duration_seconds: None,
+                bpm: None,
+                musical_key: None,
+                duplicate_group: None,
+            },
+        };
+        let session = ScanSession {
+            id: "session".to_owned(),
+            root: root.clone(),
+            tracks: HashMap::from([("scan-id".to_owned(), track)]),
+            library_links: HashMap::new(),
+        };
+
+        let plan = build_reorganization_plan(
+            &session,
+            &["scan-id".to_owned()],
+            &OrganizationScheme::ArtistAlbum,
+        )
+        .expect("the reorganization plan should be safe");
+
+        assert_eq!(plan.len(), 1);
+        assert!(plan[0].target.starts_with(&root));
+        assert_eq!(safe_path_segment(Some("../CON"), "fallback"), "_CON");
+        fs::remove_dir_all(root).expect("test directory should be removed");
     }
 }

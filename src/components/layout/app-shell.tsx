@@ -3,28 +3,28 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { getMessages, type Locale } from "@/lib/i18n/i18n";
 import { Icon, type IconName } from "./icon";
-
-const navigation: { href: string; label: string; icon: IconName }[] = [
-  { href: "/library", label: "Biblioteca", icon: "library" },
-  { href: "/import", label: "Importar", icon: "import" },
-  { href: "/crates", label: "Crates", icon: "crates" },
-  { href: "/settings", label: "Ajustes", icon: "settings" },
-];
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function Brand() {
+function Brand({ homeLabel }: { homeLabel: string }) {
   return (
-    <Link aria-label="DJOrganizer, inicio" className="brand" href="/">
+    <Link aria-label={`DJOrganizer, ${homeLabel}`} className="brand" href="/">
       <span>DJ</span>Organizer
     </Link>
   );
 }
 
-function NavLinks({ pathname }: { pathname: string }) {
+function NavLinks({
+  navigation,
+  pathname,
+}: {
+  navigation: { href: string; label: string; icon: IconName }[];
+  pathname: string;
+}) {
   return navigation.map(({ href, label, icon }) => (
     <Link className={isActive(pathname, href) ? "active" : ""} href={href} key={href}>
       <Icon name={icon} />
@@ -36,38 +36,61 @@ function NavLinks({ pathname }: { pathname: string }) {
 export function AppShell({
   authStatus,
   children,
+  locale,
 }: {
   authStatus: ReactNode;
   children: ReactNode;
+  locale: Locale;
 }) {
   const pathname = usePathname();
+  const copy = getMessages(locale).navigation;
+  const navigation: { href: string; label: string; icon: IconName }[] = [
+    { href: "/library", label: copy.library, icon: "library" },
+    { href: "/import", label: copy.import, icon: "import" },
+    { href: "/crates", label: copy.crates, icon: "crates" },
+    { href: "/settings", label: copy.settings, icon: "settings" },
+  ];
   const isAuthRoute =
     pathname === "/login" ||
     pathname === "/signup" ||
     pathname.startsWith("/auth/");
   const currentSection =
-    navigation.find(({ href }) => isActive(pathname, href))?.label ?? "Inicio";
+    navigation.find(({ href }) => isActive(pathname, href))?.label ?? copy.home;
 
   if (isAuthRoute) {
-    return <main className="auth-main">{children}</main>;
+    return (
+      <>
+        <a className="skip-link" href="#main-content">
+          {copy.skip}
+        </a>
+        <main className="auth-main" id="main-content" tabIndex={-1}>
+          {children}
+        </main>
+      </>
+    );
   }
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        {copy.skip}
+      </a>
       <aside>
-        <Brand />
-        <nav aria-label="Navegación principal">
-          <NavLinks pathname={pathname} />
+        <Brand homeLabel={copy.home} />
+        <nav aria-label={copy.main}>
+          <NavLinks navigation={navigation} pathname={pathname} />
         </nav>
         {authStatus}
       </aside>
       <header className="mobile-topbar">
-        <Brand />
+        <Brand homeLabel={copy.home} />
         <span>{currentSection}</span>
       </header>
-      <main>{children}</main>
-      <nav aria-label="Navegación móvil" className="mobile-nav">
-        <NavLinks pathname={pathname} />
+      <main id="main-content" tabIndex={-1}>
+        {children}
+      </main>
+      <nav aria-label={copy.mobile} className="mobile-nav">
+        <NavLinks navigation={navigation} pathname={pathname} />
       </nav>
     </div>
   );

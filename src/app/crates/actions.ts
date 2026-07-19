@@ -26,6 +26,31 @@ function cratesError(reason: string): never {
   redirect(`/crates?error=${reason}`);
 }
 
+async function validateParentCrate(
+  parentId: string | null,
+  userId: string,
+  currentId?: string,
+) {
+  if (!parentId) return true;
+  if (parentId === currentId) return false;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("crates")
+    .select("id, parent_id")
+    .eq("user_id", userId)
+    .limit(1000);
+  const byId = new Map((data ?? []).map((crate) => [crate.id, crate.parent_id]));
+  if (!byId.has(parentId)) return false;
+  const visited = new Set<string>();
+  let cursor: string | null = parentId;
+  while (cursor) {
+    if (cursor === currentId || visited.has(cursor)) return false;
+    visited.add(cursor);
+    cursor = byId.get(cursor) ?? null;
+  }
+  return true;
+}
+
 export async function createCrateAction(formData: FormData) {
   const user = await requireUser();
   const parsed = (() => {
@@ -36,6 +61,9 @@ export async function createCrateAction(formData: FormData) {
     }
   })();
   if (!parsed) cratesError("invalid-crate");
+  if (!(await validateParentCrate(parsed.parent_id, user.id))) {
+    cratesError("invalid-crate");
+  }
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -62,6 +90,9 @@ export async function updateCrateAction(formData: FormData) {
     }
   })();
   if (!id.success || !parsed) cratesError("invalid-crate");
+  if (!(await validateParentCrate(parsed.parent_id, user.id, id.data))) {
+    redirect(`/crates/${id.data}?error=invalid-crate`);
+  }
 
   const supabase = await createClient();
   const { data, error } = await supabase

@@ -14,6 +14,8 @@ aislada por usuario mediante Supabase.
 - web-audio-beat-detector para estimar BPM exclusivamente en el navegador
 - Zod para validar todas las entradas de canciones
 - ESLint 9 y Vitest
+- Playwright para pruebas end-to-end en escritorio y móvil
+- Tauri 2 para instaladores nativos y actualizaciones firmadas
 - GitHub y despliegues automáticos en Vercel
 
 ## Instalación
@@ -37,6 +39,7 @@ Abre [http://localhost:3000](http://localhost:3000).
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | URL pública del proyecto Supabase |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Clave pública para clientes web |
+| `OPENAI_API_KEY` | Clave privada, solo en servidor, para la clasificación opcional |
 
 Las mismas variables deben existir en Vercel para Production, Preview y
 Development.
@@ -51,6 +54,8 @@ Development.
 | `npm run lint` | Reglas ESLint y Next.js |
 | `npm run typecheck` | Comprobación TypeScript sin emitir archivos |
 | `npm test` | Pruebas unitarias con Vitest |
+| `npm run test:e2e` | Pruebas E2E con Playwright |
+| `supabase test db` | Auditoría pgTAP de RLS y separación entre usuarios |
 
 ## Base de datos
 
@@ -67,6 +72,16 @@ Todas las tablas personales tienen RLS activado y políticas separadas de
 lectura, creación, actualización y eliminación. Las relaciones intermedias
 incluyen `user_id` y claves foráneas compuestas para impedir asociaciones entre
 datos de usuarios distintos.
+
+La suite `supabase/tests/database` crea dos usuarios dentro de una transacción
+revertida y comprueba que no puedan leer, modificar, borrar ni reconciliar datos
+ajenos. CI reconstruye una base PostgreSQL efímera desde las migraciones antes
+de ejecutar estas pruebas.
+
+Un segundo trabajo de CI levanta el stack local completo, registra una cuenta
+temporal y recorre con Playwright el flujo importación → biblioteca → crate. Los
+WAV de prueba se generan en memoria, nunca proceden de la biblioteca del usuario
+y desaparecen junto con el entorno efímero.
 
 Para aplicar las migraciones con Supabase CLI:
 
@@ -97,7 +112,6 @@ Rutas privadas: `/library`, `/import`, `/crates` y `/settings`.
 src/
 ├── app/          # Rutas, acciones de servidor y estilos globales
 ├── components/   # Layout, autenticación, biblioteca y UI reutilizable
-├── data/         # Datos locales tipados de demostración
 ├── lib/          # Helpers, autenticación y clientes de Supabase
 └── types/        # Tipos musicales y tipos generados de la base de datos
 supabase/
@@ -120,6 +134,10 @@ supabase/
 - Selección de hasta 100 archivos locales por tanda.
 - Lectura en el navegador de título, artista, álbum, género, BPM etiquetado,
   tonalidad etiquetada, año y duración.
+- El artista es opcional. Si falta, se conserva como `NULL` y la interfaz
+  muestra “Artista desconocido”; el nombre de archivo proporciona el título
+  inicial, por lo que una pista puede guardarse trabajando solo con BPM y
+  tonalidad.
 - Vista previa editable antes de guardar.
 - Detección opcional de BPM por pista o en lote, ejecutada localmente.
 - Análisis secuencial de una ventana de hasta 90 segundos para limitar memoria.
@@ -134,17 +152,17 @@ supabase/
 - Los errores parciales no descartan las pistas guardadas correctamente.
 - Solo se envían la huella y los campos de texto y números al servidor.
 
-La detección compara el contenido exacto del archivo. Una copia idéntica se
-detectará aunque tenga otro nombre, pero una canción reetiquetada o recodificada
-generará otra huella; esta fase no intenta reconocer similitud acústica.
+Además de la huella exacta, el análisis local calcula energía y una firma
+acústica compacta. Antes de guardar se compara esa firma con la biblioteca para
+detectar posibles copias recodificadas, versiones y remixes; las coincidencias
+no concluyentes siempre quedan para revisión manual.
 
-Los archivos locales de demostración permanecen únicamente como referencia de
-desarrollo y ya no se usan en la biblioteca real.
-
-No se suben ni guardan archivos de audio o portadas y no se usa Supabase
-Storage para audio. El BPM y la tonalidad pueden proceder de etiquetas o de
-estimaciones locales revisadas por el usuario. No se ha implementado detección
-de energía, similitud acústica ni inteligencia artificial.
+No se guardan archivos de audio o portadas y no se usa Supabase Storage para
+audio. El BPM, tonalidad y energía pueden proceder de etiquetas o estimaciones
+locales revisadas. La clasificación de género con `gpt-audio` es opcional:
+requiere consentimiento por pista, genera localmente un clip WAV mono de hasta
+45 segundos, aplica límites de uso y solo ofrece una sugerencia que el usuario
+debe aceptar manualmente.
 
 ## Crates y etiquetas
 
@@ -205,12 +223,31 @@ de energía, similitud acústica ni inteligencia artificial.
 - Caché limitada a recursos estáticos versionados de Next.js, iconos y la
   página offline.
 - Aviso accesible cuando el dispositivo pierde la conexión.
+- Cola local compactada para importaciones, altas, ediciones, eliminaciones,
+  crates, orden y etiquetas. Al recuperar la conexión reintenta en lotes,
+  detecta revisiones incompatibles y permite conservar la versión local o
+  descartar el conflicto.
+- Copia de seguridad JSON versionada con restauración confirmada.
 
 Por seguridad, no se cachean páginas autenticadas, respuestas de Supabase,
-cookies, bibliotecas personales ni archivos de audio. La edición de datos sin
-conexión y su sincronización posterior no forman parte de esta fase. Para
-probar la instalación y el service worker usa un build de producción servido
-por HTTPS o desde localhost.
+cookies, bibliotecas personales ni archivos de audio. Los metadatos pendientes
+se conservan en el dispositivo; los conflictos disponen de un contrato
+versionado para ampliar la sincronización a más operaciones. Para probar la
+instalación y el service worker usa un build de producción servido por HTTPS o
+desde localhost.
+
+La biblioteca se consulta en ventanas SQL de 25 pistas, los crates muestran
+ventanas de 100 y el escaneo local pagina sus resultados. Esto mantiene el DOM
+acotado aunque la colección tenga decenas de miles de pistas; la suite prueba
+explícitamente una colección sintética de 50.000 elementos.
+
+## Diagnóstico privado
+
+DJOrganizer puede conservar localmente hasta 100 eventos de conectividad,
+sincronización o errores de ejecución. Los mensajes se sanean para retirar
+rutas, correos, identificadores y secretos. Desde Ajustes el usuario puede
+exportar el informe JSON o borrarlo; no existe envío automático de telemetría y
+el informe no contiene música, biblioteca, cookies ni datos de cuenta.
 
 
 ## Aplicación de escritorio
@@ -227,25 +264,37 @@ tonalidad y duración cuando existen. También agrupa copias binarias exactas:
 solo calcula SHA-256 en streaming para archivos del mismo tamaño y nunca devuelve
 ni persiste las huellas. No acepta rutas enviadas por la web, no decodifica
 muestras y no mueve, renombra, modifica, reproduce, sube ni guarda archivos de
-audio.
+audio durante el escaneo.
 
 El resultado local completo se puede buscar por nombre, ruta y metadatos,
 filtrar por duplicados o errores de lectura y recorrer en páginas de 25 pistas.
-La selección múltiple permanece en memoria y no ejecuta todavía operaciones
-sobre los archivos. Para las pistas seleccionadas se puede previsualizar una
-organización por artista/álbum, género/artista o tonalidad/BPM. Las rutas se
-sanean, los nombres reservados se neutralizan y las colisiones se resuelven en
-la propuesta, pero esta fase no mueve ni renombra archivos.
+La selección múltiple permanece en memoria hasta que el usuario confirma una
+operación. Se puede previsualizar y aplicar una organización por artista/álbum,
+género/artista o tonalidad/BPM. Rust vuelve a comprobar existencia y tamaño,
+sanea rutas, neutraliza nombres reservados, resuelve colisiones, revierte fallos
+parciales y mantiene un historial de sesión con deshacer.
+
+La escritura de título, artista, álbum, género, BPM y tonalidad es una operación
+separada y explícita, limitada a 25 pistas revisadas por lote. Primero muestra
+los cambios campo a campo; al confirmar, Rust vuelve a validar tamaño y formato,
+copia cada archivo completo en `.djorganizer-backups`, escribe las etiquetas,
+las relee y calcula una huella del resultado. Un fallo restaura todo el lote y
+el historial de la sesión permite recuperar los originales. Deshacer se bloquea
+si otro programa modificó un archivo después de la escritura. La carpeta de
+copias se excluye de los escaneos posteriores.
 
 Las pistas seleccionadas pueden guardarse como una **List nativa de VirtualDJ
-2024+** en XML o como una playlist M3U8 compatible con flujos heredados. Rust
+2024+** en XML o como una playlist M3U8 compatible con flujos heredados. También
+se exportan todos los crates y jerarquías en una operación, conservando el
+orden y creando copias de las Lists existentes. La importación recorre **My
+Lists**, vincula rutas locales y permite combinar o reemplazar crates tras una
+previsualización explícita, registrando conflictos no resueltos. Rust
 conserva las rutas absolutas únicamente en la sesión local del escaneo, valida
 que toda selección pertenezca a esa sesión y abre el selector de guardado del
 sistema. Ambos formatos conservan el orden; no copian ni modifican el audio y
 no editan `database.xml`.
 
-El roadmap vivo, incluida la exportación directa de crates y el análisis
-automático al importar, está en [`docs/roadmap.md`](docs/roadmap.md).
+El roadmap vivo está en [`docs/roadmap.md`](docs/roadmap.md).
 
 Para validar el núcleo Rust:
 
@@ -258,4 +307,6 @@ cargo test --manifest-path src-tauri/Cargo.toml
 Para desarrollo interactivo, instala Tauri CLI 2 y ejecuta `cargo tauri dev`
 desde la raíz. Son necesarios Rust y las dependencias de sistema indicadas por
 Tauri para cada plataforma. Los límites y el modelo de seguridad del escaneo se
-documentan en `docs/desktop-folder-scanning.md`.
+documentan en `docs/desktop-folder-scanning.md`. Los instaladores y
+`latest.json` se generan desde tags `app-v*`; consulta
+[`docs/distribution.md`](docs/distribution.md).

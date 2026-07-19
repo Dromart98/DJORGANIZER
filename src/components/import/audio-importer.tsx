@@ -1,13 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  checkAcousticMatchesAction,
   checkImportDuplicatesAction,
   saveImportedTracksAction,
+  type AcousticLibraryMatch,
   type ImportResult,
 } from "@/app/import/actions";
 import { Button } from "@/components/ui/button";
+import {
+  createAcousticSignature,
+  inferVersionType,
+} from "@/lib/audio/acoustic-similarity";
+import { analyzeEnergyFromAudioBuffer } from "@/lib/audio/energy-analysis";
+import { createWavClipFromAudioBuffer } from "@/lib/audio/wav-clip";
 import { isAutomaticAnalysisEligibleStatus } from "@/lib/import/automatic-analysis";
 import {
   detectBpmFromAudioBuffer,
@@ -24,6 +32,11 @@ import {
   detectKeyFromFile,
 } from "@/lib/import/key-detector";
 import { metadataToImportTrack } from "@/lib/import/metadata";
+import {
+  loadOfflineMutations,
+  saveOfflineMutations,
+  type OfflineMutation,
+} from "@/lib/offline/mutation-queue";
 
 type ImportStatus =
   | "reading"
@@ -42,12 +55,20 @@ type AutomaticAnalysisProgress = {
 };
 
 type ImportItem = {
+  acousticMatch?: AcousticLibraryMatch;
   bpmError?: string;
   bpmStatus?: "idle" | "analyzing" | "detected" | "error";
   data?: ImportTrackInput;
   duplicateTrackId?: string;
   error?: string;
   file?: File;
+  genreError?: string;
+  genreStatus?: "idle" | "classifying" | "suggested" | "error";
+  genreSuggestion?: {
+    confidence: number;
+    explanation: string;
+    genre: string;
+  };
   id: string;
   keyError?: string;
   keyStatus?: "idle" | "analyzing" | "detected" | "error";
@@ -107,6 +128,8 @@ export function AudioImporter() {
     useState<AutomaticAnalysisProgress | null>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
   const [isAnalyzingKey, setIsAnalyzingKey] = useState(false);
+  const [allowRemoteGenreAnalysis, setAllowRemoteGenreAnalysis] =
+    useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [isAnalyzingBpm, setIsAnalyzingBpm] = useState(false);
   const [isReading, setIsReading] = useState(false);
@@ -117,6 +140,59 @@ export function AudioImporter() {
   const duplicateCount = items.filter(
     (item) => item.status === "duplicate",
   ).length;
+
+  useEffect(() => {
+    async function synchronizeQueuedImports() {
+      if (!navigator.onLine) return;
+      const queued = loadOfflineMutations(window.localStorage);
+      const imports = queued.filter(
+        (mutation) =>
+          mutation.entity === "track" && mutation.operation === "create",
+      );
+      if (!imports.length) return;
+      try {
+        const synchronizedMutationIds = new Set<string>();
+        for (const group of chunks(imports, 25)) {
+          const result = await saveImportedTracksAction(
+            group.map((mutation) => mutation.payload as ImportTrackInput),
+          );
+          const completedClientIds = new Set(
+            result.results
+              .filter(
+                (item) =>
+                  item.status === "saved" || item.status === "duplicate",
+              )
+              .map((item) => item.client_id),
+          );
+          for (const mutation of group) {
+            const clientId = mutation.payload.client_id;
+            if (
+              typeof clientId === "string" &&
+              completedClientIds.has(clientId)
+            ) {
+              synchronizedMutationIds.add(mutation.id);
+            }
+          }
+        }
+        saveOfflineMutations(
+          window.localStorage,
+          queued.filter(
+            (mutation) => !synchronizedMutationIds.has(mutation.id),
+          ),
+        );
+        if (synchronizedMutationIds.size) {
+          setNotice(
+            `${synchronizedMutationIds.size} cambios pendientes se sincronizaron al recuperar la conexión.`,
+          );
+        }
+      } catch {
+        // The queue stays intact and is retried on the next online event.
+      }
+    }
+    void synchronizeQueuedImports();
+    window.addEventListener("online", synchronizeQueuedImports);
+    return () => window.removeEventListener("online", synchronizeQueuedImports);
+  }, []);
   function updateItem(id: string, update: Partial<ImportItem>) {
     setItems((current) =>
       current.map((item) => (item.id === id ? { ...item, ...update } : item)),
@@ -158,6 +234,7 @@ export function AudioImporter() {
         data,
         error: error ?? undefined,
         file,
+        genreStatus: "idle",
         id,
         keyStatus: "idle",
         name: file.name,
@@ -382,7 +459,10 @@ export function AudioImporter() {
         isAutomaticAnalysisEligibleStatus(item.status) &&
         Boolean(item.data) &&
         Boolean(item.file) &&
-        (item.data?.bpm === null || item.data?.musical_key === null),
+        (item.data?.bpm === null ||
+          item.data?.musical_key === null ||
+          item.data?.energy === null ||
+          item.data?.acoustic_fingerprint === null),
     );
     if (!analyzable.length) return;
 
@@ -458,6 +538,11 @@ export function AudioImporter() {
               ? detectKeyFromAudioBuffer(audioBuffer)
               : Promise.resolve(null),
           ]);
+          const energyResult = analyzeEnergyFromAudioBuffer(audioBuffer);
+          const acousticSignature = createAcousticSignature(
+            audioBuffer.getChannelData(0),
+            audioBuffer.sampleRate,
+          );
           if (automaticAnalysisRunRef.current !== runId) break;
 
           setItems((current) =>
@@ -466,7 +551,12 @@ export function AudioImporter() {
                 return currentItem;
               }
 
-              let data = currentItem.data;
+              let data: ImportTrackInput = {
+                ...currentItem.data,
+                acoustic_fingerprint: JSON.stringify(acousticSignature),
+                energy: energyResult.energy,
+                version_type: inferVersionType(currentItem.data.title),
+              };
               let bpmError = currentItem.bpmError;
               let bpmStatus = currentItem.bpmStatus;
               let keyError = currentItem.keyError;
@@ -761,6 +851,72 @@ export function AudioImporter() {
 
     setIsSaving(true);
     setNotice(null);
+    const acousticCandidates = ready.flatMap((item) =>
+        item.data.acoustic_fingerprint
+          ? [
+              {
+                acousticFingerprint: item.data.acoustic_fingerprint,
+                bpm: item.data.bpm,
+                clientId: item.id,
+                durationSeconds: item.data.duration_seconds,
+                title: item.data.title,
+              },
+            ]
+          : [],
+    );
+    let matchResult: Awaited<ReturnType<typeof checkAcousticMatchesAction>> = {
+      matches: [],
+    };
+    try {
+      if (acousticCandidates.length) {
+        matchResult = await checkAcousticMatchesAction(acousticCandidates);
+      }
+    } catch {
+      matchResult = {
+        matches: [],
+        message:
+          "No se pudo completar la comparación acústica; la importación continúa con la comprobación de huellas exactas.",
+      };
+    }
+    const matchById = new Map(
+      matchResult.matches.map((match) => [match.clientId, match]),
+    );
+    const exactDuplicateIds = new Set(
+      matchResult.matches
+        .filter((match) => match.relationship === "duplicate")
+        .map((match) => match.clientId),
+    );
+    if (matchResult.matches.length) {
+      setItems((current) =>
+        current.map((item) => {
+          const match = matchById.get(item.id);
+          if (!match) return item;
+          return {
+            ...item,
+            acousticMatch: match,
+            duplicateTrackId:
+              match.relationship === "duplicate"
+                ? match.trackId
+                : item.duplicateTrackId,
+            error:
+              match.relationship === "duplicate"
+                ? `Coincidencia acústica con “${match.trackTitle}”.`
+                : item.error,
+            status:
+              match.relationship === "duplicate" ? "duplicate" : item.status,
+          };
+        }),
+      );
+    }
+    if (exactDuplicateIds.size) {
+      setNotice(
+        `${exactDuplicateIds.size} pistas coinciden acústicamente con la biblioteca y no se guardaron. Revisa las posibles versiones o remixes antes de continuar.`,
+      );
+      setIsSaving(false);
+      return;
+    }
+    if (matchResult.message) setNotice(matchResult.message);
+
     const ids = new Set(ready.map((item) => item.id));
     setItems((current) =>
       current.map((item) =>
@@ -804,12 +960,24 @@ export function AudioImporter() {
           );
         } catch {
           const groupIds = new Set(group.map((item) => item.id));
+          const queued = loadOfflineMutations(window.localStorage);
+          const pending: OfflineMutation[] = group.map((item) => ({
+            createdAt: new Date().toISOString(),
+            entity: "track",
+            entityId: item.id,
+            id: crypto.randomUUID(),
+            operation: "create",
+            payload: item.data,
+            revision: null,
+          }));
+          saveOfflineMutations(window.localStorage, [...queued, ...pending]);
           setItems((current) =>
             current.map((item) =>
               groupIds.has(item.id)
                 ? {
                     ...item,
-                    error: "Se perdió la conexión. Puedes reintentar esta pista.",
+                    error:
+                      "Se perdió la conexión. Los metadatos quedaron en la cola offline.",
                     status: "error",
                   }
                 : item,
@@ -824,6 +992,81 @@ export function AudioImporter() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function classifyGenre(item: ImportItem) {
+    if (
+      !allowRemoteGenreAnalysis ||
+      !item.file ||
+      !item.data ||
+      !isAutomaticAnalysisEligibleStatus(item.status)
+    ) {
+      return;
+    }
+    updateItem(item.id, {
+      genreError: undefined,
+      genreStatus: "classifying",
+      genreSuggestion: undefined,
+    });
+    let audioContext: AudioContext | null = null;
+    try {
+      audioContext = new AudioContext();
+      const decoded = await audioContext.decodeAudioData(
+        await item.file.arrayBuffer(),
+      );
+      const clip = createWavClipFromAudioBuffer(decoded);
+      const body = new FormData();
+      body.set("consent", "true");
+      body.set("audio", clip, `${item.file.name}.clip.wav`);
+      const result = await fetch("/api/audio/genre", {
+        body,
+        method: "POST",
+      });
+      const payload = (await result.json()) as {
+        error?: string;
+        suggestion?: ImportItem["genreSuggestion"];
+      };
+      if (!result.ok || !payload.suggestion) {
+        throw new Error(payload.error || "No se recibió una sugerencia.");
+      }
+      updateItem(item.id, {
+        genreStatus: "suggested",
+        genreSuggestion: payload.suggestion,
+      });
+    } catch (error) {
+      updateItem(item.id, {
+        genreError:
+          error instanceof Error
+            ? error.message
+            : "No se pudo clasificar el género.",
+        genreStatus: "error",
+      });
+    } finally {
+      if (audioContext) {
+        await audioContext.close().catch(() => undefined);
+      }
+    }
+  }
+
+  function acceptGenreSuggestion(item: ImportItem) {
+    if (!item.genreSuggestion) return;
+    setItems((current) =>
+      current.map((currentItem) => {
+        if (currentItem.id !== item.id || !currentItem.data) return currentItem;
+        const data: ImportTrackInput = {
+          ...currentItem.data,
+          genre: item.genreSuggestion?.genre ?? null,
+          genre_confidence: item.genreSuggestion?.confidence ?? null,
+          genre_source: "openai",
+        };
+        return {
+          ...currentItem,
+          data,
+          genreStatus: "idle",
+          genreSuggestion: undefined,
+        };
+      }),
+    );
   }
 
   function removeItem(id: string) {
@@ -874,6 +1117,25 @@ export function AudioImporter() {
 
       {items.length ? (
         <>
+          <div className="card ai-consent">
+            <label>
+              <input
+                checked={allowRemoteGenreAnalysis}
+                onChange={(event) =>
+                  setAllowRemoteGenreAnalysis(event.target.checked)
+                }
+                type="checkbox"
+              />
+              <span>
+                Permitir clasificación opcional con OpenAI
+                <small>
+                  Solo al pulsar “Sugerir género” se convertirá localmente y
+                  enviará un fragmento mono de hasta 45 segundos. La sugerencia
+                  nunca se aplica sin tu revisión.
+                </small>
+              </span>
+            </label>
+          </div>
           <div className="import-toolbar">
             <p>
               <strong>{items.length}</strong> archivos · {readyCount} listos ·{" "}
@@ -970,15 +1232,18 @@ export function AudioImporter() {
                       />
                     </label>
                     <label className="field">
-                      Artista
+                      Artista (opcional)
                       <input
                         disabled={isLocked}
                         maxLength={300}
                         onChange={(event) =>
-                          updateField(item.id, "artist", event.target.value)
+                          updateField(
+                            item.id,
+                            "artist",
+                            event.target.value || null,
+                          )
                         }
-                        required
-                        value={item.data.artist}
+                        value={item.data.artist ?? ""}
                       />
                     </label>
                     <label className="field">
@@ -1010,6 +1275,85 @@ export function AudioImporter() {
                         }
                         value={item.data.genre ?? ""}
                       />
+                      {item.file &&
+                      isAutomaticAnalysisEligibleStatus(item.status) ? (
+                        <button
+                          className="import-analyze-link"
+                          disabled={
+                            !allowRemoteGenreAnalysis ||
+                            item.genreStatus === "classifying" ||
+                            isSaving
+                          }
+                          onClick={() => void classifyGenre(item)}
+                          type="button"
+                        >
+                          {item.genreStatus === "classifying"
+                            ? "Clasificando…"
+                            : "Sugerir género"}
+                        </button>
+                      ) : null}
+                      {item.genreSuggestion ? (
+                        <span className="genre-suggestion" role="status">
+                          <strong>
+                            {item.genreSuggestion.genre} ·{" "}
+                            {Math.round(item.genreSuggestion.confidence * 100)}%
+                          </strong>
+                          <small>{item.genreSuggestion.explanation}</small>
+                          <button
+                            className="import-analyze-link"
+                            onClick={() => acceptGenreSuggestion(item)}
+                            type="button"
+                          >
+                            Aplicar sugerencia
+                          </button>
+                        </span>
+                      ) : null}
+                      {item.genreError ? (
+                        <small className="field-error" role="alert">
+                          {item.genreError}
+                        </small>
+                      ) : null}
+                    </label>
+                    <label className="field">
+                      Energía
+                      <input
+                        disabled={isLocked}
+                        max={100}
+                        min={0}
+                        onChange={(event) =>
+                          updateField(
+                            item.id,
+                            "energy",
+                            event.target.value
+                              ? Number(event.target.value)
+                              : null,
+                          )
+                        }
+                        type="number"
+                        value={item.data.energy ?? ""}
+                      />
+                      <small>0–100, calculada localmente y editable</small>
+                    </label>
+                    <label className="field">
+                      Versión
+                      <select
+                        disabled={isLocked}
+                        onChange={(event) =>
+                          updateField(
+                            item.id,
+                            "version_type",
+                            event.target.value || null,
+                          )
+                        }
+                        value={item.data.version_type ?? "unknown"}
+                      >
+                        <option value="original">Original</option>
+                        <option value="remix">Remix / mix / dub</option>
+                        <option value="edit">Edit / radio / extended</option>
+                        <option value="live">Live</option>
+                        <option value="remaster">Remaster</option>
+                        <option value="unknown">Sin identificar</option>
+                      </select>
                     </label>
                     <label className="field import-bpm-field">
                       <span>
@@ -1142,6 +1486,21 @@ export function AudioImporter() {
                         Ver la pista
                       </Link>
                     ) : null}
+                  </p>
+                ) : null}
+                {item.acousticMatch &&
+                item.acousticMatch.relationship !== "duplicate" ? (
+                  <p className="form-message" role="status">
+                    Posible{" "}
+                    {item.acousticMatch.relationship === "same-release"
+                      ? "versión de la misma edición"
+                      : "versión o remix"}{" "}
+                    de “{item.acousticMatch.trackTitle}” (
+                    {Math.round(item.acousticMatch.similarity * 100)}% de
+                    similitud). Revisa el tipo de versión antes de guardar.{" "}
+                    <Link href={`/library/${item.acousticMatch.trackId}`}>
+                      Comparar
+                    </Link>
                   </p>
                 ) : null}
                 </article>

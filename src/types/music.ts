@@ -1,7 +1,7 @@
 export type Track = {
   id: string;
   title: string;
-  artist: string;
+  artist: string | null;
   genre: string;
   bpm: number;
   key: string;

@@ -96,6 +96,7 @@ export function TrackTable({
               </select>
               <button
                 className="button button--secondary button--small"
+                data-offline-action="tag-assign"
                 disabled={selected.size === 0}
                 formAction={assignTagToTracksAction}
                 type="submit"
@@ -104,6 +105,7 @@ export function TrackTable({
               </button>
               <button
                 className="button button--secondary button--small"
+                data-offline-action="tag-unassign"
                 disabled={selected.size === 0}
                 formAction={removeTagFromTracksAction}
                 type="submit"
@@ -118,6 +120,10 @@ export function TrackTable({
           )}
           <form
             action={deleteTracksAction}
+            data-offline-action="track-delete"
+            data-offline-confirm={`¿Eliminar ${selected.size} ${
+              selected.size === 1 ? "canción" : "canciones"
+            }? Esta acción no se puede deshacer.`}
             onSubmit={(event) => {
               if (
                 !window.confirm(
@@ -195,7 +201,7 @@ export function TrackTable({
                 <td>
                   <strong>{track.title}</strong>
                 </td>
-                <td>{track.artist}</td>
+                <td>{track.artist ?? "Artista desconocido"}</td>
                 <td className="numeric">{track.bpm ?? "—"}</td>
                 <td>{track.musical_key ?? "—"}</td>
                 <td className="numeric muted">
@@ -243,7 +249,7 @@ export function TrackTable({
             />
             <div>
               <strong>{track.title}</strong>
-              <span>{track.artist}</span>
+              <span>{track.artist ?? "Artista desconocido"}</span>
               <small>
                 {track.bpm ? `${track.bpm} BPM` : "BPM —"} ·{" "}
                 {track.musical_key ?? "Tonalidad —"} ·{" "}

@@ -47,8 +47,15 @@ export function TrackForm({ mode, track }: TrackFormProps) {
   );
 
   return (
-    <form action={formAction} className="track-form card">
+    <form
+      action={formAction}
+      className="track-form card"
+      data-offline-action={mode === "create" ? "track-create" : "track-update"}
+    >
       {track ? <input name="id" type="hidden" value={track.id} /> : null}
+      {track ? (
+        <input name="revision" type="hidden" value={track.updated_at} />
+      ) : null}
       {state.status === "error" ? (
         <p className="form-message form-message--error" role="alert">
           {state.message}
@@ -68,12 +75,11 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="title" />
         </label>
         <label className="field">
-          <span>Artista *</span>
+          <span>Artista</span>
           <input
-            defaultValue={track?.artist}
+            defaultValue={track?.artist ?? ""}
             maxLength={300}
             name="artist"
-            required
           />
           <FieldError errors={state.fieldErrors} name="artist" />
         </label>

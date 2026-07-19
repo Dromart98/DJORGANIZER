@@ -55,6 +55,30 @@ describe("trackFormSchema", () => {
     });
   });
 
+  it("permite guardar BPM y tonalidad sin artista", () => {
+    const values = trackFormSchema.parse({
+      album: "",
+      artist: "",
+      bpm: "128",
+      camelot_key: "",
+      comments: "",
+      duration_seconds: "",
+      energy: "",
+      genre: "",
+      musical_key: "Am",
+      rating: "",
+      release_year: "",
+      title: "Pista sin artista",
+    });
+
+    expect(toTrackInsert(values, "user-id")).toMatchObject({
+      artist: null,
+      bpm: 128,
+      camelot_key: "8A",
+      musical_key: "Am",
+    });
+  });
+
   it("rechaza valores musicales fuera de rango", () => {
     const result = trackFormSchema.safeParse({
       album: "",
