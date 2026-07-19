@@ -4,6 +4,9 @@ DJOrganizer es una aplicación web para que DJs organicen sus bibliotecas
 musicales. La aplicación incluye autenticación y una biblioteca persistente
 aislada por usuario mediante Supabase.
 
+Para aportar el contexto completo a un Proyecto de ChatGPT, usa
+[`README_CHATGPT_PROJECT.md`](README_CHATGPT_PROJECT.md).
+
 ## Stack
 
 - Next.js 15 con App Router y React 19
