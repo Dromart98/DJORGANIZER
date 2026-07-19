@@ -1,6 +1,7 @@
 export type ScanReviewFilter = "all" | "duplicates" | "metadata-errors";
 
 export interface ScannedAudioFile {
+  scanId: string;
   name: string;
   relativePath: string;
   extension: string;
