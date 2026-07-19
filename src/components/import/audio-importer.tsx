@@ -8,6 +8,7 @@ import {
   type ImportResult,
 } from "@/app/import/actions";
 import { Button } from "@/components/ui/button";
+import { isAutomaticAnalysisEligibleStatus } from "@/lib/import/automatic-analysis";
 import {
   detectBpmFromAudioBuffer,
   detectBpmFromFile,
@@ -311,7 +312,7 @@ export function AudioImporter() {
 
       automaticTargets = completedItems.filter(
         (item) =>
-          item.status === "ready" &&
+          isAutomaticAnalysisEligibleStatus(item.status) &&
           !excludedFromAnalysis.has(item.id) &&
           Boolean(item.data) &&
           Boolean(item.file),
@@ -378,7 +379,7 @@ export function AudioImporter() {
         data: ImportTrackInput;
         file: File;
       } =>
-        item.status === "ready" &&
+        isAutomaticAnalysisEligibleStatus(item.status) &&
         Boolean(item.data) &&
         Boolean(item.file) &&
         (item.data?.bpm === null || item.data?.musical_key === null),
@@ -1035,7 +1036,7 @@ export function AudioImporter() {
                         value={item.data.bpm ?? ""}
                       />
                       {item.file &&
-                      item.status === "ready" &&
+                      isAutomaticAnalysisEligibleStatus(item.status) &&
                       item.bpmStatus !== "analyzing" ? (
                         <button
                           className="import-analyze-link"
@@ -1077,7 +1078,7 @@ export function AudioImporter() {
                         value={item.data.musical_key ?? ""}
                       />
                       {item.file &&
-                      item.status === "ready" &&
+                      isAutomaticAnalysisEligibleStatus(item.status) &&
                       item.keyStatus !== "analyzing" ? (
                         <button
                           className="import-analyze-link"

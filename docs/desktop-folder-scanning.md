@@ -24,10 +24,16 @@ Para cada archivo compatible, el escáner obtiene:
 
 La lectura de etiquetas se realiza con Lofty desde Rust. Para detectar copias
 exactas, primero agrupa por tamaño y calcula SHA-256 en streaming únicamente
-para los archivos candidatos. La huella nunca se devuelve a la web, no se
-persiste y se descarta al finalizar el escaneo. No se decodifican muestras ni se
-calcula BPM o tonalidad. Si una etiqueta o una comparación falla, la pista se
-conserva y el fallo se contabiliza.
+para los archivos candidatos. La huella local nunca se devuelve a la web ni se
+persiste. Tras el escaneo, la sesión autenticada puede entregar a Rust las
+huellas y tamaños ya guardados en la biblioteca del usuario; Rust calcula solo
+las comparaciones necesarias y conserva en memoria el vínculo entre el ID
+persistente y el ID opaco del escaneo. React recibe únicamente esos pares de
+identificadores para marcar las coincidencias y preparar acciones posteriores;
+no recibe huellas calculadas localmente ni rutas. Las rutas absolutas permanecen
+en Rust.
+No se decodifican muestras ni se calcula BPM o tonalidad. Si una etiqueta o una
+comparación falla, la pista se conserva y el fallo se contabiliza.
 
 Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 
@@ -48,9 +54,10 @@ Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 El puente global de Tauri solo está habilitado dentro del binario y su capability
 remota acepta exclusivamente `https://djorganizer-beta.vercel.app`. El comando
 `choose_and_scan_music_folder` siempre muestra el selector nativo antes de leer.
-`export_virtualdj_list` solo acepta identificadores y rutas relativas que
-pertenecen a la sesión nativa activa; la web no puede suministrarle rutas
-absolutas arbitrarias.
+`link_library_tracks` acepta únicamente IDs, tamaños y huellas de la biblioteca
+autenticada y guarda las coincidencias dentro de la sesión nativa activa.
+`export_virtualdj_list` solo acepta identificadores que pertenecen a esa sesión;
+la web no puede suministrarle rutas absolutas arbitrarias.
 
 No se conceden plugins de sistema de archivos, shell o proceso. Las únicas
 escrituras permitidas son archivos de lista XML o M3U8 en el destino que la

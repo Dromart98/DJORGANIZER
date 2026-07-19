@@ -5,7 +5,7 @@ use lofty::{
     read_from_path,
     tag::{Accessor, ItemKey},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -91,6 +91,7 @@ struct CompletedScan {
 struct ScanSession {
     id: String,
     tracks: HashMap<String, SessionTrack>,
+    library_links: HashMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -103,6 +104,37 @@ struct DesktopState {
 struct VirtualDjExportResult {
     cancelled: bool,
     exported_tracks: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LibraryLinkCandidate {
+    file_fingerprint: String,
+    file_size: u64,
+    track_id: String,
+}
+
+#[derive(Debug)]
+struct LibraryLinkMatch {
+    fingerprint_failures: usize,
+    links: HashMap<String, String>,
+    unmatched_tracks: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibraryTrackLink {
+    scan_id: String,
+    track_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibraryLinkResult {
+    fingerprint_failures: usize,
+    linked_tracks: usize,
+    links: Vec<LibraryTrackLink>,
+    unmatched_tracks: usize,
 }
 
 fn audio_extension(path: &Path) -> Option<String> {
@@ -628,6 +660,82 @@ fn selected_session_tracks(
         .collect()
 }
 
+fn parse_library_fingerprint(value: &str) -> Result<[u8; 32], String> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("La biblioteca contiene una huella no válida.".to_owned());
+    }
+
+    let mut fingerprint = [0_u8; 32];
+    for (index, byte) in fingerprint.iter_mut().enumerate() {
+        let offset = index * 2;
+        *byte = u8::from_str_radix(&value[offset..offset + 2], 16)
+            .map_err(|_| "La biblioteca contiene una huella no válida.".to_owned())?;
+    }
+    Ok(fingerprint)
+}
+
+fn link_library_candidates(
+    session_tracks: &[SessionTrack],
+    candidates: &[LibraryLinkCandidate],
+) -> Result<LibraryLinkMatch, String> {
+    if candidates.len() > MAX_TRACKS {
+        return Err("La vinculación admite hasta 10.000 pistas por sesión.".to_owned());
+    }
+
+    let mut unique_track_ids = HashSet::with_capacity(candidates.len());
+    let mut candidates_by_size: HashMap<u64, HashMap<[u8; 32], Vec<String>>> = HashMap::new();
+    for candidate in candidates {
+        if candidate.track_id.is_empty()
+            || candidate.track_id.len() > 128
+            || !unique_track_ids.insert(candidate.track_id.clone())
+        {
+            return Err(
+                "La selección de biblioteca contiene identificadores no válidos.".to_owned(),
+            );
+        }
+        let fingerprint = parse_library_fingerprint(&candidate.file_fingerprint)?;
+        candidates_by_size
+            .entry(candidate.file_size)
+            .or_default()
+            .entry(fingerprint)
+            .or_default()
+            .push(candidate.track_id.clone());
+    }
+
+    let mut ordered_tracks = session_tracks.iter().collect::<Vec<_>>();
+    ordered_tracks.sort_by_key(|track| track.track.relative_path.to_ascii_lowercase());
+    let mut links = HashMap::new();
+    let mut fingerprint_failures = 0;
+
+    for session_track in ordered_tracks {
+        let Some(fingerprints) = candidates_by_size.get(&session_track.track.size_bytes) else {
+            continue;
+        };
+        let fingerprint =
+            match hash_file(&session_track.absolute_path, session_track.track.size_bytes) {
+                Ok(fingerprint) => fingerprint,
+                Err(_) => {
+                    fingerprint_failures += 1;
+                    continue;
+                }
+            };
+        let Some(track_ids) = fingerprints.get(&fingerprint) else {
+            continue;
+        };
+        for track_id in track_ids {
+            links
+                .entry(track_id.clone())
+                .or_insert_with(|| session_track.track.scan_id.clone());
+        }
+    }
+
+    Ok(LibraryLinkMatch {
+        fingerprint_failures,
+        unmatched_tracks: candidates.len().saturating_sub(links.len()),
+        links,
+    })
+}
+
 fn validate_virtualdj_list_name(list_name: &str) -> Result<&str, String> {
     let list_name = list_name.trim();
     if list_name.is_empty() || list_name.chars().count() > 120 {
@@ -675,9 +783,66 @@ async fn choose_and_scan_music_folder(
     *current_session = Some(ScanSession {
         id: session_id,
         tracks,
+        library_links: HashMap::new(),
     });
 
     Ok(Some(completed.result))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn link_library_tracks(
+    state: State<'_, DesktopState>,
+    session_id: String,
+    candidates: Vec<LibraryLinkCandidate>,
+) -> Result<LibraryLinkResult, String> {
+    let session_tracks = {
+        let current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let session = current_session
+            .as_ref()
+            .filter(|session| session.id == session_id)
+            .ok_or_else(|| {
+                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+            })?;
+        session.tracks.values().cloned().collect::<Vec<_>>()
+    };
+
+    let matches = tauri::async_runtime::spawn_blocking(move || {
+        link_library_candidates(&session_tracks, &candidates)
+    })
+    .await
+    .map_err(|error| format!("La vinculación local se interrumpió: {error}"))??;
+
+    let mut links = matches
+        .links
+        .iter()
+        .map(|(track_id, scan_id)| LibraryTrackLink {
+            scan_id: scan_id.clone(),
+            track_id: track_id.clone(),
+        })
+        .collect::<Vec<_>>();
+    links.sort_by(|left, right| left.track_id.cmp(&right.track_id));
+    let linked_tracks = links.len();
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    let session = current_session
+        .as_mut()
+        .filter(|session| session.id == session_id)
+        .ok_or_else(|| {
+            "El escaneo cambió durante la vinculación. Vuelve a seleccionar la carpeta.".to_owned()
+        })?;
+    session.library_links = matches.links;
+
+    Ok(LibraryLinkResult {
+        fingerprint_failures: matches.fingerprint_failures,
+        linked_tracks,
+        links,
+        unmatched_tracks: matches.unmatched_tracks,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -772,6 +937,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             choose_and_scan_music_folder,
+            link_library_tracks,
             export_virtualdj_list,
             export_virtualdj_m3u8
         ])
@@ -783,10 +949,12 @@ pub fn run() {
 mod tests {
     use super::{
         audio_extension, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
-        export_path_text, parse_bpm, parse_mp4_bpm_value, read_audio_metadata,
-        safe_export_file_name, scan_music_folder, ScannedAudioFile, SessionTrack,
+        export_path_text, link_library_candidates, parse_bpm, parse_mp4_bpm_value,
+        read_audio_metadata, safe_export_file_name, scan_music_folder, LibraryLinkCandidate,
+        ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
+    use sha2::{Digest, Sha256};
     use std::{
         fs,
         path::Path,
@@ -930,6 +1098,56 @@ mod tests {
             .find(|track| track.name == "Different.mp3")
             .is_some_and(|track| track.duplicate_group.is_none()));
 
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn links_library_tracks_by_size_and_exact_fingerprint() {
+        let root = test_directory();
+        let local_file = root.join("Matched.mp3");
+        fs::write(&local_file, [1_u8, 2, 3]).expect("audio fixture should be written");
+        let fingerprint = format!("{:x}", Sha256::digest([1_u8, 2, 3]));
+        let tracks = vec![SessionTrack {
+            absolute_path: local_file,
+            track: ScannedAudioFile {
+                scan_id: "opaque-scan-id".to_owned(),
+                name: "Matched.mp3".to_owned(),
+                relative_path: "Matched.mp3".to_owned(),
+                extension: "mp3".to_owned(),
+                size_bytes: 3,
+                metadata_read: false,
+                title: None,
+                artist: None,
+                album: None,
+                genre: None,
+                duration_seconds: None,
+                bpm: None,
+                musical_key: None,
+                duplicate_group: None,
+            },
+        }];
+        let candidates = vec![
+            LibraryLinkCandidate {
+                file_fingerprint: fingerprint,
+                file_size: 3,
+                track_id: "library-track".to_owned(),
+            },
+            LibraryLinkCandidate {
+                file_fingerprint: "0".repeat(64),
+                file_size: 3,
+                track_id: "missing-track".to_owned(),
+            },
+        ];
+
+        let result = link_library_candidates(&tracks, &candidates).expect("linking should succeed");
+
+        assert_eq!(
+            result.links.get("library-track"),
+            Some(&"opaque-scan-id".to_owned())
+        );
+        assert_eq!(result.links.get("missing-track"), None);
+        assert_eq!(result.unmatched_tracks, 1);
+        assert_eq!(result.fingerprint_failures, 0);
         fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
