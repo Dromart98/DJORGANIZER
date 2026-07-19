@@ -479,6 +479,12 @@ fn xml_escape_attribute(value: &str) -> String {
     escaped
 }
 
+fn export_path_text(path: &Path) -> Result<&str, String> {
+    path.to_str().ok_or_else(|| {
+        "Una ruta contiene bytes que no son UTF-8 y no puede exportarse de forma segura.".to_owned()
+    })
+}
+
 fn push_xml_attribute(xml: &mut String, name: &str, value: &str) {
     xml.push(' ');
     xml.push_str(name);
@@ -487,7 +493,7 @@ fn push_xml_attribute(xml: &mut String, name: &str, value: &str) {
     xml.push('"');
 }
 
-fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> String {
+fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> Result<String, String> {
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <VirtualFolder noDuplicates=\"yes\" singleDrive=\"no\" ordered=\"yes\">\n",
@@ -499,7 +505,7 @@ fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> String {
         push_xml_attribute(
             &mut xml,
             "path",
-            &session_track.absolute_path.to_string_lossy(),
+            export_path_text(&session_track.absolute_path)?,
         );
         push_xml_attribute(&mut xml, "size", &track.size_bytes.to_string());
         if let Some(artist) = track.artist.as_deref() {
@@ -522,7 +528,44 @@ fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> String {
     }
 
     xml.push_str("</VirtualFolder>\n");
-    xml
+    Ok(xml)
+}
+
+fn m3u8_label(track: &ScannedAudioFile) -> String {
+    let label = match (track.artist.as_deref(), track.title.as_deref()) {
+        (Some(artist), Some(title)) => format!("{artist} - {title}"),
+        (None, Some(title)) => title.to_owned(),
+        (Some(artist), None) => format!("{artist} - {}", track.name),
+        (None, None) => track.name.clone(),
+    };
+
+    label.replace(|character| matches!(character, '\r' | '\n'), " ")
+}
+
+fn build_virtualdj_m3u8(tracks: &[SessionTrack]) -> Result<String, String> {
+    let mut m3u8 = String::from("#EXTM3U\n");
+
+    for session_track in tracks {
+        let absolute_path = export_path_text(&session_track.absolute_path)?;
+        if absolute_path.contains(|character| matches!(character, '\r' | '\n')) {
+            return Err(
+                "Una ruta contiene un salto de línea incompatible con M3U8. Usa la exportación XML."
+                    .to_owned(),
+            );
+        }
+        let duration = session_track
+            .track
+            .duration_seconds
+            .map(|seconds| seconds.round() as i64)
+            .unwrap_or(-1);
+        m3u8.push_str(&format!(
+            "#EXTINF:{duration},{}\n{}\n",
+            m3u8_label(&session_track.track),
+            absolute_path
+        ));
+    }
+
+    Ok(m3u8)
 }
 
 fn safe_export_file_name(list_name: &str) -> String {
@@ -546,6 +589,51 @@ fn safe_export_file_name(list_name: &str) -> String {
         "DJOrganizer".to_owned()
     } else {
         sanitized.to_owned()
+    }
+}
+
+fn selected_session_tracks(
+    state: &DesktopState,
+    session_id: &str,
+    track_ids: &[String],
+) -> Result<Vec<SessionTrack>, String> {
+    if track_ids.is_empty() || track_ids.len() > MAX_TRACKS {
+        return Err("Selecciona entre 1 y 10.000 pistas para exportar.".to_owned());
+    }
+
+    let mut unique_ids = HashSet::with_capacity(track_ids.len());
+    let current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    let session = current_session
+        .as_ref()
+        .filter(|session| session.id == session_id)
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+        })?;
+
+    track_ids
+        .iter()
+        .map(|track_id| {
+            if !unique_ids.insert(track_id) {
+                return Err("La selección contiene una pista repetida.".to_owned());
+            }
+            session
+                .tracks
+                .get(track_id)
+                .cloned()
+                .ok_or_else(|| "La selección no pertenece al escaneo activo.".to_owned())
+        })
+        .collect()
+}
+
+fn validate_virtualdj_list_name(list_name: &str) -> Result<&str, String> {
+    let list_name = list_name.trim();
+    if list_name.is_empty() || list_name.chars().count() > 120 {
+        Err("El nombre de la lista debe tener entre 1 y 120 caracteres.".to_owned())
+    } else {
+        Ok(list_name)
     }
 }
 
@@ -600,41 +688,8 @@ async fn export_virtualdj_list(
     track_ids: Vec<String>,
     list_name: String,
 ) -> Result<VirtualDjExportResult, String> {
-    let list_name = list_name.trim();
-    if list_name.is_empty() || list_name.chars().count() > 120 {
-        return Err("El nombre de la lista debe tener entre 1 y 120 caracteres.".to_owned());
-    }
-    if track_ids.is_empty() || track_ids.len() > MAX_TRACKS {
-        return Err("Selecciona entre 1 y 10.000 pistas para exportar.".to_owned());
-    }
-
-    let mut unique_ids = HashSet::with_capacity(track_ids.len());
-    let selected_tracks = {
-        let current_session = state
-            .scan_session
-            .lock()
-            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
-        let session = current_session
-            .as_ref()
-            .filter(|session| session.id == session_id)
-            .ok_or_else(|| {
-                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
-            })?;
-
-        track_ids
-            .iter()
-            .map(|track_id| {
-                if !unique_ids.insert(track_id) {
-                    return Err("La selección contiene una pista repetida.".to_owned());
-                }
-                session
-                    .tracks
-                    .get(track_id)
-                    .cloned()
-                    .ok_or_else(|| "La selección no pertenece al escaneo activo.".to_owned())
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
+    let list_name = validate_virtualdj_list_name(&list_name)?;
+    let selected_tracks = selected_session_tracks(state.inner(), &session_id, &track_ids)?;
 
     let default_name = format!("{}.xml", safe_export_file_name(list_name));
     let destination = app
@@ -654,9 +709,48 @@ async fn export_virtualdj_list(
     let destination = destination
         .into_path()
         .map_err(|error| format!("El destino elegido no es una ruta local válida: {error}"))?;
-    let xml = build_virtualdj_list_xml(&selected_tracks);
+    let xml = build_virtualdj_list_xml(&selected_tracks)?;
     fs::write(destination, xml)
         .map_err(|error| format!("No se pudo guardar la lista de VirtualDJ: {error}"))?;
+
+    Ok(VirtualDjExportResult {
+        cancelled: false,
+        exported_tracks: selected_tracks.len(),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn export_virtualdj_m3u8(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    session_id: String,
+    track_ids: Vec<String>,
+    list_name: String,
+) -> Result<VirtualDjExportResult, String> {
+    let list_name = validate_virtualdj_list_name(&list_name)?;
+    let selected_tracks = selected_session_tracks(state.inner(), &session_id, &track_ids)?;
+    let m3u8 = build_virtualdj_m3u8(&selected_tracks)?;
+
+    let default_name = format!("{}.m3u8", safe_export_file_name(list_name));
+    let destination = app
+        .dialog()
+        .file()
+        .set_title("Guardar lista M3U8 para VirtualDJ")
+        .set_file_name(default_name)
+        .add_filter("M3U8 Playlist", &["m3u8"])
+        .blocking_save_file();
+
+    let Some(destination) = destination else {
+        return Ok(VirtualDjExportResult {
+            cancelled: true,
+            exported_tracks: 0,
+        });
+    };
+    let destination = destination
+        .into_path()
+        .map_err(|error| format!("El destino elegido no es una ruta local válida: {error}"))?;
+    fs::write(destination, m3u8)
+        .map_err(|error| format!("No se pudo guardar la lista M3U8: {error}"))?;
 
     Ok(VirtualDjExportResult {
         cancelled: false,
@@ -667,10 +761,10 @@ async fn export_virtualdj_list(
 /// Starts the desktop application.
 ///
 /// The native scan command opens an operating-system folder picker and performs
-/// a bounded local scan. The VirtualDJ export command accepts only relative paths
-/// from the active native scan session, opens a save dialog, and writes one XML
-/// list chosen by the user. Neither command moves, renames, uploads, or modifies
-/// audio files.
+/// a bounded local scan. The VirtualDJ export commands accept only opaque track
+/// identifiers from the active native scan session, open a save dialog, and write
+/// either a native XML List or a compatible UTF-8 M3U8 playlist. No command moves,
+/// renames, uploads, or modifies audio files.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -678,7 +772,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             choose_and_scan_music_folder,
-            export_virtualdj_list
+            export_virtualdj_list,
+            export_virtualdj_m3u8
         ])
         .run(tauri::generate_context!())
         .expect("failed to run DJOrganizer desktop");
@@ -687,9 +782,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_extension, build_virtualdj_list_xml, create_track_id, parse_bpm, parse_mp4_bpm_value,
-        read_audio_metadata, safe_export_file_name, scan_music_folder, ScannedAudioFile,
-        SessionTrack,
+        audio_extension, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
+        export_path_text, parse_bpm, parse_mp4_bpm_value, read_audio_metadata,
+        safe_export_file_name, scan_music_folder, ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use std::{
@@ -904,7 +999,7 @@ mod tests {
             },
         ];
 
-        let xml = build_virtualdj_list_xml(&tracks);
+        let xml = build_virtualdj_list_xml(&tracks).expect("XML should be generated");
 
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(
@@ -917,6 +1012,32 @@ mod tests {
         assert!(xml.contains("songlength=\"180.500\" bpm=\"124.000\" key=\"Am\" idx=\"0\""));
         assert!(xml.find("Opening").unwrap() < xml.find("Closing").unwrap());
         assert!(xml.ends_with("</VirtualFolder>\n"));
+
+        let m3u8 = build_virtualdj_m3u8(&tracks).expect("M3U8 should be generated");
+        assert!(m3u8.starts_with("#EXTM3U\n"));
+        assert!(m3u8.contains("#EXTINF:181,DJ & Co. - Opening <Live>\n"));
+        assert!(m3u8.contains("/music/A&B/Opening \"Live\".mp3\n"));
+        assert!(m3u8.find("Opening").unwrap() < m3u8.find("Closing").unwrap());
+
+        let mut incompatible = tracks[0].clone();
+        incompatible.absolute_path = "/music/line\nbreak.mp3".into();
+        assert!(build_virtualdj_m3u8(&[incompatible])
+            .expect_err("line breaks in paths must be rejected")
+            .contains("XML"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_export_paths() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
+
+        let path = PathBuf::from(OsString::from_vec(vec![
+            b'/', b'm', b'u', b's', b'i', b'c', b'/', 0xff, b'.', b'm', b'p', b'3',
+        ]));
+
+        assert!(export_path_text(&path)
+            .expect_err("a lossy path must be rejected")
+            .contains("UTF-8"));
     }
 
     #[test]

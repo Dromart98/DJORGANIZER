@@ -237,15 +237,15 @@ organización por artista/álbum, género/artista o tonalidad/BPM. Las rutas se
 sanean, los nombres reservados se neutralizan y las colisiones se resuelven en
 la propuesta, pero esta fase no mueve ni renombra archivos.
 
-Las pistas seleccionadas también pueden guardarse como una **List nativa de
-VirtualDJ 2024+** en XML. Rust conserva las rutas absolutas únicamente en la
-sesión local del escaneo, valida que toda selección pertenezca a esa sesión y
-abre el selector de guardado del sistema. La lista conserva el orden e incluye
-tamaño y metadatos disponibles; no copia ni modifica el audio y no edita
-`database.xml`.
+Las pistas seleccionadas pueden guardarse como una **List nativa de VirtualDJ
+2024+** en XML o como una playlist M3U8 compatible con flujos heredados. Rust
+conserva las rutas absolutas únicamente en la sesión local del escaneo, valida
+que toda selección pertenezca a esa sesión y abre el selector de guardado del
+sistema. Ambos formatos conservan el orden; no copian ni modifican el audio y
+no editan `database.xml`.
 
-El roadmap vivo, incluida la compatibilidad M3U8 y la exportación directa de
-crates, está en [`docs/roadmap.md`](docs/roadmap.md).
+El roadmap vivo, incluida la exportación directa de crates y el análisis
+automático al importar, está en [`docs/roadmap.md`](docs/roadmap.md).
 
 Para validar el núcleo Rust:
 
