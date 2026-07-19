@@ -19,6 +19,7 @@ interface ScannedAudioFile {
   durationSeconds: number | null;
   bpm: number | null;
   musicalKey: string | null;
+  duplicateGroup: string | null;
 }
 
 interface FolderScanResult {
@@ -27,6 +28,9 @@ interface FolderScanResult {
   examinedEntries: number;
   skippedEntries: number;
   metadataFailures: number;
+  duplicateGroups: number;
+  duplicateTracks: number;
+  fingerprintFailures: number;
   truncated: boolean;
 }
 
@@ -129,8 +133,8 @@ export function DesktopFolderScanner() {
           <h2 id="desktop-scan-title">Escanear una carpeta musical</h2>
           <p>
             El selector nativo requiere una confirmación explícita. El escaneo lee
-            etiquetas y propiedades técnicas en este dispositivo; no mueve,
-            modifica, reproduce, sube ni guarda audio.
+            etiquetas, propiedades técnicas y copias exactas en este dispositivo;
+            no mueve, modifica, reproduce, sube ni guarda audio.
           </p>
         </div>
         <button
@@ -139,7 +143,7 @@ export function DesktopFolderScanner() {
           onClick={() => void chooseAndScan()}
           type="button"
         >
-          {scanning ? "Leyendo metadatos…" : "Seleccionar carpeta"}
+          {scanning ? "Leyendo y comparando…" : "Seleccionar carpeta"}
         </button>
       </section>
 
@@ -166,6 +170,12 @@ export function DesktopFolderScanner() {
             {result.metadataFailures
               ? `; ${result.metadataFailures.toLocaleString("es-ES")} pistas conservaron solo los datos del archivo`
               : ""}
+            {result.duplicateGroups
+              ? `; ${result.duplicateTracks.toLocaleString("es-ES")} pistas forman ${result.duplicateGroups.toLocaleString("es-ES")} grupos de copias exactas`
+              : "; no se detectaron copias exactas"}
+            {result.fingerprintFailures
+              ? `; no se pudieron comparar ${result.fingerprintFailures.toLocaleString("es-ES")} archivos`
+              : ""}
             .{result.truncated ? " El resultado alcanzó el límite de seguridad." : ""}
           </p>
           {result.tracks.length ? (
@@ -176,7 +186,12 @@ export function DesktopFolderScanner() {
                     <strong>{track.title ?? track.name}</strong>
                     <span>{formatTrackIdentity(track)}</span>
                   </div>
-                  <span>{formatTrackDetails(track)}</span>
+                  <span>
+                    {track.duplicateGroup
+                      ? `Duplicado local · ${track.duplicateGroup} · `
+                      : ""}
+                    {formatTrackDetails(track)}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -187,8 +202,8 @@ export function DesktopFolderScanner() {
           )}
           {result.tracks.length > 8 ? (
             <p className="organization-muted">
-              Vista previa de 8 pistas. La lista completa y sus metadatos permanecen
-              únicamente en la memoria de esta ventana.
+              Vista previa de 8 pistas. La lista completa, sus metadatos y los
+              grupos de duplicados permanecen únicamente en la memoria de esta ventana.
             </p>
           ) : null}
         </section>
