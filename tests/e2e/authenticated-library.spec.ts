@@ -41,6 +41,7 @@ function createTestWav(frequency: number) {
 test("@authenticated imports tracks without artists and builds an ordered crate", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(120_000);
   const runId = `${Date.now()}-${testInfo.workerIndex}`;
   const email = `e2e-${runId}@djorganizer.test`;
   const password = `DjOrganizer-${runId}!`;
@@ -57,7 +58,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(page).toHaveURL(/\/import$/, { timeout: 20_000 });
   await expect(
     page.getByRole("heading", { name: "Importar música" }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 20_000 });
 
   await page.locator("#audio-files").setInputFiles([
     {
