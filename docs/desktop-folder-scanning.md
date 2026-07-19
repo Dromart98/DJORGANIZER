@@ -38,6 +38,26 @@ comparación falla, la pista se conserva y el fallo se contabiliza.
 
 Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 
+## Vigilancia y escaneo incremental
+
+Tras confirmar una carpeta y completar un escaneo, la aplicación permite buscar
+cambios manualmente o activar una comprobación cada 30 segundos. La vigilancia
+solo existe mientras la ventana y la sesión nativa siguen activas; no se guarda
+la ruta ni se reactiva silenciosamente al abrir la aplicación.
+
+Rust vuelve a recorrer únicamente la raíz ya aprobada y compara por ruta
+relativa, tamaño y fecha de modificación de alta resolución. Las pistas sin
+cambios reutilizan sus metadatos y su ID opaco; los archivos nuevos o
+modificados se leen de nuevo y los desaparecidos se retiran del resultado. La
+selección, los borradores de metadatos y los vínculos locales se reconcilian
+para no conservar referencias a archivos retirados o cambiados.
+
+Solo puede ejecutarse una comprobación incremental por sesión. Si el escaneo
+inicial o una actualización alcanza los límites de seguridad, la vigilancia se
+bloquea y el resultado parcial no sustituye al anterior: una vista truncada no
+permite afirmar con seguridad que un archivo ha desaparecido. El usuario puede
+iniciar un escaneo completo con el selector nativo en cualquier momento.
+
 ## Límites y tratamiento de errores
 
 - máximo de 100.000 entradas examinadas;
@@ -55,6 +75,8 @@ Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 El puente global de Tauri solo está habilitado dentro del binario y su capability
 remota acepta exclusivamente `https://djorganizer-beta.vercel.app`. El comando
 `choose_and_scan_music_folder` siempre muestra el selector nativo antes de leer.
+`scan_music_folder_incrementally` solo puede reutilizar la raíz ya confirmada y
+el ID de la sesión activa; no acepta una ruta procedente de React.
 `link_library_tracks` acepta únicamente IDs, tamaños y huellas de la biblioteca
 autenticada y guarda las coincidencias dentro de la sesión nativa activa.
 `export_virtualdj_list` solo acepta identificadores que pertenecen a esa sesión;

@@ -640,6 +640,43 @@ td strong { color: #f0f3f4; font-weight: 650; }
   width: 100%;
 }
 
+.desktop-folder-watch {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.desktop-folder-watch h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.desktop-folder-watch__controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.desktop-folder-watch__controls label {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  min-height: 2.75rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.desktop-folder-watch__controls input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
 .desktop-scan-results li {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
@@ -673,6 +710,15 @@ td strong { color: #f0f3f4; font-weight: 650; }
 @media (max-width: 760px) {
   .desktop-scan-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .desktop-folder-watch__controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .desktop-folder-watch__controls .button {
+    width: 100%;
   }
 
   .desktop-scan-results li {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getDesktopCratesForExportAction,
   getDesktopLibraryLinkCandidatesAction,
@@ -32,6 +32,17 @@ interface FolderScanResult {
   duplicateTracks: number;
   fingerprintFailures: number;
   truncated: boolean;
+}
+
+interface IncrementalScanResult {
+  addedScanIds: string[];
+  addedTracks: number;
+  removedScanIds: string[];
+  removedTracks: number;
+  scan: FolderScanResult;
+  unchangedTracks: number;
+  updatedScanIds: string[];
+  updatedTracks: number;
 }
 
 interface VirtualDjExportResult {
@@ -123,6 +134,7 @@ interface VirtualDjImportPreview {
 
 type VirtualDjExportFormat = "xml" | "m3u8";
 const MAX_METADATA_WRITE_TRACKS = 25;
+const WATCH_INTERVAL_MS = 30_000;
 
 function metadataDraftFromTrack(track: ScannedAudioFile): MetadataDraft {
   return {
@@ -213,6 +225,12 @@ function formatTrackIdentity(track: ScannedAudioFile) {
 export function DesktopFolderScanner() {
   const [desktopAvailable, setDesktopAvailable] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [incrementalScanning, setIncrementalScanning] = useState(false);
+  const [watchingFolder, setWatchingFolder] = useState(false);
+  const [incrementalMessage, setIncrementalMessage] = useState<string | null>(
+    null,
+  );
+  const incrementalScanInFlight = useRef(false);
   const [result, setResult] = useState<FolderScanResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [libraryLinkMessage, setLibraryLinkMessage] = useState<string | null>(
@@ -301,56 +319,54 @@ export function DesktopFolderScanner() {
     });
   }, [selectedTracks]);
 
-  if (!desktopAvailable) return null;
+  const linkLibraryTracks = useCallback(
+    async (core: TauriCore, scanResult: FolderScanResult) => {
+      setLibraryLinkMessage("Comparando con tu biblioteca de DJOrganizer…");
 
+      try {
+        const library = await getDesktopLibraryLinkCandidatesAction();
+        if (!library.candidates.length) {
+          setLibraryLinkMessage(
+            library.message ??
+              "No hay pistas con huella en tu biblioteca para vincular.",
+          );
+          return;
+        }
 
-  async function linkLibraryTracks(
-    core: TauriCore,
-    scanResult: FolderScanResult,
-  ) {
-    setLibraryLinkMessage("Comparando con tu biblioteca de DJOrganizer…");
-
-    try {
-      const library = await getDesktopLibraryLinkCandidatesAction();
-      if (!library.candidates.length) {
-        setLibraryLinkMessage(
-          library.message ??
-            "No hay pistas con huella en tu biblioteca para vincular.",
+        const linkResult = await core.invoke<LibraryLinkResult>(
+          "link_library_tracks",
+          {
+            sessionId: scanResult.sessionId,
+            candidates: library.candidates,
+          },
         );
-        return;
+        setLinkedScanIds(
+          new Set(linkResult.links.map((link) => link.scanId)),
+        );
+        const failureMessage = linkResult.fingerprintFailures
+          ? ` No se pudieron comprobar ${linkResult.fingerprintFailures.toLocaleString("es-ES")} archivos locales.`
+          : "";
+        const limitMessage = library.message ? ` ${library.message}` : "";
+        setLibraryLinkMessage(
+          `${linkResult.linkedTracks.toLocaleString("es-ES")} pistas de la biblioteca vinculadas a este dispositivo; ${linkResult.unmatchedTracks.toLocaleString("es-ES")} sin coincidencia local.${failureMessage}${limitMessage}`,
+        );
+        const crateResult = await getDesktopCratesForExportAction();
+        setDesktopCrates(crateResult.crates);
+        if (crateResult.message) setVirtualDjMessage(crateResult.message);
+      } catch {
+        setLibraryLinkMessage(
+          "El escaneo terminó, pero no se pudo vincular con la biblioteca. Puedes volver a intentarlo seleccionando la carpeta de nuevo.",
+        );
       }
-
-      const linkResult = await core.invoke<LibraryLinkResult>(
-        "link_library_tracks",
-        {
-          sessionId: scanResult.sessionId,
-          candidates: library.candidates,
-        },
-      );
-      setLinkedScanIds(
-        new Set(linkResult.links.map((link) => link.scanId)),
-      );
-      const failureMessage = linkResult.fingerprintFailures
-        ? ` No se pudieron comprobar ${linkResult.fingerprintFailures.toLocaleString("es-ES")} archivos locales.`
-        : "";
-      const limitMessage = library.message ? ` ${library.message}` : "";
-      setLibraryLinkMessage(
-        `${linkResult.linkedTracks.toLocaleString("es-ES")} pistas de la biblioteca vinculadas a este dispositivo; ${linkResult.unmatchedTracks.toLocaleString("es-ES")} sin coincidencia local.${failureMessage}${limitMessage}`,
-      );
-      const crateResult = await getDesktopCratesForExportAction();
-      setDesktopCrates(crateResult.crates);
-      if (crateResult.message) setVirtualDjMessage(crateResult.message);
-    } catch {
-      setLibraryLinkMessage(
-        "El escaneo terminó, pero no se pudo vincular con la biblioteca. Puedes volver a intentarlo seleccionando la carpeta de nuevo.",
-      );
-    }
-  }
+    },
+    [],
+  );
 
   async function chooseAndScan() {
     const core = getTauriCore();
-    if (!core) return;
+    if (!core || incrementalScanInFlight.current) return;
 
+    setWatchingFolder(false);
     setScanning(true);
     setMessage(null);
 
@@ -364,6 +380,8 @@ export function DesktopFolderScanner() {
       }
 
       setResult(nextResult);
+      setWatchingFolder(false);
+      setIncrementalMessage(null);
       setQuery("");
       setFilter("all");
       setPage(1);
@@ -387,6 +405,85 @@ export function DesktopFolderScanner() {
       setScanning(false);
     }
   }
+
+  const refreshIncrementalScan = useCallback(
+    async (automatic = false) => {
+      const core = getTauriCore();
+      if (!core || !result || incrementalScanInFlight.current) return;
+
+      incrementalScanInFlight.current = true;
+      setIncrementalScanning(true);
+      if (!automatic) setIncrementalMessage("Buscando cambios locales…");
+
+      try {
+        const incremental = await core.invoke<IncrementalScanResult>(
+          "scan_music_folder_incrementally",
+          { sessionId: result.sessionId },
+        );
+        const activeScanIds = new Set(
+          incremental.scan.tracks.map((track) => track.scanId),
+        );
+        const invalidDraftIds = new Set([
+          ...incremental.removedScanIds,
+          ...incremental.updatedScanIds,
+        ]);
+
+        setResult(incremental.scan);
+        setSelectedTrackIds(
+          (current) =>
+            new Set([...current].filter((scanId) => activeScanIds.has(scanId))),
+        );
+        setLinkedScanIds(
+          (current) =>
+            new Set([...current].filter((scanId) => activeScanIds.has(scanId))),
+        );
+        setMetadataDrafts((current) =>
+          Object.fromEntries(
+            Object.entries(current).filter(
+              ([scanId]) =>
+                activeScanIds.has(scanId) && !invalidDraftIds.has(scanId),
+            ),
+          ),
+        );
+        setMetadataPreview(null);
+
+        const changedTracks =
+          incremental.addedTracks +
+          incremental.updatedTracks +
+          incremental.removedTracks;
+        if (changedTracks) {
+          setIncrementalMessage(
+            `Cambios incorporados: ${incremental.addedTracks.toLocaleString("es-ES")} nuevas, ${incremental.updatedTracks.toLocaleString("es-ES")} actualizadas y ${incremental.removedTracks.toLocaleString("es-ES")} retiradas. ${incremental.unchangedTracks.toLocaleString("es-ES")} permanecen sin cambios.`,
+          );
+          await linkLibraryTracks(core, incremental.scan);
+        } else {
+          setIncrementalMessage(
+            `Sin cambios. ${incremental.unchangedTracks.toLocaleString("es-ES")} pistas siguen al día.`,
+          );
+        }
+      } catch (error) {
+        setIncrementalMessage(
+          commandErrorMessage(
+            error,
+            "No se pudo comprobar la carpeta. Se volverá a intentar mientras la vigilancia siga activa.",
+          ),
+        );
+      } finally {
+        incrementalScanInFlight.current = false;
+        setIncrementalScanning(false);
+      }
+    },
+    [linkLibraryTracks, result],
+  );
+
+  useEffect(() => {
+    if (!watchingFolder || !result || result.truncated) return;
+
+    const interval = window.setInterval(() => {
+      void refreshIncrementalScan(true);
+    }, WATCH_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [refreshIncrementalScan, result, watchingFolder]);
 
   function toggleTrack(scanId: string) {
     setSelectedTrackIds((current) => {
@@ -833,6 +930,8 @@ export function DesktopFolderScanner() {
     }
   }
 
+  if (!desktopAvailable) return null;
+
   return (
     <div className="import-flow">
       <section className="card import-dropzone" aria-labelledby="desktop-scan-title">
@@ -848,7 +947,7 @@ export function DesktopFolderScanner() {
         </div>
         <button
           className="button button--secondary"
-          disabled={scanning}
+          disabled={scanning || incrementalScanning}
           onClick={() => void chooseAndScan()}
           type="button"
         >
@@ -892,6 +991,54 @@ export function DesktopFolderScanner() {
               : ""}
             .{result.truncated ? " El resultado alcanzó el límite de seguridad." : ""}
           </p>
+          <section
+            aria-labelledby="folder-watch-title"
+            className="desktop-folder-watch"
+          >
+            <div>
+              <h3 id="folder-watch-title">Vigilancia incremental</h3>
+              <p className="organization-muted">
+                Reutiliza las pistas sin cambios y vuelve a leer únicamente los
+                archivos nuevos o modificados. Funciona solo durante esta sesión
+                de escritorio y nunca expone la ruta local.
+              </p>
+            </div>
+            <div className="desktop-folder-watch__controls">
+              <label>
+                <input
+                  checked={watchingFolder}
+                  disabled={scanning || result.truncated}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setWatchingFolder(enabled);
+                    if (enabled) void refreshIncrementalScan(true);
+                  }}
+                  type="checkbox"
+                />
+                Comprobar automáticamente cada 30 segundos
+              </label>
+              <button
+                className="button button--secondary"
+                disabled={scanning || incrementalScanning || result.truncated}
+                onClick={() => void refreshIncrementalScan()}
+                type="button"
+              >
+                {incrementalScanning
+                  ? "Comprobando cambios…"
+                  : "Buscar cambios ahora"}
+              </button>
+            </div>
+            {result.truncated ? (
+              <p className="form-message form-message--error" role="status">
+                La vigilancia se desactiva para resultados truncados porque una
+                vista parcial no permite distinguir retiradas con seguridad.
+              </p>
+            ) : incrementalMessage ? (
+              <p className="organization-muted" role="status">
+                {incrementalMessage}
+              </p>
+            ) : null}
+          </section>
           {result.tracks.length ? (
             <>
               <div className="desktop-scan-toolbar">
