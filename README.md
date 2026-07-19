@@ -223,15 +223,18 @@ La aplicación de escritorio expone un único comando nativo al origen oficial d
 producción. Ese comando siempre abre el selector de carpetas del sistema y
 realiza un escaneo acotado y de solo lectura. Recoge nombres, rutas relativas,
 extensiones y tamaños, y lee etiquetas de título, artista, álbum, género, BPM,
-tonalidad y duración cuando existen. No acepta rutas enviadas por la web, no
-decodifica muestras y no mueve, renombra, modifica, reproduce, sube ni guarda
-archivos de audio.
+tonalidad y duración cuando existen. También agrupa copias binarias exactas:
+solo calcula SHA-256 en streaming para archivos del mismo tamaño y nunca devuelve
+ni persiste las huellas. No acepta rutas enviadas por la web, no decodifica
+muestras y no mueve, renombra, modifica, reproduce, sube ni guarda archivos de
+audio.
 
 Para validar el núcleo Rust:
 
 ```bash
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 Para desarrollo interactivo, instala Tauri CLI 2 y ejecuta `cargo tauri dev`
