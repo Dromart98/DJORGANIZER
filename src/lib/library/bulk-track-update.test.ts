@@ -20,7 +20,13 @@ describe("parseBulkTrackUpdate", () => {
     ).toEqual({
       field: "musical_key",
       trackIds,
-      update: { camelot_key: "8A", musical_key: "Am" },
+      update: {
+        camelot_key: "8A",
+        key_confidence: null,
+        key_explanation: "Valor revisado manualmente.",
+        key_source: "manual",
+        musical_key: "Am",
+      },
     });
   });
 

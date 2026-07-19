@@ -17,6 +17,9 @@ export const importTrackSchema = z
     album: nullableText(300),
     artist: nullableText(300),
     bpm: nullableNumber(20, 300),
+    bpm_confidence: nullableNumber(0, 1),
+    bpm_explanation: nullableText(500),
+    bpm_source: z.enum(["local", "manual", "metadata"]).nullable(),
     client_id: z.string().uuid(),
     duration_seconds: nullableNumber(0, 31_536_000),
     energy: z.number().int().min(0).max(100).nullable(),
@@ -27,6 +30,9 @@ export const importTrackSchema = z
     genre: nullableText(120),
     genre_confidence: nullableNumber(0, 1),
     genre_source: z.enum(["manual", "metadata", "openai"]).nullable(),
+    key_confidence: nullableNumber(0, 1),
+    key_explanation: nullableText(500),
+    key_source: z.enum(["local", "manual", "metadata"]).nullable(),
     musical_key: nullableText(16),
     release_year: z.number().int().min(1000).max(2100).nullable(),
     version_type: z
@@ -34,7 +40,52 @@ export const importTrackSchema = z
       .nullable(),
     title: z.string().trim().min(1, "Añade el título.").max(300),
   })
-  .strict();
+  .strict()
+  .superRefine((track, context) => {
+    const analyses = [
+      {
+        confidence: track.bpm_confidence,
+        confidencePath: "bpm_confidence",
+        explanation: track.bpm_explanation,
+        path: "bpm",
+        source: track.bpm_source,
+        value: track.bpm,
+      },
+      {
+        confidence: track.key_confidence,
+        confidencePath: "key_confidence",
+        explanation: track.key_explanation,
+        path: "musical_key",
+        source: track.key_source,
+        value: track.musical_key,
+      },
+    ] as const;
+
+    for (const analysis of analyses) {
+      if (
+        analysis.value === null &&
+        (analysis.source !== null ||
+          analysis.confidence !== null ||
+          analysis.explanation !== null)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "El análisis no puede existir sin un valor.",
+          path: [analysis.path],
+        });
+      }
+      if (
+        analysis.confidence !== null &&
+        analysis.source !== "local"
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "La confianza solo se conserva para análisis locales.",
+          path: [analysis.confidencePath],
+        });
+      }
+    }
+  });
 
 export const importBatchSchema = z.array(importTrackSchema).min(1).max(25);
 

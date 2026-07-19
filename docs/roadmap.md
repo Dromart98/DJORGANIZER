@@ -63,8 +63,9 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   para importar, sin requerir un botón adicional; mostrar progreso, permitir
   cancelar y conservar la corrección manual. El análisis sigue siendo local.
 - [x] Clasificar géneros con la API de OpenAI y `gpt-audio`. Esta
-  función será opcional y requerirá consentimiento explícito antes de enviar un
-  fragmento autorizado; la clave permanecerá en el servidor. Definir taxonomía,
+  función se ofrece por pista y el botón de sugerencia constituye el
+  consentimiento explícito antes de enviar ese fragmento autorizado; no hay un
+  interruptor global redundante. La clave permanece en el servidor. Definir taxonomía,
   respuesta estructurada, confianza, límites de coste, caché por huella y
   corrección manual. El clip WAV mono de hasta 45 segundos se genera localmente,
   no se almacena y existe un límite por usuario.
@@ -72,7 +73,11 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 - [x] Calcular energía real con una escala documentada y editable.
 - [x] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
-- [ ] Mejorar confianza y explicación de BPM y tonalidad.
+- [x] Mejorar confianza y explicación de BPM y tonalidad mediante varias
+  ventanas de tempo, concordancia entre resultados, separación entre perfiles
+  cromáticos y procedencia visible. La confianza se guarda solo para análisis
+  locales; metadatos, correcciones manuales y valores heredados se distinguen
+  sin inventar una precisión.
 - [x] Añadir comparación de versiones, remixes y ediciones.
 - [x] Mantener género automático como función opcional y revisable.
 

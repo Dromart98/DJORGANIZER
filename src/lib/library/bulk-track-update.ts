@@ -65,11 +65,18 @@ export function parseBulkTrackUpdate(input: unknown): BulkTrackUpdate {
         ...common,
         update: { genre: optionalText(120).parse(parsed.value) },
       };
-    case "bpm":
+    case "bpm": {
+      const bpm = nullableNumber(20, 300).parse(parsed.value);
       return {
         ...common,
-        update: { bpm: nullableNumber(20, 300).parse(parsed.value) },
+        update: {
+          bpm,
+          bpm_confidence: null,
+          bpm_explanation: bpm === null ? null : "Valor revisado manualmente.",
+          bpm_source: bpm === null ? null : "manual",
+        },
       };
+    }
     case "musical_key": {
       const value = musicalKey.parse(parsed.value);
       const normalized = normalizeMusicalKey(value);
@@ -77,6 +84,10 @@ export function parseBulkTrackUpdate(input: unknown): BulkTrackUpdate {
         ...common,
         update: {
           camelot_key: normalized?.camelotKey ?? null,
+          key_confidence: null,
+          key_explanation:
+            normalized === null ? null : "Valor revisado manualmente.",
+          key_source: normalized === null ? null : "manual",
           musical_key: normalized?.musicalKey ?? null,
         },
       };

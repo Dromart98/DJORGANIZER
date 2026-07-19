@@ -18,6 +18,17 @@ type TrackDetailPageProps = {
 
 export const metadata = { title: "Detalle de canción" };
 
+function sourceLabel(source: string | null) {
+  return (
+    {
+      local: "Análisis local",
+      manual: "Revisado manualmente",
+      metadata: "Metadatos del archivo",
+      unknown: "Procedencia anterior",
+    }[source ?? ""] ?? "Sin analizar"
+  );
+}
+
 export default async function TrackDetailPage({
   params,
   searchParams,
@@ -59,6 +70,43 @@ export default async function TrackDetailPage({
           Los cambios se guardaron correctamente.
         </p>
       ) : null}
+      <section
+        aria-labelledby="analysis-provenance-title"
+        className="card analysis-provenance"
+      >
+        <div>
+          <p className="eyebrow">Análisis explicable</p>
+          <h2 id="analysis-provenance-title">Procedencia y confianza</h2>
+        </div>
+        <dl>
+          <div>
+            <dt>BPM</dt>
+            <dd>
+              <strong>{sourceLabel(track.bpm_source)}</strong>
+              {track.bpm_confidence === null
+                ? null
+                : ` · ${Math.round(track.bpm_confidence * 100)}%`}
+              <small>
+                {track.bpm_explanation ??
+                  "No hay una explicación guardada para este valor."}
+              </small>
+            </dd>
+          </div>
+          <div>
+            <dt>Tonalidad</dt>
+            <dd>
+              <strong>{sourceLabel(track.key_source)}</strong>
+              {track.key_confidence === null
+                ? null
+                : ` · ${Math.round(track.key_confidence * 100)}%`}
+              <small>
+                {track.key_explanation ??
+                  "No hay una explicación guardada para este valor."}
+              </small>
+            </dd>
+          </div>
+        </dl>
+      </section>
       <TrackForm mode="update" track={track} />
       <section className="recommendations">
         <div className="organization-section-heading">

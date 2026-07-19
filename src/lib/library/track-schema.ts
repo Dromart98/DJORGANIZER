@@ -78,9 +78,16 @@ export function toTrackInsert(
   return {
     ...values,
     bpm: values.bpm ?? null,
+    bpm_confidence: null,
+    bpm_explanation:
+      values.bpm === undefined ? null : "Valor revisado manualmente.",
+    bpm_source: values.bpm === undefined ? null : "manual",
     duration_seconds: values.duration_seconds ?? null,
     energy: values.energy ?? null,
     camelot_key: normalizedKey?.camelotKey ?? values.camelot_key,
+    key_confidence: null,
+    key_explanation: normalizedKey ? "Valor revisado manualmente." : null,
+    key_source: normalizedKey ? "manual" : null,
     musical_key: normalizedKey?.musicalKey ?? values.musical_key,
     rating: values.rating ?? null,
     release_year: values.release_year ?? null,
@@ -97,9 +104,16 @@ export function toTrackUpdate(
   return {
     ...values,
     bpm: values.bpm ?? null,
+    bpm_confidence: null,
+    bpm_explanation:
+      values.bpm === undefined ? null : "Valor revisado manualmente.",
+    bpm_source: values.bpm === undefined ? null : "manual",
     duration_seconds: values.duration_seconds ?? null,
     energy: values.energy ?? null,
     camelot_key: normalizedKey?.camelotKey ?? values.camelot_key,
+    key_confidence: null,
+    key_explanation: normalizedKey ? "Valor revisado manualmente." : null,
+    key_source: normalizedKey ? "manual" : null,
     musical_key: normalizedKey?.musicalKey ?? values.musical_key,
     rating: values.rating ?? null,
     release_year: values.release_year ?? null,

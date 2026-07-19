@@ -1,6 +1,7 @@
 import {
   bpmAnalysisWindow,
-  normalizeDetectedBpm,
+  bpmSampleWindows,
+  summarizeBpmCandidates,
 } from "@/lib/import/bpm";
 
 export async function detectBpmFromAudioBuffer(audioBuffer: AudioBuffer) {
@@ -11,18 +12,18 @@ export async function detectBpmFromAudioBuffer(audioBuffer: AudioBuffer) {
   }
 
   const { analyze } = await import("web-audio-beat-detector");
-  const tempo = await analyze(
-    audioBuffer,
-    window.offset,
-    window.duration,
+  const tempos = await Promise.all(
+    bpmSampleWindows(window).map((sample) =>
+      analyze(audioBuffer, sample.offset, sample.duration),
+    ),
   );
-  const bpm = normalizeDetectedBpm(tempo);
+  const result = summarizeBpmCandidates(tempos);
 
-  if (bpm === null) {
+  if (!result) {
     throw new Error("El detector no devolvió un BPM válido.");
   }
 
-  return bpm;
+  return result;
 }
 
 
