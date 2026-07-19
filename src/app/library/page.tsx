@@ -6,6 +6,8 @@ import { TrackFilters } from "@/components/library/track-filters";
 import { TrackTable } from "@/components/library/track-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
+import { getMessages } from "@/lib/i18n/i18n";
+import { getCurrentLocale } from "@/lib/i18n/server";
 import {
   buildLibraryHref,
   parseTrackQuery,
@@ -22,9 +24,13 @@ export const metadata = { title: "Biblioteca" };
 export default async function LibraryPage({
   searchParams,
 }: LibraryPageProps) {
-  const user = await requireUser();
-  const rawSearchParams = await searchParams;
+  const [user, rawSearchParams, locale] = await Promise.all([
+    requireUser(),
+    searchParams,
+    getCurrentLocale(),
+  ]);
   const query = parseTrackQuery(rawSearchParams);
+  const emptyCopy = getMessages(locale).libraryEmpty;
   const supabase = await createClient();
   const [page, { data: tags, error: tagsError }] = await Promise.all([
     listTracks(supabase, user.id, query),
@@ -143,21 +149,26 @@ export default async function LibraryPage({
                 Limpiar filtros
               </Link>
             ) : (
-              <Link className="button button--primary" href="/library/new">
-                Añadir la primera canción
-              </Link>
+              <div className="empty-state__actions">
+                <Link className="button button--primary" href="/import">
+                  {emptyCopy.primaryAction}
+                </Link>
+                <Link className="button button--secondary" href="/library/new">
+                  {emptyCopy.manualAction}
+                </Link>
+              </div>
             )
           }
           description={
             hasFilters
               ? "Prueba con otros términos o elimina alguno de los filtros."
-              : "Añade manualmente una canción para empezar tu biblioteca privada."
+              : emptyCopy.description
           }
           icon={<Icon name="library" />}
           title={
             hasFilters
               ? "No hay resultados para estos filtros"
-              : "Tu biblioteca está vacía"
+              : emptyCopy.title
           }
         />
       )}

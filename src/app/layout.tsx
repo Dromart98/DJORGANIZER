@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import { AuthStatus } from "@/components/auth/auth-status";
+import { LocaleProvider } from "@/components/i18n/locale-provider";
 import { AppShell } from "@/components/layout/app-shell";
 import { ConnectivityStatus } from "@/components/pwa/connectivity-status";
 import { OfflineSyncManager } from "@/components/pwa/offline-sync-manager";
@@ -31,13 +32,15 @@ export default async function RootLayout({
   return (
     <html lang={locale}>
       <body>
-        <PwaRegistration />
-        <DiagnosticsCapture />
-        <ConnectivityStatus />
-        <OfflineSyncManager />
-        <AppShell authStatus={<AuthStatus locale={locale} />} locale={locale}>
-          {children}
-        </AppShell>
+        <LocaleProvider locale={locale}>
+          <PwaRegistration />
+          <DiagnosticsCapture />
+          <ConnectivityStatus />
+          <OfflineSyncManager />
+          <AppShell authStatus={<AuthStatus locale={locale} />} locale={locale}>
+            {children}
+          </AppShell>
+        </LocaleProvider>
       </body>
     </html>
   );

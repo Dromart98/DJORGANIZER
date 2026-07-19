@@ -226,6 +226,15 @@ los límites y los casos ambiguos se documentan en
   menta controlado.
 - Tabla densa con cabecera fija, estados de selección y navegación refinados.
 - Controles, formularios, crates e importación comparten los mismos tokens.
+- Las cuentas nuevas muestran una guía no bloqueante basada en los conteos
+  reales de pistas y crates; desaparece del espacio principal al completar el
+  primer recorrido.
+- Biblioteca y Crates distinguen la falta de música de una búsqueda sin
+  resultados y ofrecen salidas directas hacia importación o alta manual.
+- Importar explica de forma progresiva la selección web o Tauri, el análisis
+  local y qué metadatos se guardan sin mover ni subir el audio.
+- Las rutas autenticadas conservan el shell ante fallos de carga y ofrecen
+  reintento y navegación segura sin mostrar detalles privados.
 - En móvil, la tabla se transforma en filas táctiles y mantiene acciones,
   selección, filtros y navegación inferior sin desbordamiento horizontal.
 - Los estados de foco y movimiento respetan accesibilidad y

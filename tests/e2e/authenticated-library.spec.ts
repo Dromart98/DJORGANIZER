@@ -41,7 +41,7 @@ function createTestWav(frequency: number) {
 test("@authenticated imports tracks without artists and builds an ordered crate", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const runId = `${Date.now()}-${testInfo.workerIndex}`;
   const email = `e2e-${runId}@djorganizer.test`;
   const password = `DjOrganizer-${runId}!`;
@@ -59,6 +59,85 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     page.getByRole("heading", { name: "Importar música" }),
   ).toBeVisible({ timeout: 20_000 });
+
+  await page.goto("/");
+  const gettingStarted = page.locator(".getting-started");
+  await expect(
+    gettingStarted.getByRole("heading", {
+      name: "Prepara tu primera sesión",
+    }),
+  ).toBeVisible();
+  await expect(
+    gettingStarted.getByText("0 de 3 pasos completados"),
+  ).toBeVisible();
+  await expect(
+    gettingStarted.getByRole("link", { name: /seleccionar las primeras canciones/i }),
+  ).toHaveClass(/button--primary/);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+
+  await page.goto("/library");
+  await expect(
+    page.getByRole("heading", { name: "Tu biblioteca está vacía" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Importar música" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Añadir una pista manualmente" }),
+  ).toBeVisible();
+
+  await page.goto("/crates");
+  await expect(
+    page.getByRole("heading", {
+      name: "Todavía no hay música para un crate",
+    }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator("form.organization-form")
+      .filter({ has: page.getByRole("heading", { name: "Crear crate" }) }),
+  ).toHaveCount(0);
+
+  await page.context().addCookies([
+    {
+      name: "djorganizer-locale",
+      url: "http://127.0.0.1:3100",
+      value: "en",
+    },
+  ]);
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Prepare your first set" }),
+  ).toBeVisible();
+  await expect(page.getByText("0 of 3 steps completed")).toBeVisible();
+  await page.context().addCookies([
+    {
+      name: "djorganizer-locale",
+      url: "http://127.0.0.1:3100",
+      value: "es",
+    },
+  ]);
+  await page.goto("/");
+  const keyboardImportLink = page.getByRole("link", {
+    name: /seleccionar las primeras canciones/i,
+  });
+  await keyboardImportLink.focus();
+  await expect(keyboardImportLink).toBeFocused();
+  await keyboardImportLink.press("Enter");
+  await expect(page).toHaveURL(/\/import$/);
+  await expect(
+    page.getByRole("heading", { name: "Elige cómo seleccionar tu música" }),
+  ).toBeVisible();
+  await expect(page.getByText("Archivos desde el navegador")).toBeVisible();
+  await expect(
+    page.getByText("Carpeta en la aplicación de escritorio", { exact: true }),
+  ).toBeVisible();
 
   await page.locator("#audio-files").setInputFiles([
     {
@@ -110,7 +189,24 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     timeout: 20_000,
   });
 
-  await page.goto("/library");
+  await page.goto("/");
+  await expect(
+    page.locator(".getting-started").getByText("2 de 3 pasos completados"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /crear el primer crate/i }),
+  ).toHaveClass(/button--primary/);
+
+  await page.goto(`/library?q=${encodeURIComponent(`missing-${runId}`)}`);
+  await expect(
+    page.getByRole("heading", {
+      name: "No hay resultados para estos filtros",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Tu biblioteca está vacía" }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Limpiar filtros" }).click();
   await expect(
     page.getByRole("heading", { name: "Biblioteca" }),
   ).toBeVisible();
@@ -126,6 +222,15 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   ).toHaveCount(2);
 
   await page.goto("/crates");
+  await expect(
+    page.getByRole("heading", { name: "Crea tu primer crate" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Un crate es una lista ordenada de referencias a tus pistas.",
+      { exact: false },
+    ),
+  ).toBeVisible();
   const createCrateForm = page
     .locator("form.organization-form")
     .filter({ has: page.getByRole("heading", { name: "Crear crate" }) });
@@ -139,6 +244,41 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     timeout: 20_000,
   });
   await expect(page.getByRole("heading", { name: crateName })).toBeVisible();
+  const crateUrl = page.url();
+
+  await page.goto("/");
+  await expect(page.locator(".getting-started")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Prepara tu próxima sesión" }),
+  ).toBeVisible();
+
+  await page.goto("/?__e2eError=1");
+  const recoveryAlert = page.getByRole("alert", {
+    name: "No se pudo cargar la pantalla",
+  });
+  await expect(
+    recoveryAlert.getByRole("heading", {
+      name: "No se pudo cargar la pantalla",
+    }),
+  ).toBeVisible();
+  await expect(
+    recoveryAlert.getByText("Controlled route failure", { exact: false }),
+  ).toHaveCount(0);
+  await expect(
+    recoveryAlert.getByRole("button", { name: "Reintentar" }),
+  ).toBeVisible();
+  await expect(
+    recoveryAlert.getByRole("link", { name: "Ir a Biblioteca" }),
+  ).toBeVisible();
+  await expect(recoveryAlert.getByRole("heading")).toBeFocused();
+  await recoveryAlert.getByRole("button", { name: "Reintentar" }).click();
+  await expect(recoveryAlert).toBeVisible();
+  await recoveryAlert
+    .getByRole("link", { name: "Ir a Biblioteca" })
+    .click();
+  await expect(page).toHaveURL(/\/library$/);
+
+  await page.goto(crateUrl);
 
   const addTrack = async (title: string) => {
     const candidate = page
@@ -168,9 +308,12 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     .filter({ hasText: firstTitle })
     .getByRole("link", { name: firstTitle })
     .click();
+  await expect(page).toHaveURL(/\/library\/[0-9a-f-]+$/, {
+    timeout: 20_000,
+  });
   await expect(
     page.getByRole("heading", { name: firstTitle }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 20_000 });
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Eliminar canción" }).click();
 

@@ -111,7 +111,11 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 - [x] Navegación semántica, enlace de salto, foco visible, estados accesibles y
   validación responsive por teclado.
 - [ ] Completar auditoría con lector de pantalla en los flujos autenticados.
-- [ ] Onboarding, ayuda contextual y recuperación ante estados vacíos o errores.
+- [x] Primera fase de onboarding autenticado no bloqueante, ayuda contextual en
+  Importar, estados vacíos dependientes de pistas reales y recuperación
+  accesible ante errores de carga. El progreso se deriva de conteos existentes,
+  sin tabla ni datos de demostración, y los textos nuevos están disponibles en
+  español e inglés.
 - [x] Infraestructura bilingüe español/inglés, cookie de preferencia y shell
   traducida.
 - [ ] Traducir todo el contenido funcional restante al inglés.

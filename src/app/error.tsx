@@ -2,12 +2,12 @@
 
 import { RouteError } from "@/components/ui/route-error";
 
-export default function LibraryError({
+export default function AppError({
   error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  return <RouteError error={error} reset={reset} section="library" />;
+  return <RouteError error={error} reset={reset} />;
 }
