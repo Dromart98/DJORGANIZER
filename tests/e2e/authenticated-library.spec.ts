@@ -108,10 +108,15 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     page.getByRole("heading", { name: "Biblioteca" }),
   ).toBeVisible();
-  await expect(page.getByText(firstTitle, { exact: true })).toBeVisible();
-  await expect(page.getByText(secondTitle, { exact: true })).toBeVisible();
+  const libraryTable = page.locator("tbody");
   await expect(
-    page.locator("tbody").getByText("Artista desconocido", { exact: true }),
+    libraryTable.getByText(firstTitle, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    libraryTable.getByText(secondTitle, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    libraryTable.getByText("Artista desconocido", { exact: true }),
   ).toHaveCount(2);
 
   await page.goto("/crates");
