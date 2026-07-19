@@ -19,12 +19,15 @@ Para cada archivo compatible, el escáner obtiene:
 - nombre, ruta relativa, extensión y tamaño;
 - título, artista, álbum y género cuando existen en las etiquetas;
 - duración indicada por las propiedades del archivo;
-- BPM y tonalidad cuando están presentes en los metadatos.
+- BPM y tonalidad cuando están presentes en los metadatos;
+- un identificador de grupo cuando dos o más archivos tienen contenido idéntico.
 
-La lectura se realiza con Lofty desde Rust. No decodifica muestras de audio, no
-calcula BPM o tonalidad, no genera huellas y no envía ni persiste resultados.
-Si una etiqueta está dañada o no es compatible, la pista se conserva con los
-datos básicos del archivo y el fallo se contabiliza.
+La lectura de etiquetas se realiza con Lofty desde Rust. Para detectar copias
+exactas, primero agrupa por tamaño y calcula SHA-256 en streaming únicamente
+para los archivos candidatos. La huella nunca se devuelve a la web, no se
+persiste y se descarta al finalizar el escaneo. No se decodifican muestras ni se
+calcula BPM o tonalidad. Si una etiqueta o una comparación falla, la pista se
+conserva y el fallo se contabiliza.
 
 Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 
@@ -35,7 +38,8 @@ Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 - lectura de metadatos ejecutada fuera del hilo principal;
 - enlaces simbólicos omitidos para no escapar del árbol elegido;
 - carpetas o entradas sin permiso omitidas y contabilizadas;
-- errores de etiquetas aislados por pista;
+- errores de etiquetas o huellas aislados por pista;
+- verificación de que el tamaño no cambia mientras se calcula la huella;
 - resultado marcado como truncado al alcanzar un límite;
 - rutas absolutas no se devuelven a la interfaz.
 
@@ -47,4 +51,6 @@ comando registrado es `choose_and_scan_music_folder` y siempre muestra el
 selector nativo antes de leer.
 
 No se conceden plugins de sistema de archivos, shell o proceso. Esta fase no
-mueve, renombra, elimina, escribe, reproduce, sube ni persiste archivos.
+mueve, renombra, elimina, escribe, reproduce, sube ni persiste archivos. La
+detección es de igualdad binaria: una copia idéntica se agrupa aunque cambie de
+nombre, pero un archivo reetiquetado o recodificado se considera distinto.
