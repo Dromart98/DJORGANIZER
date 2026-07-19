@@ -46,14 +46,18 @@ Formatos reconocidos: AAC, AIFF, ALAC, FLAC, M4A, MP3, OGG, OPUS y WAV.
 ## Límite de permisos
 
 El puente global de Tauri solo está habilitado dentro del binario y su capability
-remota acepta exclusivamente `https://djorganizer-beta.vercel.app`. El único
-comando registrado es `choose_and_scan_music_folder` y siempre muestra el
-selector nativo antes de leer.
+remota acepta exclusivamente `https://djorganizer-beta.vercel.app`. El comando
+`choose_and_scan_music_folder` siempre muestra el selector nativo antes de leer.
+`export_virtualdj_list` solo acepta identificadores y rutas relativas que
+pertenecen a la sesión nativa activa; la web no puede suministrarle rutas
+absolutas arbitrarias.
 
-No se conceden plugins de sistema de archivos, shell o proceso. Esta fase no
-mueve, renombra, elimina, escribe, reproduce, sube ni persiste archivos. La
-detección es de igualdad binaria: una copia idéntica se agrupa aunque cambie de
-nombre, pero un archivo reetiquetado o recodificado se considera distinto.
+No se conceden plugins de sistema de archivos, shell o proceso. La única
+escritura permitida es un archivo de lista XML en el destino que la persona
+confirme mediante el selector nativo. La fase no mueve, renombra, elimina,
+reproduce, sube ni modifica audio. La detección es de igualdad binaria: una
+copia idéntica se agrupa aunque cambie de nombre, pero un archivo reetiquetado o
+recodificado se considera distinto.
 
 ## Previsualización de organización
 
@@ -67,3 +71,18 @@ numérico determinista.
 El plan contiene exclusivamente rutas relativas y se calcula en la memoria de
 la ventana. No se envía a Supabase ni al comando nativo y no existe en esta fase
 ninguna acción que aplique el plan al sistema de archivos.
+
+
+## Exportación de listas para VirtualDJ
+
+VirtualDJ 2024+ usa listas XML nativas en **My Lists**. DJOrganizer genera un
+`VirtualFolder` ordenado y una entrada `song` por pista seleccionada, con la
+ruta absoluta requerida, tamaño e información musical disponible. El formato
+sigue la [especificación oficial de Lists de VirtualDJ](https://virtualdj.com/wiki/lists.html).
+
+Las rutas absolutas nunca se devuelven a React ni a Supabase. Rust las conserva
+solo en memoria durante el escaneo y rechaza una exportación si el identificador
+de sesión ya no coincide o si una pista no pertenece al resultado activo. El
+usuario elige expresamente el archivo XML de destino. La compatibilidad M3U8,
+la exportación de crates persistentes y la sincronización con **My Lists** se
+mantienen como fases separadas en el roadmap.
