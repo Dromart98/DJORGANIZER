@@ -5,6 +5,14 @@ import { TrackForm } from "@/components/library/track-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
 import {
+  formatMessage,
+  formatSuggestionCount,
+  translate,
+  translateKnown,
+} from "@/lib/i18n/functional";
+import type { Locale } from "@/lib/i18n/i18n";
+import { getCurrentLocale } from "@/lib/i18n/server";
+import {
   getTrack,
   listCompatibleTracks,
 } from "@/lib/library/track-repository";
@@ -16,10 +24,13 @@ type TrackDetailPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export const metadata = { title: "Detalle de canción" };
+export async function generateMetadata() {
+  const locale = await getCurrentLocale();
+  return { title: translate(locale, "Detalle de canción") };
+}
 
-function sourceLabel(source: string | null) {
-  return (
+function sourceLabel(locale: Locale, source: string | null) {
+  const label = (
     {
       local: "Análisis local",
       manual: "Revisado manualmente",
@@ -27,13 +38,16 @@ function sourceLabel(source: string | null) {
       unknown: "Procedencia anterior",
     }[source ?? ""] ?? "Sin analizar"
   );
+  return translate(locale, label as Parameters<typeof translate>[1]);
 }
 
 export default async function TrackDetailPage({
   params,
   searchParams,
 }: TrackDetailPageProps) {
-  const user = await requireUser();
+  const [user, locale] = await Promise.all([requireUser(), getCurrentLocale()]);
+  const t = (message: Parameters<typeof translate>[1]) =>
+    translate(locale, message);
   const { id } = await params;
   const parsedId = trackIdSchema.safeParse(id);
   if (!parsedId.success) notFound();
@@ -59,15 +73,17 @@ export default async function TrackDetailPage({
             trackId={track.id}
           />
         }
-        description={`Añadida el ${new Intl.DateTimeFormat("es-ES", {
-          dateStyle: "long",
-        }).format(new Date(track.created_at))}.`}
-        eyebrow="Detalle y edición"
+        description={formatMessage(locale, "Añadida el {date}.", {
+          date: new Intl.DateTimeFormat(locale, {
+            dateStyle: "long",
+          }).format(new Date(track.created_at)),
+        })}
+        eyebrow={t("Detalle y edición")}
         title={track.title}
       />
       {query.updated === "1" ? (
         <p className="form-message form-message--success" role="status">
-          Los cambios se guardaron correctamente.
+          {t("Los cambios se guardaron correctamente.")}
         </p>
       ) : null}
       <section
@@ -75,33 +91,37 @@ export default async function TrackDetailPage({
         className="card analysis-provenance"
       >
         <div>
-          <p className="eyebrow">Análisis explicable</p>
-          <h2 id="analysis-provenance-title">Procedencia y confianza</h2>
+          <p className="eyebrow">{t("Análisis explicable")}</p>
+          <h2 id="analysis-provenance-title">{t("Procedencia y confianza")}</h2>
         </div>
         <dl>
           <div>
             <dt>BPM</dt>
             <dd>
-              <strong>{sourceLabel(track.bpm_source)}</strong>
+              <strong>{sourceLabel(locale, track.bpm_source)}</strong>
               {track.bpm_confidence === null
                 ? null
                 : ` · ${Math.round(track.bpm_confidence * 100)}%`}
               <small>
-                {track.bpm_explanation ??
-                  "No hay una explicación guardada para este valor."}
+                {(track.bpm_explanation
+                  ? translateKnown(locale, track.bpm_explanation)
+                  : null) ??
+                  t("No hay una explicación guardada para este valor.")}
               </small>
             </dd>
           </div>
           <div>
-            <dt>Tonalidad</dt>
+            <dt>{t("Tonalidad")}</dt>
             <dd>
-              <strong>{sourceLabel(track.key_source)}</strong>
+              <strong>{sourceLabel(locale, track.key_source)}</strong>
               {track.key_confidence === null
                 ? null
                 : ` · ${Math.round(track.key_confidence * 100)}%`}
               <small>
-                {track.key_explanation ??
-                  "No hay una explicación guardada para este valor."}
+                {(track.key_explanation
+                  ? translateKnown(locale, track.key_explanation)
+                  : null) ??
+                  t("No hay una explicación guardada para este valor.")}
               </small>
             </dd>
           </div>
@@ -111,10 +131,10 @@ export default async function TrackDetailPage({
       <section className="recommendations">
         <div className="organization-section-heading">
           <div>
-            <p className="eyebrow">Mezcla armónica</p>
-            <h2>Pistas compatibles</h2>
+            <p className="eyebrow">{t("Mezcla armónica")}</p>
+            <h2>{t("Pistas compatibles")}</h2>
           </div>
-          <span>{compatibleTracks.length} sugerencias</span>
+          <span>{formatSuggestionCount(locale, compatibleTracks.length)}</span>
         </div>
         {track.camelot_key ? (
           compatibleTracks.length ? (
@@ -126,7 +146,7 @@ export default async function TrackDetailPage({
                   key={candidate.id}
                 >
                   <strong>{candidate.title}</strong>
-                  <span>{candidate.artist ?? "Artista desconocido"}</span>
+                  <span>{candidate.artist ?? t("Artista desconocido")}</span>
                   <small>
                     {candidate.camelot_key} · {candidate.bpm ?? "—"} BPM
                   </small>
@@ -136,12 +156,12 @@ export default async function TrackDetailPage({
             </div>
           ) : (
             <p className="organization-muted">
-              No hay pistas dentro del rango armónico y de BPM recomendado.
+              {t("No hay pistas dentro del rango armónico y de BPM recomendado.")}
             </p>
           )
         ) : (
           <p className="organization-muted">
-            Añade una tonalidad para obtener recomendaciones armónicas.
+            {t("Añade una tonalidad para obtener recomendaciones armónicas.")}
           </p>
         )}
       </section>

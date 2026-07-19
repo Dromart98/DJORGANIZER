@@ -284,6 +284,53 @@ export const messages = {
   },
 } as const;
 
+type And<Values> = false extends Values ? false : true;
+type SameMessageStructure<Left, Right> =
+  Left extends (...args: infer LeftArguments) => infer LeftResult
+    ? Right extends (...args: infer RightArguments) => infer RightResult
+      ? [LeftArguments, RightArguments] extends [RightArguments, LeftArguments]
+        ? SameMessageStructure<LeftResult, RightResult>
+        : false
+      : false
+    : Left extends readonly unknown[]
+      ? Right extends readonly unknown[]
+        ? Left["length"] extends Right["length"]
+          ? Right["length"] extends Left["length"]
+            ? And<{
+                [Index in keyof Left]: Index extends keyof Right
+                  ? SameMessageStructure<Left[Index], Right[Index]>
+                  : false;
+              }[number]>
+            : false
+          : false
+        : false
+      : Left extends object
+        ? Right extends object
+          ? Exclude<keyof Left, keyof Right> extends never
+            ? Exclude<keyof Right, keyof Left> extends never
+              ? And<{
+                  [Key in keyof Left]: Key extends keyof Right
+                    ? SameMessageStructure<Left[Key], Right[Key]>
+                    : false;
+                }[keyof Left]>
+              : false
+            : false
+          : false
+        : Left extends string
+          ? Right extends string
+            ? true
+            : false
+          : Left extends number
+            ? Right extends number
+              ? true
+              : false
+            : true;
+
+export const MESSAGES_HAVE_TYPE_PARITY: SameMessageStructure<
+  (typeof messages)["es"],
+  (typeof messages)["en"]
+> = true;
+
 export function getMessages(locale: Locale) {
   return messages[locale];
 }

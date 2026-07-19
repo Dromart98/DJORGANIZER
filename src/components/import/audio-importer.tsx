@@ -9,6 +9,7 @@ import {
   type AcousticLibraryMatch,
   type ImportResult,
 } from "@/app/import/actions";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import { Button } from "@/components/ui/button";
 import {
   createAcousticSignature,
@@ -32,6 +33,8 @@ import {
   detectKeyFromFile,
 } from "@/lib/import/key-detector";
 import { metadataToImportTrack } from "@/lib/import/metadata";
+import { translate, translateKnown } from "@/lib/i18n/functional";
+import type { Locale } from "@/lib/i18n/i18n";
 import {
   loadOfflineMutations,
   saveOfflineMutations,
@@ -99,6 +102,7 @@ function isAudioFile(file: File) {
 }
 
 function analysisSourceLabel(
+  locale: Locale,
   source: ImportTrackInput["bpm_source"] | ImportTrackInput["key_source"],
   confidence: number | null,
 ) {
@@ -111,9 +115,15 @@ function analysisSourceLabel(
           ? "Revisado manualmente"
           : null;
   if (!label) return null;
+  const localizedLabel = translate(
+    locale,
+    label as Parameters<typeof translate>[1],
+  );
   return confidence === null
-    ? label
-    : `${label} · ${Math.round(confidence * 100)}% de confianza`;
+    ? localizedLabel
+    : locale === "en"
+      ? `${localizedLabel} · ${Math.round(confidence * 100)}% confidence`
+      : `${localizedLabel} · ${Math.round(confidence * 100)}% de confianza`;
 }
 
 function chunks<T>(items: T[], size: number) {
@@ -123,7 +133,7 @@ function chunks<T>(items: T[], size: number) {
   );
 }
 
-function statusLabel(status: ImportStatus) {
+function statusLabel(locale: Locale, status: ImportStatus) {
   const labels: Record<ImportStatus, string> = {
     checking: "Comprobando",
     duplicate: "Duplicada",
@@ -135,10 +145,11 @@ function statusLabel(status: ImportStatus) {
     saved: "Guardada",
     saving: "Guardando",
   };
-  return labels[status];
+  return translate(locale, labels[status] as Parameters<typeof translate>[1]);
 }
 
 export function AudioImporter() {
+  const { format, locale, t } = useTranslator();
   const inputRef = useRef<HTMLInputElement>(null);
   const automaticAnalysisRunRef = useRef(0);
   const automaticAudioContextRef = useRef<AudioContext | null>(null);
@@ -198,7 +209,9 @@ export function AudioImporter() {
         );
         if (synchronizedMutationIds.size) {
           setNotice(
-            `${synchronizedMutationIds.size} cambios pendientes se sincronizaron al recuperar la conexión.`,
+            locale === "en"
+              ? `${synchronizedMutationIds.size} pending changes synchronized when the connection returned.`
+              : `${synchronizedMutationIds.size} cambios pendientes se sincronizaron al recuperar la conexión.`,
           );
         }
       } catch {
@@ -208,7 +221,7 @@ export function AudioImporter() {
     void synchronizeQueuedImports();
     window.addEventListener("online", synchronizeQueuedImports);
     return () => window.removeEventListener("online", synchronizeQueuedImports);
-  }, []);
+  }, [locale]);
   function updateItem(id: string, update: Partial<ImportItem>) {
     setItems((current) =>
       current.map((item) => (item.id === id ? { ...item, ...update } : item)),
@@ -218,7 +231,7 @@ export function AudioImporter() {
   async function readFile(file: File, id: string): Promise<ImportItem> {
     if (!isAudioFile(file)) {
       const item: ImportItem = {
-        error: "El formato del archivo no parece ser de audio.",
+        error: t("El formato del archivo no parece ser de audio."),
         id,
         name: file.name,
         status: "invalid",
@@ -248,7 +261,7 @@ export function AudioImporter() {
       const item: ImportItem = {
         bpmStatus: "idle",
         data,
-        error: error ?? undefined,
+        error: error ? translateKnown(locale, error) : undefined,
         file,
         genreStatus: "idle",
         id,
@@ -261,7 +274,7 @@ export function AudioImporter() {
       return item;
     } catch {
       const item: ImportItem = {
-        error: "No se pudieron leer las etiquetas de este archivo.",
+        error: t("No se pudieron leer las etiquetas de este archivo."),
         id,
         name: file.name,
         status: "invalid",
@@ -277,7 +290,7 @@ export function AudioImporter() {
 
     const selected = Array.from(files).slice(0, 100);
     if (files.length > 100) {
-      setNotice("Se procesaron los primeros 100 archivos seleccionados.");
+      setNotice(t("Se procesaron los primeros 100 archivos seleccionados."));
     }
 
     const pending = selected.map((file) => ({
@@ -327,7 +340,7 @@ export function AudioImporter() {
           if (localDuplicateIds.has(item.id)) {
             return {
               ...item,
-              error: "Este archivo coincide con otro de esta selección.",
+              error: t("Este archivo coincide con otro de esta selección."),
               status: "duplicate",
             };
           }
@@ -365,7 +378,7 @@ export function AudioImporter() {
               if (localDuplicateIds.has(item.id)) {
                 return {
                   ...item,
-                  error: "Este archivo coincide con otro de esta selección.",
+                  error: t("Este archivo coincide con otro de esta selección."),
                   status: "duplicate",
                 };
               }
@@ -377,7 +390,9 @@ export function AudioImporter() {
                 return {
                   ...item,
                   duplicateTrackId: duplicate.track_id,
-                  error: `Ya existe en tu biblioteca: “${duplicate.title}”.`,
+                  error: format("Ya existe en tu biblioteca: “{title}”.", {
+                    title: duplicate.title,
+                  }),
                   status: "duplicate",
                 };
               }
@@ -398,7 +413,7 @@ export function AudioImporter() {
             ),
           );
           setNotice(
-            "No se pudo comprobar la biblioteca. Se volverá a comprobar al guardar.",
+            t("No se pudo comprobar la biblioteca. Se volverá a comprobar al guardar."),
           );
         }
       }
@@ -432,7 +447,7 @@ export function AudioImporter() {
             ...data,
             bpm_confidence: null,
             bpm_explanation:
-              value === null ? null : "Valor revisado manualmente.",
+              value === null ? null : t("Valor revisado manualmente."),
             bpm_source: value === null ? null : "manual",
           };
         }
@@ -441,7 +456,7 @@ export function AudioImporter() {
             ...data,
             key_confidence: null,
             key_explanation:
-              value === null ? null : "Valor revisado manualmente.",
+              value === null ? null : t("Valor revisado manualmente."),
             key_source: value === null ? null : "manual",
           };
         }
@@ -451,7 +466,7 @@ export function AudioImporter() {
           bpmError: field === "bpm" ? undefined : item.bpmError,
           bpmStatus: field === "bpm" ? "idle" : item.bpmStatus,
           data,
-          error: error ?? undefined,
+          error: error ? translateKnown(locale, error) : undefined,
           keyError: field === "musical_key" ? undefined : item.keyError,
           keyStatus:
             field === "musical_key" ? "idle" : item.keyStatus,
@@ -480,7 +495,7 @@ export function AudioImporter() {
     setIsAnalyzingBpm(false);
     setIsAnalyzingKey(false);
     setNotice(
-      "Análisis automático cancelado. Puedes reintentar cada pista o completar los datos manualmente.",
+      t("Análisis automático cancelado. Puedes reintentar cada pista o completar los datos manualmente."),
     );
   }
 
@@ -536,7 +551,7 @@ export function AudioImporter() {
       total: analyzable.length,
     });
     setNotice(
-      "Analizando automáticamente BPM y tonalidad en este dispositivo…",
+      t("Analizando automáticamente BPM y tonalidad en este dispositivo…"),
     );
 
     let audioContext: AudioContext | null = null;
@@ -608,8 +623,9 @@ export function AudioImporter() {
                   bpmError = undefined;
                   bpmStatus = "detected";
                 } else {
-                  bpmError =
-                    "No se pudo estimar el BPM. Puedes reintentarlo o escribirlo manualmente.";
+                  bpmError = t(
+                    "No se pudo estimar el BPM. Puedes reintentarlo o escribirlo manualmente.",
+                  );
                   bpmStatus = "error";
                 }
               }
@@ -626,8 +642,9 @@ export function AudioImporter() {
                   keyError = undefined;
                   keyStatus = "detected";
                 } else {
-                  keyError =
-                    "No se pudo estimar la tonalidad. Puedes reintentarlo o escribirla manualmente.";
+                  keyError = t(
+                    "No se pudo estimar la tonalidad. Puedes reintentarlo o escribirla manualmente.",
+                  );
                   keyStatus = "error";
                 }
               }
@@ -638,7 +655,7 @@ export function AudioImporter() {
                 bpmError,
                 bpmStatus,
                 data,
-                error: error ?? undefined,
+                error: error ? translateKnown(locale, error) : undefined,
                 keyError,
                 keyStatus,
                 status: error ? "invalid" : "ready",
@@ -648,11 +665,11 @@ export function AudioImporter() {
         } catch {
           updateItem(item.id, {
             bpmError: shouldAnalyzeBpm
-              ? "No se pudo decodificar el audio para estimar el BPM."
+              ? t("No se pudo decodificar el audio para estimar el BPM.")
               : item.bpmError,
             bpmStatus: shouldAnalyzeBpm ? "error" : item.bpmStatus,
             keyError: shouldAnalyzeKey
-              ? "No se pudo decodificar el audio para estimar la tonalidad."
+              ? t("No se pudo decodificar el audio para estimar la tonalidad.")
               : item.keyError,
             keyStatus: shouldAnalyzeKey ? "error" : item.keyStatus,
           });
@@ -668,7 +685,7 @@ export function AudioImporter() {
 
       if (automaticAnalysisRunRef.current === runId) {
         setNotice(
-          "Análisis automático terminado. Revisa las estimaciones antes de guardar.",
+          t("Análisis automático terminado. Revisa las estimaciones antes de guardar."),
         );
       }
     } catch {
@@ -685,20 +702,20 @@ export function AudioImporter() {
                     item.bpmStatus === "analyzing" ? "error" : item.bpmStatus,
                   bpmError:
                     item.bpmStatus === "analyzing"
-                      ? "El navegador no pudo iniciar el análisis automático."
+                      ? t("El navegador no pudo iniciar el análisis automático.")
                       : item.bpmError,
                   keyStatus:
                     item.keyStatus === "analyzing" ? "error" : item.keyStatus,
                   keyError:
                     item.keyStatus === "analyzing"
-                      ? "El navegador no pudo iniciar el análisis automático."
+                      ? t("El navegador no pudo iniciar el análisis automático.")
                       : item.keyError,
                 }
               : item,
           ),
         );
         setNotice(
-          "No se pudo iniciar el analizador automático en este navegador.",
+          t("No se pudo iniciar el analizador automático en este navegador."),
         );
       }
     } finally {
@@ -763,22 +780,21 @@ export function AudioImporter() {
                 bpmError: undefined,
                 bpmStatus: "detected",
                 data,
-                error: error ?? undefined,
+                error: error ? translateKnown(locale, error) : undefined,
                 status: error ? "invalid" : "ready",
               };
             }),
           );
         } catch {
           updateItem(item.id, {
-            bpmError:
-              "No se pudo estimar el BPM. Puedes escribirlo manualmente.",
+            bpmError: t("No se pudo estimar el BPM. Puedes escribirlo manualmente."),
             bpmStatus: "error",
           });
         }
       }
 
       setNotice(
-        "Análisis de BPM terminado. Revisa las estimaciones antes de guardar.",
+        t("Análisis de BPM terminado. Revisa las estimaciones antes de guardar."),
       );
     } catch {
       const targetIds = new Set(analyzable.map((item) => item.id));
@@ -787,16 +803,15 @@ export function AudioImporter() {
           targetIds.has(item.id) && item.bpmStatus === "analyzing"
             ? {
                 ...item,
-                bpmError:
+                bpmError: t(
                   "El navegador no pudo iniciar el análisis. Escribe el BPM manualmente.",
+                ),
                 bpmStatus: "error",
               }
             : item,
         ),
       );
-      setNotice(
-        "No se pudo iniciar el analizador de audio en este navegador.",
-      );
+      setNotice(t("No se pudo iniciar el analizador de audio en este navegador."));
     } finally {
       if (audioContext) {
         await audioContext.close().catch(() => undefined);
@@ -850,7 +865,7 @@ export function AudioImporter() {
               return {
                 ...currentItem,
                 data,
-                error: error ?? undefined,
+                error: error ? translateKnown(locale, error) : undefined,
                 keyError: undefined,
                 keyStatus: "detected",
                 status: error ? "invalid" : "ready",
@@ -859,15 +874,16 @@ export function AudioImporter() {
           );
         } catch {
           updateItem(item.id, {
-            keyError:
+            keyError: t(
               "No se pudo estimar la tonalidad. Puedes escribirla manualmente.",
+            ),
             keyStatus: "error",
           });
         }
       }
 
       setNotice(
-        "Análisis tonal terminado. Revisa las estimaciones antes de guardar.",
+        t("Análisis tonal terminado. Revisa las estimaciones antes de guardar."),
       );
     } catch {
       const targetIds = new Set(analyzable.map((item) => item.id));
@@ -876,16 +892,15 @@ export function AudioImporter() {
           targetIds.has(item.id) && item.keyStatus === "analyzing"
             ? {
                 ...item,
-                keyError:
+                keyError: t(
                   "El navegador no pudo iniciar el análisis. Escribe la tonalidad manualmente.",
+                ),
                 keyStatus: "error",
               }
             : item,
         ),
       );
-      setNotice(
-        "No se pudo iniciar el analizador tonal en este navegador.",
-      );
+      setNotice(t("No se pudo iniciar el analizador tonal en este navegador."));
     } finally {
       if (audioContext) {
         await audioContext.close().catch(() => undefined);
@@ -926,8 +941,9 @@ export function AudioImporter() {
     } catch {
       matchResult = {
         matches: [],
-        message:
+        message: t(
           "No se pudo completar la comparación acústica; la importación continúa con la comprobación de huellas exactas.",
+        ),
       };
     }
     const matchById = new Map(
@@ -952,7 +968,9 @@ export function AudioImporter() {
                 : item.duplicateTrackId,
             error:
               match.relationship === "duplicate"
-                ? `Coincidencia acústica con “${match.trackTitle}”.`
+                ? locale === "en"
+                  ? `Acoustic match with “${match.trackTitle}”.`
+                  : `Coincidencia acústica con “${match.trackTitle}”.`
                 : item.error,
             status:
               match.relationship === "duplicate" ? "duplicate" : item.status,
@@ -962,7 +980,9 @@ export function AudioImporter() {
     }
     if (exactDuplicateIds.size) {
       setNotice(
-        `${exactDuplicateIds.size} pistas coinciden acústicamente con la biblioteca y no se guardaron. Revisa las posibles versiones o remixes antes de continuar.`,
+        locale === "en"
+          ? `${exactDuplicateIds.size} tracks acoustically match the library and were not saved. Review possible versions or remixes before continuing.`
+          : `${exactDuplicateIds.size} pistas coinciden acústicamente con la biblioteca y no se guardaron. Revisa las posibles versiones o remixes antes de continuar.`,
       );
       setIsSaving(false);
       return;
@@ -984,11 +1004,16 @@ export function AudioImporter() {
           );
 
           if (response.message && response.results.length === 0) {
+            const responseMessage = translateKnown(locale, response.message);
             const groupIds = new Set(group.map((item) => item.id));
             setItems((current) =>
               current.map((item) =>
                 groupIds.has(item.id)
-                  ? { ...item, error: response.message, status: "error" }
+                  ? {
+                      ...item,
+                      error: responseMessage,
+                      status: "error",
+                    }
                   : item,
               ),
             );
@@ -1005,7 +1030,9 @@ export function AudioImporter() {
               return {
                 ...item,
                 duplicateTrackId: result.track_id,
-                error: result.message,
+                error: result.message
+                  ? translateKnown(locale, result.message)
+                  : undefined,
                 status: result.status,
               };
             }),
@@ -1028,8 +1055,9 @@ export function AudioImporter() {
               groupIds.has(item.id)
                 ? {
                     ...item,
-                    error:
+                    error: t(
                       "Se perdió la conexión. Los metadatos quedaron en la cola offline.",
+                    ),
                     status: "error",
                   }
                 : item,
@@ -1039,7 +1067,7 @@ export function AudioImporter() {
       }
 
       setNotice(
-        "Importación terminada. Los errores pueden corregirse y reintentarse.",
+        t("Importación terminada. Los errores pueden corregirse y reintentarse."),
       );
     } finally {
       setIsSaving(false);
@@ -1078,7 +1106,11 @@ export function AudioImporter() {
         suggestion?: ImportItem["genreSuggestion"];
       };
       if (!result.ok || !payload.suggestion) {
-        throw new Error(payload.error || "No se recibió una sugerencia.");
+        throw new Error(
+          payload.error
+            ? translateKnown(locale, payload.error)
+            : t("No se recibió una sugerencia."),
+        );
       }
       updateItem(item.id, {
         genreStatus: "suggested",
@@ -1089,7 +1121,7 @@ export function AudioImporter() {
         genreError:
           error instanceof Error
             ? error.message
-            : "No se pudo clasificar el género.",
+            : t("No se pudo clasificar el género."),
         genreStatus: "error",
       });
     } finally {
@@ -1133,14 +1165,10 @@ export function AudioImporter() {
     >
       <div className="card import-dropzone">
         <div>
-          <p className="eyebrow">Importación privada</p>
-          <h2>El audio no sale de este dispositivo</h2>
+          <p className="eyebrow">{t("Importación privada")}</p>
+          <h2>{t("El audio no sale de este dispositivo")}</h2>
           <p>
-            DJOrganizer calcula una huella SHA-256 local para detectar archivos
-            exactamente iguales y estima automáticamente BPM y tonalidad al
-            seleccionarlos. El análisis ocurre en el navegador. Solo envía a
-            Supabase la huella y los campos que revises; no sube audio ni
-            portadas.
+            {t("DJOrganizer calcula una huella SHA-256 local para detectar archivos exactamente iguales y estima automáticamente BPM y tonalidad al seleccionarlos. El análisis ocurre en el navegador. Solo envía a Supabase la huella y los campos que revises; no sube audio ni portadas.")}
           </p>
         </div>
         <input
@@ -1156,7 +1184,7 @@ export function AudioImporter() {
           type="file"
         />
         <label className="button button--primary" htmlFor="audio-files">
-          {isReading ? "Leyendo archivos…" : "Seleccionar archivos"}
+          {isReading ? t("Leyendo archivos…") : t("Seleccionar archivos")}
         </label>
       </div>
 
@@ -1170,8 +1198,9 @@ export function AudioImporter() {
         <>
           <div className="import-toolbar">
             <p>
-              <strong>{items.length}</strong> archivos · {readyCount} listos ·{" "}
-              {savedCount} guardados · {duplicateCount} duplicados
+              <strong>{items.length}</strong> {t("archivos")} · {readyCount}{" "}
+              {t("listos")} · {savedCount} {t("guardados")} · {duplicateCount}{" "}
+              {t("duplicados")}
             </p>
             <div className="import-actions">
               {automaticAnalysisProgress ? (
@@ -1181,7 +1210,8 @@ export function AudioImporter() {
                   aria-live="polite"
                 >
                   <span>
-                    Analizando {automaticAnalysisProgress.completed} de{" "}
+                    {t("Analizando")} {automaticAnalysisProgress.completed}{" "}
+                    {t("de")}{" "}
                     {automaticAnalysisProgress.total}
                   </span>
                   <progress
@@ -1193,7 +1223,7 @@ export function AudioImporter() {
                     type="button"
                     variant="secondary"
                   >
-                    Cancelar análisis
+                    {t("Cancelar análisis")}
                   </Button>
                 </div>
               ) : null}
@@ -1208,7 +1238,9 @@ export function AudioImporter() {
                 onClick={() => void saveReadyTracks()}
                 type="button"
               >
-                {isSaving ? "Guardando…" : `Guardar ${readyCount} pistas`}
+                {isSaving
+                  ? t("Guardando…")
+                  : format("Guardar {count} pistas", { count: readyCount })}
               </Button>
             </div>
           </div>
@@ -1228,17 +1260,17 @@ export function AudioImporter() {
                   <div>
                     <strong>{item.name}</strong>
                     <span className={`import-status import-status--${item.status}`}>
-                      {statusLabel(item.status)}
+                      {statusLabel(locale, item.status)}
                     </span>
                   </div>
                   <button
-                    aria-label={`Quitar ${item.name}`}
+                    aria-label={format("Quitar {name}", { name: item.name })}
                     className="import-remove"
                     disabled={item.status === "saving"}
                     onClick={() => removeItem(item.id)}
                     type="button"
                   >
-                    Quitar
+                    {t("Quitar")}
                   </button>
                 </header>
 
@@ -1252,7 +1284,7 @@ export function AudioImporter() {
                 {item.data ? (
                   <div className="import-grid">
                     <label className="field">
-                      Título
+                      {t("Título")}
                       <input
                         disabled={isLocked}
                         maxLength={300}
@@ -1264,7 +1296,7 @@ export function AudioImporter() {
                       />
                     </label>
                     <label className="field">
-                      Artista (opcional)
+                      {t("Artista (opcional)")}
                       <input
                         disabled={isLocked}
                         maxLength={300}
@@ -1279,7 +1311,7 @@ export function AudioImporter() {
                       />
                     </label>
                     <label className="field">
-                      Álbum
+                      {t("Álbum")}
                       <input
                         disabled={isLocked}
                         maxLength={300}
@@ -1294,7 +1326,7 @@ export function AudioImporter() {
                       />
                     </label>
                     <label className="field">
-                      Género
+                      {t("Género")}
                       <input
                         disabled={isLocked}
                         maxLength={120}
@@ -1319,15 +1351,14 @@ export function AudioImporter() {
                           type="button"
                         >
                           {item.genreStatus === "classifying"
-                            ? "Clasificando…"
-                            : "Sugerir género con OpenAI"}
+                            ? t("Clasificando…")
+                            : t("Sugerir género con OpenAI")}
                         </button>
                       ) : null}
                       {item.file &&
                       isAutomaticAnalysisEligibleStatus(item.status) ? (
                         <small className="analysis-evidence">
-                          Al pulsar se enviará un fragmento mono de hasta 45
-                          segundos. La sugerencia solo se aplica tras revisarla.
+                          {t("Al pulsar se enviará un fragmento mono de hasta 45 segundos. La sugerencia solo se aplica tras revisarla.")}
                         </small>
                       ) : null}
                       {item.genreSuggestion ? (
@@ -1342,7 +1373,7 @@ export function AudioImporter() {
                             onClick={() => acceptGenreSuggestion(item)}
                             type="button"
                           >
-                            Aplicar sugerencia
+                            {t("Aplicar sugerencia")}
                           </button>
                         </span>
                       ) : null}
@@ -1353,7 +1384,7 @@ export function AudioImporter() {
                       ) : null}
                     </label>
                     <label className="field">
-                      Energía
+                      {t("Energía")}
                       <input
                         disabled={isLocked}
                         max={100}
@@ -1370,10 +1401,10 @@ export function AudioImporter() {
                         type="number"
                         value={item.data.energy ?? ""}
                       />
-                      <small>0–100, calculada localmente y editable</small>
+                      <small>{t("0–100, calculada localmente y editable")}</small>
                     </label>
                     <label className="field">
-                      Versión
+                      {t("Versión")}
                       <select
                         disabled={isLocked}
                         onChange={(event) =>
@@ -1385,23 +1416,25 @@ export function AudioImporter() {
                         }
                         value={item.data.version_type ?? "unknown"}
                       >
-                        <option value="original">Original</option>
-                        <option value="remix">Remix / mix / dub</option>
-                        <option value="edit">Edit / radio / extended</option>
-                        <option value="live">Live</option>
-                        <option value="remaster">Remaster</option>
-                        <option value="unknown">Sin identificar</option>
+                        <option value="original">{t("Original")}</option>
+                        <option value="remix">{t("Remix / mix / dub")}</option>
+                        <option value="edit">{t("Edit / radio / extended")}</option>
+                        <option value="live">{t("Live")}</option>
+                        <option value="remaster">{t("Remaster")}</option>
+                        <option value="unknown">{t("Sin identificar")}</option>
                       </select>
                     </label>
                     <label className="field import-bpm-field">
                       <span>
                         BPM
                         {analysisSourceLabel(
+                          locale,
                           item.data.bpm_source,
                           item.data.bpm_confidence,
                         ) ? (
                           <small>
                             {analysisSourceLabel(
+                              locale,
                               item.data.bpm_source,
                               item.data.bpm_confidence,
                             )}
@@ -1427,7 +1460,7 @@ export function AudioImporter() {
                       />
                       {item.data.bpm_explanation ? (
                         <small className="analysis-evidence">
-                          {item.data.bpm_explanation}
+                          {translateKnown(locale, item.data.bpm_explanation)}
                         </small>
                       ) : null}
                       {item.file &&
@@ -1440,12 +1473,12 @@ export function AudioImporter() {
                           type="button"
                         >
                           {item.data.bpm === null
-                            ? "Reintentar detección"
-                            : "Volver a analizar"}
+                            ? t("Reintentar detección")
+                            : t("Volver a analizar")}
                         </button>
                       ) : null}
                       {item.bpmStatus === "analyzing" ? (
-                        <small role="status">Analizando el audio local…</small>
+                        <small role="status">{t("Analizando el audio local…")}</small>
                       ) : null}
                       {item.bpmError ? (
                         <small className="field-error" role="alert">
@@ -1455,13 +1488,15 @@ export function AudioImporter() {
                     </label>
                     <label className="field import-key-field">
                       <span>
-                        Tonalidad
+                        {t("Tonalidad")}
                         {analysisSourceLabel(
+                          locale,
                           item.data.key_source,
                           item.data.key_confidence,
                         ) ? (
                           <small>
                             {analysisSourceLabel(
+                              locale,
                               item.data.key_source,
                               item.data.key_confidence,
                             )}
@@ -1482,7 +1517,7 @@ export function AudioImporter() {
                       />
                       {item.data.key_explanation ? (
                         <small className="analysis-evidence">
-                          {item.data.key_explanation}
+                          {translateKnown(locale, item.data.key_explanation)}
                         </small>
                       ) : null}
                       {item.file &&
@@ -1500,12 +1535,12 @@ export function AudioImporter() {
                           type="button"
                         >
                           {item.data.musical_key === null
-                            ? "Reintentar detección"
-                            : "Volver a analizar"}
+                            ? t("Reintentar detección")
+                            : t("Volver a analizar")}
                         </button>
                       ) : null}
                       {item.keyStatus === "analyzing" ? (
-                        <small role="status">Analizando armonía local…</small>
+                        <small role="status">{t("Analizando armonía local…")}</small>
                       ) : null}
                       {item.keyError ? (
                         <small className="field-error" role="alert">
@@ -1514,7 +1549,7 @@ export function AudioImporter() {
                       ) : null}
                     </label>
                     <label className="field">
-                      Año
+                      {t("Año")}
                       <input
                         disabled={isLocked}
                         max={2100}
@@ -1533,7 +1568,7 @@ export function AudioImporter() {
                       />
                     </label>
                     <label className="field">
-                      Duración (segundos)
+                      {t("Duración (segundos)")}
                       <input
                         disabled
                         value={item.data.duration_seconds ?? ""}
@@ -1547,7 +1582,7 @@ export function AudioImporter() {
                     {item.error}{" "}
                     {item.duplicateTrackId ? (
                       <Link href={`/library/${item.duplicateTrackId}`}>
-                        Ver la pista
+                        {t("Ver la pista")}
                       </Link>
                     ) : null}
                   </p>
@@ -1555,15 +1590,18 @@ export function AudioImporter() {
                 {item.acousticMatch &&
                 item.acousticMatch.relationship !== "duplicate" ? (
                   <p className="form-message" role="status">
-                    Posible{" "}
+                    {locale === "en" ? "Possible" : "Posible"}{" "}
                     {item.acousticMatch.relationship === "same-release"
-                      ? "versión de la misma edición"
-                      : "versión o remix"}{" "}
-                    de “{item.acousticMatch.trackTitle}” (
-                    {Math.round(item.acousticMatch.similarity * 100)}% de
-                    similitud). Revisa el tipo de versión antes de guardar.{" "}
+                      ? t("versión de la misma edición")
+                      : t("versión o remix")}{" "}
+                    {locale === "en" ? "of" : "de"} “
+                    {item.acousticMatch.trackTitle}” (
+                    {Math.round(item.acousticMatch.similarity * 100)}%{" "}
+                    {locale === "en"
+                      ? "similarity). Review the version type before saving."
+                      : "de similitud). Revisa el tipo de versión antes de guardar."}{" "}
                     <Link href={`/library/${item.acousticMatch.trackId}`}>
-                      Comparar
+                      {t("Comparar")}
                     </Link>
                   </p>
                 ) : null}
@@ -1574,9 +1612,9 @@ export function AudioImporter() {
         </>
       ) : (
         <div className="card import-empty">
-          <p>Selecciona hasta 100 archivos para preparar una importación.</p>
+          <p>{t("Selecciona hasta 100 archivos para preparar una importación.")}</p>
           <small>
-            Formatos habituales: MP3, M4A, FLAC, WAV, AIFF, AAC, OGG y Opus.
+            {t("Formatos habituales: MP3, M4A, FLAC, WAV, AIFF, AAC, OGG y Opus.")}
           </small>
         </div>
       )}

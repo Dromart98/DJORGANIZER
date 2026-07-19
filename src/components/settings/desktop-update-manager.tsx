@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslator } from "@/components/i18n/locale-provider";
 
 type DesktopUpdateStatus = {
   available: boolean;
@@ -20,6 +21,7 @@ function getTauriCore() {
 }
 
 export function DesktopUpdateManager() {
+  const { format, t } = useTranslator();
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<DesktopUpdateStatus | null>(null);
@@ -41,15 +43,13 @@ export function DesktopUpdateManager() {
       setStatus(result);
       setMessage(
         result.available
-          ? `Versión ${result.version} disponible.`
-          : "DJOrganizer está actualizado.",
+          ? format("Versión {version} disponible.", {
+              version: result.version ?? "",
+            })
+          : t("DJOrganizer está actualizado."),
       );
-    } catch (error) {
-      setMessage(
-        typeof error === "string"
-          ? error
-          : "No se pudo comprobar la actualización.",
-      );
+    } catch {
+      setMessage(t("No se pudo comprobar la actualización."));
     } finally {
       setBusy(false);
     }
@@ -60,24 +60,20 @@ export function DesktopUpdateManager() {
     if (!core || !status?.available) return;
     if (
       !window.confirm(
-        "La actualización está firmada y se instalará ahora. En Windows la aplicación puede cerrarse automáticamente. ¿Continuar?",
+        t("La actualización está firmada y se instalará ahora. En Windows la aplicación puede cerrarse automáticamente. ¿Continuar?"),
       )
     ) {
       return;
     }
     setBusy(true);
-    setMessage("Descargando y verificando la actualización…");
+    setMessage(t("Descargando y verificando la actualización…"));
     try {
       await core.invoke<DesktopUpdateStatus>("install_available_update");
       setMessage(
-        "Actualización instalada. Reinicia DJOrganizer para usar la nueva versión.",
+        t("Actualización instalada. Reinicia DJOrganizer para usar la nueva versión."),
       );
-    } catch (error) {
-      setMessage(
-        typeof error === "string"
-          ? error
-          : "No se pudo instalar la actualización.",
-      );
+    } catch {
+      setMessage(t("No se pudo instalar la actualización."));
     } finally {
       setBusy(false);
     }
@@ -92,7 +88,7 @@ export function DesktopUpdateManager() {
           onClick={() => void check()}
           type="button"
         >
-          {busy ? "Comprobando…" : "Buscar actualizaciones"}
+          {busy ? t("Comprobando…") : t("Buscar actualizaciones")}
         </button>
         {status?.available ? (
           <button
@@ -101,7 +97,7 @@ export function DesktopUpdateManager() {
             onClick={() => void install()}
             type="button"
           >
-            Instalar {status.version}
+            {t("Instalar")} {status.version}
           </button>
         ) : null}
       </div>

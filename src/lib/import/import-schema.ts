@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const MANUAL_ANALYSIS_EXPLANATION = "Valor revisado manualmente.";
+
 const nullableText = (maximum: number) =>
   z
     .string()
@@ -7,6 +9,12 @@ const nullableText = (maximum: number) =>
     .max(maximum)
     .nullable()
     .transform((value: string | null) => value || null);
+
+const nullableAnalysisExplanation = nullableText(500).transform((value) =>
+  value === "Manually reviewed value."
+    ? MANUAL_ANALYSIS_EXPLANATION
+    : value,
+);
 
 const nullableNumber = (minimum: number, maximum: number) =>
   z.number().finite().min(minimum).max(maximum).nullable();
@@ -18,7 +26,7 @@ export const importTrackSchema = z
     artist: nullableText(300),
     bpm: nullableNumber(20, 300),
     bpm_confidence: nullableNumber(0, 1),
-    bpm_explanation: nullableText(500),
+    bpm_explanation: nullableAnalysisExplanation,
     bpm_source: z.enum(["local", "manual", "metadata"]).nullable(),
     client_id: z.string().uuid(),
     duration_seconds: nullableNumber(0, 31_536_000),
@@ -31,7 +39,7 @@ export const importTrackSchema = z
     genre_confidence: nullableNumber(0, 1),
     genre_source: z.enum(["manual", "metadata", "openai"]).nullable(),
     key_confidence: nullableNumber(0, 1),
-    key_explanation: nullableText(500),
+    key_explanation: nullableAnalysisExplanation,
     key_source: z.enum(["local", "manual", "metadata"]).nullable(),
     musical_key: nullableText(16),
     release_year: z.number().int().min(1000).max(2100).nullable(),

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import { recordDiagnosticEvent } from "@/lib/diagnostics/local-diagnostics";
 import {
   formDataToOfflinePayload,
@@ -31,6 +32,7 @@ function actionFromSubmit(event: SubmitEvent) {
 }
 
 export function OfflineSyncManager() {
+  const { format, locale, t } = useTranslator();
   const router = useRouter();
   const [queue, setQueue] = useState<OfflineMutation[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -75,8 +77,8 @@ export function OfflineSyncManager() {
             attempts: (mutation.attempts ?? 0) + 1,
             lastError:
               result.status === "conflict"
-                ? "La versión remota cambió."
-                : result.error ?? "No se pudo sincronizar.",
+                ? t("La versión remota cambió.")
+                : result.error ?? t("No se pudo sincronizar."),
             status: result.status,
           } satisfies OfflineMutation,
         ];
@@ -92,25 +94,30 @@ export function OfflineSyncManager() {
         recordDiagnosticEvent(window.localStorage, {
           category: "sync",
           createdAt: new Date().toISOString(),
-          message: `${failed} mutaciones pendientes requieren reintento o revisión.`,
+          message:
+            locale === "en"
+              ? `${failed} pending mutations require a retry or review.`
+              : `${failed} mutaciones pendientes requieren reintento o revisión.`,
         });
       }
       if (applied) {
-        setNotice(`${applied} cambios offline sincronizados.`);
+        setNotice(
+          format("{count} cambios offline sincronizados.", { count: applied }),
+        );
         router.refresh();
       }
     } catch {
       recordDiagnosticEvent(window.localStorage, {
         category: "sync",
         createdAt: new Date().toISOString(),
-        message: "El endpoint de sincronización no estaba disponible.",
+        message: t("El endpoint de sincronización no estaba disponible."),
       });
-      setNotice("La sincronización sigue pendiente; se reintentará más tarde.");
+      setNotice(t("La sincronización sigue pendiente; se reintentará más tarde."));
     } finally {
       syncingRef.current = false;
       setSyncing(false);
     }
-  }, [router]);
+  }, [format, locale, router, t]);
 
   useEffect(() => {
     refreshQueue();
@@ -152,7 +159,7 @@ export function OfflineSyncManager() {
       const current = loadOfflineMutations(window.localStorage);
       saveOfflineMutations(window.localStorage, [...current, mutation]);
       refreshQueue();
-      setNotice("Cambio guardado en este dispositivo hasta recuperar la conexión.");
+      setNotice(t("Cambio guardado en este dispositivo hasta recuperar la conexión."));
       if (action.endsWith("create")) form.reset();
     };
 
@@ -164,7 +171,7 @@ export function OfflineSyncManager() {
       window.removeEventListener(QUEUE_EVENT, handleQueueChange);
       window.removeEventListener("submit", handleSubmit, true);
     };
-  }, [refreshQueue, synchronize]);
+  }, [refreshQueue, synchronize, t]);
 
   useEffect(() => {
     if (navigator.onLine) void synchronize();
@@ -185,8 +192,8 @@ export function OfflineSyncManager() {
     setQueue(next);
     setNotice(
       force
-        ? "Los conflictos se reintentarán usando la versión local."
-        : "Los cambios locales en conflicto se descartaron.",
+        ? t("Los conflictos se reintentarán usando la versión local.")
+        : t("Los cambios locales en conflicto se descartaron."),
     );
     if (force) void synchronize();
   }
@@ -195,14 +202,16 @@ export function OfflineSyncManager() {
     <aside
       aria-live="polite"
       className="offline-sync-panel"
-      aria-label="Sincronización offline"
+      aria-label={t("Sincronización offline")}
     >
-      <strong>Sincronización</strong>
+      <strong>{t("Sincronización")}</strong>
       {notice ? <span>{notice}</span> : null}
       {managed.length ? (
         <span>
-          {managed.length} pendientes
-          {conflicts.length ? ` · ${conflicts.length} conflictos` : ""}
+          {format("{count} pendientes", { count: managed.length })}
+          {conflicts.length
+            ? ` · ${format("{count} conflictos", { count: conflicts.length })}`
+            : ""}
         </span>
       ) : null}
       <div>
@@ -213,7 +222,7 @@ export function OfflineSyncManager() {
             onClick={() => void synchronize()}
             type="button"
           >
-            {syncing ? "Sincronizando…" : "Reintentar"}
+            {syncing ? t("Sincronizando…") : t("Reintentar")}
           </button>
         ) : null}
         {conflicts.length ? (
@@ -223,14 +232,14 @@ export function OfflineSyncManager() {
               onClick={() => resolveConflicts(true)}
               type="button"
             >
-              Usar cambios locales
+              {t("Usar cambios locales")}
             </button>
             <button
               className="button button--danger button--small"
               onClick={() => resolveConflicts(false)}
               type="button"
             >
-              Descartar conflictos
+              {t("Descartar conflictos")}
             </button>
           </>
         ) : null}

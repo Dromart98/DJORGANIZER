@@ -5,8 +5,11 @@ import {
   createBackupAction,
   restoreBackupAction,
 } from "@/app/settings/actions";
+import { useTranslator } from "@/components/i18n/locale-provider";
+import { translateKnown } from "@/lib/i18n/functional";
 
 export function BackupManager() {
+  const { locale, t } = useTranslator();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -24,9 +27,9 @@ export function BackupManager() {
       anchor.download = `djorganizer-backup-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
-      setMessage("Copia de seguridad descargada.");
+      setMessage(t("Copia de seguridad descargada."));
     } catch {
-      setMessage("No se pudo crear la copia de seguridad.");
+      setMessage(t("No se pudo crear la copia de seguridad."));
     } finally {
       setBusy(false);
     }
@@ -36,7 +39,7 @@ export function BackupManager() {
     if (!file) return;
     if (
       !window.confirm(
-        "La restauración combinará la copia con tu biblioteca actual. ¿Continuar?",
+        t("La restauración combinará la copia con tu biblioteca actual. ¿Continuar?"),
       )
     ) {
       if (input.current) input.current.value = "";
@@ -45,9 +48,9 @@ export function BackupManager() {
     setBusy(true);
     try {
       const result = await restoreBackupAction(await file.text(), true);
-      setMessage(result.message);
+      setMessage(translateKnown(locale, result.message));
     } catch {
-      setMessage("No se pudo restaurar la copia de seguridad.");
+      setMessage(t("No se pudo restaurar la copia de seguridad."));
     } finally {
       setBusy(false);
       if (input.current) input.current.value = "";
@@ -62,7 +65,7 @@ export function BackupManager() {
         onClick={() => void downloadBackup()}
         type="button"
       >
-        Descargar copia completa
+        {t("Descargar copia completa")}
       </button>
       <input
         ref={input}
@@ -73,7 +76,7 @@ export function BackupManager() {
         type="file"
       />
       <label className="button button--secondary" htmlFor="restore-backup">
-        Restaurar copia
+        {t("Restaurar copia")}
       </label>
       {message ? <p role="status">{message}</p> : null}
     </div>

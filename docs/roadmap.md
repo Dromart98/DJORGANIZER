@@ -118,7 +118,12 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   español e inglés.
 - [x] Infraestructura bilingüe español/inglés, cookie de preferencia y shell
   traducida.
-- [ ] Traducir todo el contenido funcional restante al inglés.
+- [x] Interfaz funcional completa en español e inglés: rutas públicas y
+  privadas, Biblioteca, importación y análisis local, Crates, VirtualDJ,
+  escritorio, offline, backups, diagnóstico, actualizaciones, errores,
+  metadatos visibles y nombres accesibles. La paridad se protege con tipos y
+  una prueba recursiva; el contenido del usuario y los contratos persistidos no
+  se traducen.
 - [x] Contratos de capacidades para Rekordbox, Serato y Traktor.
 - [ ] Implementaciones posteriores con Rekordbox, Serato, Traktor y ecosistemas CDJ,
   después de estabilizar VirtualDJ.

@@ -4,6 +4,7 @@ import {
   deleteCrateAction,
   deleteTagAction,
 } from "@/app/crates/actions";
+import { useTranslator } from "@/components/i18n/locale-provider";
 
 export function DeleteCrateForm({
   crateId,
@@ -14,16 +15,19 @@ export function DeleteCrateForm({
   name: string;
   revision: string;
 }) {
+  const { format, t } = useTranslator();
+  const confirmation = format(
+    "¿Eliminar el crate “{name}”? Las canciones no se borrarán de tu biblioteca.",
+    { name },
+  );
   return (
     <form
       action={deleteCrateAction}
       data-offline-action="crate-delete"
-      data-offline-confirm={`¿Eliminar el crate “${name}”? Las canciones no se borrarán de tu biblioteca.`}
+      data-offline-confirm={confirmation}
       onSubmit={(event) => {
         if (
-          !window.confirm(
-            `¿Eliminar el crate “${name}”? Las canciones no se borrarán de tu biblioteca.`,
-          )
+          !window.confirm(confirmation)
         ) {
           event.preventDefault();
         }
@@ -32,7 +36,7 @@ export function DeleteCrateForm({
       <input name="id" type="hidden" value={crateId} />
       <input name="revision" type="hidden" value={revision} />
       <button className="button button--danger" type="submit">
-        Eliminar crate
+        {t("Eliminar crate")}
       </button>
     </form>
   );
@@ -47,16 +51,19 @@ export function DeleteTagForm({
   revision: string;
   tagId: string;
 }) {
+  const { format, t } = useTranslator();
+  const confirmation = format(
+    "¿Eliminar la etiqueta “{name}”? Se quitará de todas las canciones.",
+    { name },
+  );
   return (
     <form
       action={deleteTagAction}
       data-offline-action="tag-delete"
-      data-offline-confirm={`¿Eliminar la etiqueta “${name}”? Se quitará de todas las canciones.`}
+      data-offline-confirm={confirmation}
       onSubmit={(event) => {
         if (
-          !window.confirm(
-            `¿Eliminar la etiqueta “${name}”? Se quitará de todas las canciones.`,
-          )
+          !window.confirm(confirmation)
         ) {
           event.preventDefault();
         }
@@ -65,7 +72,7 @@ export function DeleteTagForm({
       <input name="id" type="hidden" value={tagId} />
       <input name="revision" type="hidden" value={revision} />
       <button className="organization-icon-button" type="submit">
-        Eliminar
+        {t("Eliminar")}
       </button>
     </form>
   );

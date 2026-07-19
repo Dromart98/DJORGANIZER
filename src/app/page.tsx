@@ -4,6 +4,7 @@ import { Icon } from "@/components/layout/icon";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { getOptionalUser } from "@/lib/auth/user";
+import { translate } from "@/lib/i18n/functional";
 import { getMessages } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
 import { getOnboardingProgress } from "@/lib/onboarding/progress";
@@ -22,31 +23,32 @@ export default async function DashboardPage({
   ]);
 
   if (!user) {
+    const t = (message: Parameters<typeof translate>[1]) =>
+      translate(locale, message);
     return (
       <>
         <PageHeader
-          description="Importa tu música, completa solo los metadatos que conozcas y prepara tus sesiones."
+          description={t("Importa tu música, completa solo los metadatos que conozcas y prepara tus sesiones.")}
           eyebrow="DJOrganizer"
-          title="Tu música, lista para mezclar"
+          title={t("Tu música, lista para mezclar")}
         />
         <Card className="welcome">
           <div className="welcome-icon">
             <Icon name="music" />
           </div>
           <div>
-            <p className="eyebrow">Empieza aquí</p>
-            <h2>Organiza tu propia biblioteca</h2>
+            <p className="eyebrow">{t("Empieza aquí")}</p>
+            <h2>{t("Organiza tu propia biblioteca")}</h2>
             <p>
-              Inicia sesión para importar canciones, analizar BPM y tonalidad,
-              y crear crates sin datos ficticios.
+              {t("Inicia sesión para importar canciones, analizar BPM y tonalidad, y crear crates sin datos ficticios.")}
             </p>
           </div>
           <div className="welcome-actions">
             <Link className="button button--primary" href="/login">
-              Iniciar sesión
+              {t("Iniciar sesión")}
             </Link>
             <Link className="button button--secondary" href="/signup">
-              Crear cuenta
+              {t("Crear cuenta")}
             </Link>
           </div>
         </Card>

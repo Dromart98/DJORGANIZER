@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { ZodError } from "zod";
 import { requireUser } from "@/lib/auth/user";
+import { translate, translateKnown } from "@/lib/i18n/functional";
+import { getCurrentLocale } from "@/lib/i18n/server";
 import { bulkTrackUpdateFromFormData } from "@/lib/library/bulk-track-update";
 import {
   toTrackInsert,
@@ -21,10 +23,21 @@ export type TrackActionState = {
   status: "idle" | "error";
 };
 
-function validationState(error: ZodError): TrackActionState {
+function validationState(
+  error: ZodError,
+  locale: Awaited<ReturnType<typeof getCurrentLocale>>,
+): TrackActionState {
+  const rawFieldErrors = error.flatten()
+    .fieldErrors as Record<string, string[] | undefined>;
+  const fieldErrors = Object.fromEntries(
+    Object.entries(rawFieldErrors).map(([field, messages]) => [
+      field,
+      messages?.map((message) => translateKnown(locale, message)),
+    ]),
+  );
   return {
-    fieldErrors: error.flatten().fieldErrors,
-    message: "Revisa los campos indicados.",
+    fieldErrors,
+    message: translate(locale, "Revisa los campos indicados."),
     status: "error",
   };
 }
@@ -33,14 +46,17 @@ export async function createTrackAction(
   _previousState: TrackActionState,
   formData: FormData,
 ): Promise<TrackActionState> {
-  const user = await requireUser();
+  const [user, locale] = await Promise.all([requireUser(), getCurrentLocale()]);
 
   let values: TrackFormValues;
   try {
     values = trackValuesFromFormData(formData);
   } catch (error) {
-    if (error instanceof ZodError) return validationState(error);
-    return { message: "Los datos no son válidos.", status: "error" };
+    if (error instanceof ZodError) return validationState(error, locale);
+    return {
+      message: translate(locale, "Los datos no son válidos."),
+      status: "error",
+    };
   }
 
   const supabase = await createClient();
@@ -52,7 +68,10 @@ export async function createTrackAction(
 
   if (error || !data) {
     return {
-      message: "No se pudo guardar la canción. Inténtalo de nuevo.",
+      message: translate(
+        locale,
+        "No se pudo guardar la canción. Inténtalo de nuevo.",
+      ),
       status: "error",
     };
   }
@@ -65,18 +84,24 @@ export async function updateTrackAction(
   _previousState: TrackActionState,
   formData: FormData,
 ): Promise<TrackActionState> {
-  const user = await requireUser();
+  const [user, locale] = await Promise.all([requireUser(), getCurrentLocale()]);
   const idResult = trackIdSchema.safeParse(formData.get("id"));
   if (!idResult.success) {
-    return { message: "La canción indicada no es válida.", status: "error" };
+    return {
+      message: translate(locale, "La canción indicada no es válida."),
+      status: "error",
+    };
   }
 
   let values: TrackFormValues;
   try {
     values = trackValuesFromFormData(formData);
   } catch (error) {
-    if (error instanceof ZodError) return validationState(error);
-    return { message: "Los datos no son válidos.", status: "error" };
+    if (error instanceof ZodError) return validationState(error, locale);
+    return {
+      message: translate(locale, "Los datos no son válidos."),
+      status: "error",
+    };
   }
 
   const supabase = await createClient();
@@ -90,7 +115,7 @@ export async function updateTrackAction(
 
   if (error || !data) {
     return {
-      message: "No se pudo actualizar la canción.",
+      message: translate(locale, "No se pudo actualizar la canción."),
       status: "error",
     };
   }

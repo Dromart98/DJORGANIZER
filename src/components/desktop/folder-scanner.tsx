@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import {
   getDesktopCratesForExportAction,
   getDesktopLibraryLinkCandidatesAction,
@@ -16,6 +17,8 @@ import {
   type ScanReviewFilter,
   type ScannedAudioFile,
 } from "@/lib/desktop/scan-review";
+import { translate, translateKnown } from "@/lib/i18n/functional";
+import type { Locale } from "@/lib/i18n/i18n";
 
 interface TauriCore {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
@@ -147,8 +150,8 @@ function metadataDraftFromTrack(track: ScannedAudioFile): MetadataDraft {
   };
 }
 
-function metadataFieldLabel(field: string) {
-  return (
+function metadataFieldLabel(locale: Locale, field: string) {
+  const label = (
     {
       album: "Álbum",
       artist: "Artista",
@@ -158,10 +161,11 @@ function metadataFieldLabel(field: string) {
       title: "Título",
     }[field] ?? field
   );
+  return translate(locale, label as Parameters<typeof translate>[1]);
 }
 
-function metadataDisplayValue(value: string | null) {
-  return value?.trim() || "vacío";
+function metadataDisplayValue(locale: Locale, value: string | null) {
+  return value?.trim() || (locale === "en" ? "empty" : "vacío");
 }
 
 function getTauriCore(): TauriCore | undefined {
@@ -176,13 +180,12 @@ function getTauriCore(): TauriCore | undefined {
   ).__TAURI__?.core;
 }
 
-function commandErrorMessage(error: unknown, fallback: string) {
-  if (typeof error === "string" && error.trim()) return error;
-  return error instanceof Error ? error.message : fallback;
+function commandErrorMessage(_error: unknown, fallback: string) {
+  return fallback;
 }
 
-function formatFileSize(bytes: number) {
-  return new Intl.NumberFormat("es-ES", {
+function formatFileSize(locale: Locale, bytes: number) {
+  return new Intl.NumberFormat(locale, {
     maximumFractionDigits: 1,
     style: "unit",
     unit: bytes >= 1_000_000 ? "megabyte" : "kilobyte",
@@ -197,12 +200,12 @@ function formatDuration(seconds: number) {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
-function formatTrackDetails(track: ScannedAudioFile) {
+function formatTrackDetails(locale: Locale, track: ScannedAudioFile) {
   const details: string[] = [];
 
   if (track.bpm !== null) {
     details.push(
-      `${track.bpm.toLocaleString("es-ES", { maximumFractionDigits: 1 })} BPM`,
+      `${track.bpm.toLocaleString(locale, { maximumFractionDigits: 1 })} BPM`,
     );
   }
   if (track.musicalKey) details.push(track.musicalKey);
@@ -210,7 +213,7 @@ function formatTrackDetails(track: ScannedAudioFile) {
     details.push(formatDuration(track.durationSeconds));
   }
   details.push(track.extension.toUpperCase());
-  details.push(formatFileSize(track.sizeBytes));
+  details.push(formatFileSize(locale, track.sizeBytes));
 
   return details.join(" · ");
 }
@@ -223,6 +226,7 @@ function formatTrackIdentity(track: ScannedAudioFile) {
 }
 
 export function DesktopFolderScanner() {
+  const { format, locale, t } = useTranslator();
   const [desktopAvailable, setDesktopAvailable] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [incrementalScanning, setIncrementalScanning] = useState(false);
@@ -321,14 +325,19 @@ export function DesktopFolderScanner() {
 
   const linkLibraryTracks = useCallback(
     async (core: TauriCore, scanResult: FolderScanResult) => {
-      setLibraryLinkMessage("Comparando con tu biblioteca de DJOrganizer…");
+      setLibraryLinkMessage(
+        locale === "en"
+          ? "Comparing with your DJOrganizer library…"
+          : "Comparando con tu biblioteca de DJOrganizer…",
+      );
 
       try {
         const library = await getDesktopLibraryLinkCandidatesAction();
         if (!library.candidates.length) {
           setLibraryLinkMessage(
-            library.message ??
-              "No hay pistas con huella en tu biblioteca para vincular.",
+            library.message
+              ? translateKnown(locale, library.message)
+              : t("No hay pistas con huella en tu biblioteca para vincular."),
           );
           return;
         }
@@ -344,22 +353,32 @@ export function DesktopFolderScanner() {
           new Set(linkResult.links.map((link) => link.scanId)),
         );
         const failureMessage = linkResult.fingerprintFailures
-          ? ` No se pudieron comprobar ${linkResult.fingerprintFailures.toLocaleString("es-ES")} archivos locales.`
+          ? locale === "en"
+            ? ` ${linkResult.fingerprintFailures.toLocaleString(locale)} local files could not be checked.`
+            : ` No se pudieron comprobar ${linkResult.fingerprintFailures.toLocaleString(locale)} archivos locales.`
           : "";
-        const limitMessage = library.message ? ` ${library.message}` : "";
+        const limitMessage = library.message
+          ? ` ${translateKnown(locale, library.message)}`
+          : "";
         setLibraryLinkMessage(
-          `${linkResult.linkedTracks.toLocaleString("es-ES")} pistas de la biblioteca vinculadas a este dispositivo; ${linkResult.unmatchedTracks.toLocaleString("es-ES")} sin coincidencia local.${failureMessage}${limitMessage}`,
+          locale === "en"
+            ? `${linkResult.linkedTracks.toLocaleString(locale)} library tracks linked to this device; ${linkResult.unmatchedTracks.toLocaleString(locale)} without a local match.${failureMessage}${limitMessage}`
+            : `${linkResult.linkedTracks.toLocaleString(locale)} pistas de la biblioteca vinculadas a este dispositivo; ${linkResult.unmatchedTracks.toLocaleString(locale)} sin coincidencia local.${failureMessage}${limitMessage}`,
         );
         const crateResult = await getDesktopCratesForExportAction();
         setDesktopCrates(crateResult.crates);
-        if (crateResult.message) setVirtualDjMessage(crateResult.message);
+        if (crateResult.message) {
+          setVirtualDjMessage(translateKnown(locale, crateResult.message));
+        }
       } catch {
         setLibraryLinkMessage(
-          "El escaneo terminó, pero no se pudo vincular con la biblioteca. Puedes volver a intentarlo seleccionando la carpeta de nuevo.",
+          locale === "en"
+            ? "The scan finished, but the library could not be linked. Try again by selecting the folder again."
+            : "El escaneo terminó, pero no se pudo vincular con la biblioteca. Puedes volver a intentarlo seleccionando la carpeta de nuevo.",
         );
       }
     },
-    [],
+    [locale, t],
   );
 
   async function chooseAndScan() {
@@ -375,7 +394,7 @@ export function DesktopFolderScanner() {
         "choose_and_scan_music_folder",
       );
       if (!nextResult) {
-        setMessage("Selección cancelada. No se ha leído ningún archivo.");
+        setMessage(t("Selección cancelada. No se ha leído ningún archivo."));
         return;
       }
 
@@ -399,7 +418,7 @@ export function DesktopFolderScanner() {
       await linkLibraryTracks(core, nextResult);
     } catch {
       setMessage(
-        "No se pudo leer esa carpeta. Comprueba sus permisos y vuelve a intentarlo.",
+        t("No se pudo leer esa carpeta. Comprueba sus permisos y vuelve a intentarlo."),
       );
     } finally {
       setScanning(false);
@@ -413,7 +432,11 @@ export function DesktopFolderScanner() {
 
       incrementalScanInFlight.current = true;
       setIncrementalScanning(true);
-      if (!automatic) setIncrementalMessage("Buscando cambios locales…");
+      if (!automatic) {
+        setIncrementalMessage(
+          locale === "en" ? "Looking for local changes…" : "Buscando cambios locales…",
+        );
+      }
 
       try {
         const incremental = await core.invoke<IncrementalScanResult>(
@@ -453,19 +476,23 @@ export function DesktopFolderScanner() {
           incremental.removedTracks;
         if (changedTracks) {
           setIncrementalMessage(
-            `Cambios incorporados: ${incremental.addedTracks.toLocaleString("es-ES")} nuevas, ${incremental.updatedTracks.toLocaleString("es-ES")} actualizadas y ${incremental.removedTracks.toLocaleString("es-ES")} retiradas. ${incremental.unchangedTracks.toLocaleString("es-ES")} permanecen sin cambios.`,
+            locale === "en"
+              ? `Changes applied: ${incremental.addedTracks.toLocaleString(locale)} added, ${incremental.updatedTracks.toLocaleString(locale)} updated and ${incremental.removedTracks.toLocaleString(locale)} removed. ${incremental.unchangedTracks.toLocaleString(locale)} remain unchanged.`
+              : `Cambios incorporados: ${incremental.addedTracks.toLocaleString(locale)} nuevas, ${incremental.updatedTracks.toLocaleString(locale)} actualizadas y ${incremental.removedTracks.toLocaleString(locale)} retiradas. ${incremental.unchangedTracks.toLocaleString(locale)} permanecen sin cambios.`,
           );
           await linkLibraryTracks(core, incremental.scan);
         } else {
           setIncrementalMessage(
-            `Sin cambios. ${incremental.unchangedTracks.toLocaleString("es-ES")} pistas siguen al día.`,
+            locale === "en"
+              ? `No changes. ${incremental.unchangedTracks.toLocaleString(locale)} tracks remain up to date.`
+              : `Sin cambios. ${incremental.unchangedTracks.toLocaleString(locale)} pistas siguen al día.`,
           );
         }
       } catch (error) {
         setIncrementalMessage(
           commandErrorMessage(
             error,
-            "No se pudo comprobar la carpeta. Se volverá a intentar mientras la vigilancia siga activa.",
+            t("No se pudo comprobar la carpeta. Se volverá a intentar mientras la vigilancia siga activa."),
           ),
         );
       } finally {
@@ -473,7 +500,7 @@ export function DesktopFolderScanner() {
         setIncrementalScanning(false);
       }
     },
-    [linkLibraryTracks, result],
+    [linkLibraryTracks, locale, result, t],
   );
 
   useEffect(() => {
@@ -531,14 +558,16 @@ export function DesktopFolderScanner() {
       const formatLabel = format === "xml" ? "XML nativa" : "M3U8";
       setVirtualDjMessage(
         exportResult.cancelled
-          ? "Exportación cancelada. No se ha escrito ninguna lista."
-          : `Lista ${formatLabel} guardada con ${exportResult.exportedTracks.toLocaleString("es-ES")} pistas.`,
+          ? t("Exportación cancelada. No se ha escrito ninguna lista.")
+          : locale === "en"
+            ? `${formatLabel} list saved with ${exportResult.exportedTracks.toLocaleString(locale)} tracks.`
+            : `Lista ${formatLabel} guardada con ${exportResult.exportedTracks.toLocaleString(locale)} pistas.`,
       );
     } catch {
       setVirtualDjMessage(
         format === "xml"
-          ? "No se pudo guardar la lista XML. Vuelve a escanear la carpeta y comprueba el destino elegido."
-          : "No se pudo guardar la lista M3U8. Si alguna ruta contiene saltos de línea, usa el formato XML.",
+          ? t("No se pudo guardar la lista XML. Vuelve a escanear la carpeta y comprueba el destino elegido.")
+          : t("No se pudo guardar la lista M3U8. Si alguna ruta contiene saltos de línea, usa el formato XML."),
       );
     } finally {
       setExportingVirtualDj(null);
@@ -577,14 +606,16 @@ export function DesktopFolderScanner() {
       }
       setVirtualDjMessage(
         exportResult.cancelled
-          ? "Exportación de crates cancelada."
-          : `${exportResult.exportedLists} crates exportados con ${exportResult.exportedTracks} pistas.${exportResult.backedUpFiles ? ` Se protegieron ${exportResult.backedUpFiles} Lists existentes con copias de seguridad.` : ""}${historyRecorded ? "" : " La exportación terminó, pero no se pudo registrar el historial remoto."}`,
+          ? t("Exportación de crates cancelada.")
+          : locale === "en"
+            ? `${exportResult.exportedLists} crates exported with ${exportResult.exportedTracks} tracks.${exportResult.backedUpFiles ? ` ${exportResult.backedUpFiles} existing Lists were protected with backups.` : ""}${historyRecorded ? "" : ` ${t("La exportación terminó, pero no se pudo registrar el historial remoto.")}`}`
+            : `${exportResult.exportedLists} crates exportados con ${exportResult.exportedTracks} pistas.${exportResult.backedUpFiles ? ` Se protegieron ${exportResult.backedUpFiles} Lists existentes con copias de seguridad.` : ""}${historyRecorded ? "" : ` ${t("La exportación terminó, pero no se pudo registrar el historial remoto.")}`}`,
       );
     } catch (error) {
       setVirtualDjMessage(
         commandErrorMessage(
           error,
-          "No se pudieron exportar los crates completos.",
+          t("No se pudieron exportar los crates completos."),
         ),
       );
     }
@@ -602,14 +633,16 @@ export function DesktopFolderScanner() {
       setVirtualDjImport(preview.cancelled ? null : preview);
       setVirtualDjMessage(
         preview.cancelled
-          ? "Importación cancelada."
-          : `${preview.lists.length} Lists leídas en previsualización. No se ha sobrescrito ningún crate.`,
+          ? t("Importación cancelada.")
+          : locale === "en"
+            ? `${preview.lists.length} Lists read in preview. No crate has been overwritten.`
+            : `${preview.lists.length} Lists leídas en previsualización. No se ha sobrescrito ningún crate.`,
       );
     } catch (error) {
       setVirtualDjMessage(
         commandErrorMessage(
           error,
-          "No se pudieron leer las Lists de VirtualDJ.",
+          t("No se pudieron leer las Lists de VirtualDJ."),
         ),
       );
     }
@@ -622,7 +655,9 @@ export function DesktopFolderScanner() {
     if (
       mode === "replace" &&
       !window.confirm(
-        `Se reemplazará el contenido del crate “${list.name}” por las ${list.linkedTrackIds.length} pistas vinculadas de VirtualDJ. Las pistas no vinculadas no se importarán. ¿Continuar?`,
+        locale === "en"
+          ? `The contents of crate “${list.name}” will be replaced by the ${list.linkedTrackIds.length} linked VirtualDJ tracks. Unlinked tracks will not be imported. Continue?`
+          : `Se reemplazará el contenido del crate “${list.name}” por las ${list.linkedTrackIds.length} pistas vinculadas de VirtualDJ. Las pistas no vinculadas no se importarán. ¿Continuar?`,
       )
     ) {
       return;
@@ -644,7 +679,7 @@ export function DesktopFolderScanner() {
         mode,
         unresolvedCount: list.unresolvedPaths.length,
       });
-      setVirtualDjMessage(reconciliation.message);
+      setVirtualDjMessage(translateKnown(locale, reconciliation.message));
       if (reconciliation.ok) {
         const crateResult = await getDesktopCratesForExportAction();
         setDesktopCrates(crateResult.crates);
@@ -733,7 +768,9 @@ export function DesktopFolderScanner() {
       apply &&
       (!metadataPreview?.files.length ||
         !window.confirm(
-          `Se escribirán etiquetas en ${metadataPreview.files.length} archivos. Antes se copiará cada archivo completo y podrás deshacer mientras esta sesión siga abierta. ¿Continuar?`,
+          locale === "en"
+            ? `Tags will be written to ${metadataPreview.files.length} files. Each complete file will be copied first and you can undo while this session remains open. Continue?`
+            : `Se escribirán etiquetas en ${metadataPreview.files.length} archivos. Antes se copiará cada archivo completo y podrás deshacer mientras esta sesión siga abierta. ¿Continuar?`,
         ))
     ) {
       return;
@@ -749,8 +786,10 @@ export function DesktopFolderScanner() {
         setMetadataPreview(preview);
         setMetadataMessage(
           preview.files.length
-            ? `${preview.files.length} archivos tienen cambios preparados. Revisa cada campo antes de confirmar.`
-            : "Las etiquetas ya coinciden con los valores revisados.",
+            ? locale === "en"
+              ? `${preview.files.length} files have prepared changes. Review each field before confirming.`
+              : `${preview.files.length} archivos tienen cambios preparados. Revisa cada campo antes de confirmar.`
+            : t("Las etiquetas ya coinciden con los valores revisados."),
         );
         return;
       }
@@ -768,15 +807,17 @@ export function DesktopFolderScanner() {
         ),
       );
       setMetadataMessage(
-        `${writeResult.appliedFiles} archivos actualizados y verificados. Las copias completas quedan en una carpeta privada excluida del escaneo.`,
+        locale === "en"
+          ? `${writeResult.appliedFiles} files updated and verified. Complete copies remain in a private folder excluded from scanning.`
+          : `${writeResult.appliedFiles} archivos actualizados y verificados. Las copias completas quedan en una carpeta privada excluida del escaneo.`,
       );
     } catch (error) {
       setMetadataMessage(
         commandErrorMessage(
           error,
           apply
-            ? "No se pudieron escribir los metadatos; el lote no se aplicó."
-            : "No se pudo preparar la previsualización.",
+            ? t("No se pudieron escribir los metadatos; el lote no se aplicó.")
+            : t("No se pudo preparar la previsualización."),
         ),
       );
     } finally {
@@ -807,13 +848,15 @@ export function DesktopFolderScanner() {
         ),
       );
       setMetadataMessage(
-        `${undoResult.appliedFiles} archivos restaurados desde sus copias originales.`,
+        locale === "en"
+          ? `${undoResult.appliedFiles} files restored from their original copies.`
+          : `${undoResult.appliedFiles} archivos restaurados desde sus copias originales.`,
       );
     } catch (error) {
       setMetadataMessage(
         commandErrorMessage(
           error,
-          "No se pudo deshacer la escritura de metadatos.",
+          t("No se pudo deshacer la escritura de metadatos."),
         ),
       );
     } finally {
@@ -827,7 +870,9 @@ export function DesktopFolderScanner() {
     if (
       apply &&
       !window.confirm(
-        `Se moverán ${selectedTracks.length} archivos dentro de ${result.rootName}. Podrás deshacer esta operación mientras la sesión siga abierta. ¿Continuar?`,
+        locale === "en"
+          ? `${selectedTracks.length} files will be moved inside ${result.rootName}. You can undo this operation while the session remains open. Continue?`
+          : `Se moverán ${selectedTracks.length} archivos dentro de ${result.rootName}. Podrás deshacer esta operación mientras la sesión siga abierta. ¿Continuar?`,
       )
     ) {
       return;
@@ -870,14 +915,18 @@ export function DesktopFolderScanner() {
       }
       setReorganizationMessage(
         apply
-          ? `${plan.moves.length} archivos reorganizados. El historial permite deshacer esta operación.`
-          : `Simulación final validada: ${plan.moves.length} movimientos sin colisiones.`,
+          ? locale === "en"
+            ? `${plan.moves.length} files reorganized. History allows you to undo this operation.`
+            : `${plan.moves.length} archivos reorganizados. El historial permite deshacer esta operación.`
+          : locale === "en"
+            ? `Final simulation validated: ${plan.moves.length} collision-free moves.`
+            : `Simulación final validada: ${plan.moves.length} movimientos sin colisiones.`,
       );
     } catch (error) {
       setReorganizationMessage(
         commandErrorMessage(
           error,
-          "No se pudo validar el plan de reorganización.",
+          t("No se pudo validar el plan de reorganización."),
         ),
       );
     } finally {
@@ -916,13 +965,15 @@ export function DesktopFolderScanner() {
         ),
       );
       setReorganizationMessage(
-        `${undoResult.moves.length} movimientos deshechos correctamente.`,
+        locale === "en"
+          ? `${undoResult.moves.length} moves successfully undone.`
+          : `${undoResult.moves.length} movimientos deshechos correctamente.`,
       );
     } catch (error) {
       setReorganizationMessage(
         commandErrorMessage(
           error,
-          "No se pudo deshacer la reorganización.",
+          t("No se pudo deshacer la reorganización."),
         ),
       );
     } finally {
@@ -936,13 +987,10 @@ export function DesktopFolderScanner() {
     <div className="import-flow">
       <section className="card import-dropzone" aria-labelledby="desktop-scan-title">
         <div>
-          <p className="eyebrow">Aplicación de escritorio</p>
-          <h2 id="desktop-scan-title">Escanear una carpeta musical</h2>
+          <p className="eyebrow">{t("Aplicación de escritorio")}</p>
+          <h2 id="desktop-scan-title">{t("Escanear una carpeta musical")}</h2>
           <p>
-            El selector nativo requiere una confirmación explícita. El escaneo lee
-            etiquetas, propiedades técnicas y copias exactas en este dispositivo,
-            y vincula coincidencias con tu biblioteca. No mueve, modifica,
-            reproduce, sube ni guarda audio.
+            {t("El selector nativo requiere una confirmación explícita. El escaneo lee etiquetas, propiedades técnicas y copias exactas en este dispositivo, y vincula coincidencias con tu biblioteca. No mueve, modifica, reproduce, sube ni guarda audio.")}
           </p>
         </div>
         <button
@@ -951,7 +999,7 @@ export function DesktopFolderScanner() {
           onClick={() => void chooseAndScan()}
           type="button"
         >
-          {scanning ? "Leyendo y comparando…" : "Seleccionar carpeta"}
+          {scanning ? t("Leyendo y comparando…") : t("Seleccionar carpeta")}
         </button>
       </section>
 
@@ -965,10 +1013,10 @@ export function DesktopFolderScanner() {
         <section className="card organization-form" aria-live="polite">
           <div className="organization-section-heading">
             <div>
-              <p className="eyebrow">Resultado local</p>
+              <p className="eyebrow">{t("Resultado local")}</p>
               <h2>{result.rootName}</h2>
             </div>
-            <span>{result.tracks.length.toLocaleString("es-ES")} pistas</span>
+            <span>{result.tracks.length.toLocaleString(locale)} {t("pistas")}</span>
           </div>
           {libraryLinkMessage ? (
             <p className="organization-muted" role="status">
@@ -976,31 +1024,41 @@ export function DesktopFolderScanner() {
             </p>
           ) : null}
           <p className="organization-muted">
-            Se revisaron {result.examinedEntries.toLocaleString("es-ES")} entradas
+            {locale === "en" ? "Reviewed" : "Se revisaron"}{" "}
+            {result.examinedEntries.toLocaleString(locale)}{" "}
+            {locale === "en" ? "entries" : "entradas"}
             {result.skippedEntries
-              ? ` y se omitieron ${result.skippedEntries.toLocaleString("es-ES")} sin acceso`
+              ? locale === "en"
+                ? ` and ${result.skippedEntries.toLocaleString(locale)} inaccessible entries were skipped`
+                : ` y se omitieron ${result.skippedEntries.toLocaleString(locale)} sin acceso`
               : ""}
             {result.metadataFailures
-              ? `; ${result.metadataFailures.toLocaleString("es-ES")} pistas conservaron solo los datos del archivo`
+              ? locale === "en"
+                ? `; ${result.metadataFailures.toLocaleString(locale)} tracks kept file data only`
+                : `; ${result.metadataFailures.toLocaleString(locale)} pistas conservaron solo los datos del archivo`
               : ""}
             {result.duplicateGroups
-              ? `; ${result.duplicateTracks.toLocaleString("es-ES")} pistas forman ${result.duplicateGroups.toLocaleString("es-ES")} grupos de copias exactas`
-              : "; no se detectaron copias exactas"}
+              ? locale === "en"
+                ? `; ${result.duplicateTracks.toLocaleString(locale)} tracks form ${result.duplicateGroups.toLocaleString(locale)} exact-copy groups`
+                : `; ${result.duplicateTracks.toLocaleString(locale)} pistas forman ${result.duplicateGroups.toLocaleString(locale)} grupos de copias exactas`
+              : locale === "en"
+                ? "; no exact copies were detected"
+                : "; no se detectaron copias exactas"}
             {result.fingerprintFailures
-              ? `; no se pudieron comparar ${result.fingerprintFailures.toLocaleString("es-ES")} archivos`
+              ? locale === "en"
+                ? `; ${result.fingerprintFailures.toLocaleString(locale)} files could not be compared`
+                : `; no se pudieron comparar ${result.fingerprintFailures.toLocaleString(locale)} archivos`
               : ""}
-            .{result.truncated ? " El resultado alcanzó el límite de seguridad." : ""}
+            .{result.truncated ? ` ${t("El resultado alcanzó el límite de seguridad.")}` : ""}
           </p>
           <section
             aria-labelledby="folder-watch-title"
             className="desktop-folder-watch"
           >
             <div>
-              <h3 id="folder-watch-title">Vigilancia incremental</h3>
+              <h3 id="folder-watch-title">{t("Vigilancia incremental")}</h3>
               <p className="organization-muted">
-                Reutiliza las pistas sin cambios y vuelve a leer únicamente los
-                archivos nuevos o modificados. Funciona solo durante esta sesión
-                de escritorio y nunca expone la ruta local.
+                {t("Reutiliza las pistas sin cambios y vuelve a leer únicamente los archivos nuevos o modificados. Funciona solo durante esta sesión de escritorio y nunca expone la ruta local.")}
               </p>
             </div>
             <div className="desktop-folder-watch__controls">
@@ -1015,7 +1073,7 @@ export function DesktopFolderScanner() {
                   }}
                   type="checkbox"
                 />
-                Comprobar automáticamente cada 30 segundos
+                {t("Comprobar automáticamente cada 30 segundos")}
               </label>
               <button
                 className="button button--secondary"
@@ -1024,14 +1082,13 @@ export function DesktopFolderScanner() {
                 type="button"
               >
                 {incrementalScanning
-                  ? "Comprobando cambios…"
-                  : "Buscar cambios ahora"}
+                  ? t("Comprobando cambios…")
+                  : t("Buscar cambios ahora")}
               </button>
             </div>
             {result.truncated ? (
               <p className="form-message form-message--error" role="status">
-                La vigilancia se desactiva para resultados truncados porque una
-                vista parcial no permite distinguir retiradas con seguridad.
+                {t("La vigilancia se desactiva para resultados truncados porque una vista parcial no permite distinguir retiradas con seguridad.")}
               </p>
             ) : incrementalMessage ? (
               <p className="organization-muted" role="status">
@@ -1043,19 +1100,19 @@ export function DesktopFolderScanner() {
             <>
               <div className="desktop-scan-toolbar">
                 <label>
-                  Buscar en el escaneo
+                  {t("Buscar en el escaneo")}
                   <input
                     onChange={(event) => {
                       setQuery(event.target.value);
                       setPage(1);
                     }}
-                    placeholder="Título, artista, carpeta, BPM…"
+                    placeholder={t("Título, artista, carpeta, BPM…")}
                     type="search"
                     value={query}
                   />
                 </label>
                 <label>
-                  Mostrar
+                  {t("Mostrar")}
                   <select
                     onChange={(event) => {
                       setFilter(event.target.value as ScanReviewFilter);
@@ -1063,9 +1120,9 @@ export function DesktopFolderScanner() {
                     }}
                     value={filter}
                   >
-                    <option value="all">Todas las pistas</option>
-                    <option value="duplicates">Solo duplicados</option>
-                    <option value="metadata-errors">Sin metadatos legibles</option>
+                    <option value="all">{t("Todas las pistas")}</option>
+                    <option value="duplicates">{t("Solo duplicados")}</option>
+                    <option value="metadata-errors">{t("Sin metadatos legibles")}</option>
                   </select>
                 </label>
                 <button
@@ -1075,16 +1132,19 @@ export function DesktopFolderScanner() {
                   type="button"
                 >
                   {allVisibleSelected
-                    ? "Deseleccionar página"
-                    : "Seleccionar página"}
+                    ? t("Deseleccionar página")
+                    : t("Seleccionar página")}
                 </button>
               </div>
 
               <p className="organization-muted" role="status">
-                {filteredTracks.length.toLocaleString("es-ES")} resultados ·{" "}
-                {selectedTrackIds.size.toLocaleString("es-ES")} seleccionados. La
-                selección permanece solo en esta ventana y todavía no ejecuta
-                cambios en los archivos.
+                {filteredTracks.length.toLocaleString(locale)}{" "}
+                {locale === "en" ? "results" : "resultados"} ·{" "}
+                {selectedTrackIds.size.toLocaleString(locale)}{" "}
+                {locale === "en" ? "selected" : "seleccionados"}.{" "}
+                {locale === "en"
+                  ? "The selection stays only in this window and does not make file changes yet."
+                  : "La selección permanece solo en esta ventana y todavía no ejecuta cambios en los archivos."}
               </p>
 
               {pagination.items.length ? (
@@ -1093,7 +1153,9 @@ export function DesktopFolderScanner() {
                     <li key={track.scanId}>
                       <label className="desktop-track-selection">
                         <input
-                          aria-label={`Seleccionar ${track.title ?? track.name}`}
+                          aria-label={format("Seleccionar {name}", {
+                            name: track.title ?? track.name,
+                          })}
                           checked={selectedTrackIds.has(track.scanId)}
                           onChange={() => toggleTrack(track.scanId)}
                           type="checkbox"
@@ -1105,25 +1167,25 @@ export function DesktopFolderScanner() {
                       </div>
                       <span>
                         {linkedScanIds.has(track.scanId)
-                          ? "En tu biblioteca · "
+                          ? `${t("En tu biblioteca ·")} `
                           : ""}
                         {track.duplicateGroup
-                          ? `Duplicado local · ${track.duplicateGroup} · `
+                          ? `${locale === "en" ? "Local duplicate" : "Duplicado local"} · ${track.duplicateGroup} · `
                           : ""}
-                        {formatTrackDetails(track)}
+                        {formatTrackDetails(locale, track)}
                       </span>
                     </li>
                   ))}
                 </ul>
               ) : (
                 <p className="organization-muted">
-                  Ninguna pista coincide con esta búsqueda y filtro.
+                  {t("Ninguna pista coincide con esta búsqueda y filtro.")}
                 </p>
               )}
 
               {pagination.totalPages > 1 ? (
                 <nav
-                  aria-label="Paginación del escaneo"
+                  aria-label={t("Paginación del escaneo")}
                   className="desktop-scan-pagination"
                 >
                   <button
@@ -1132,11 +1194,13 @@ export function DesktopFolderScanner() {
                     onClick={() => setPage((current) => current - 1)}
                     type="button"
                   >
-                    Anterior
+                    {t("Anterior")}
                   </button>
                   <span>
-                    Página {pagination.page.toLocaleString("es-ES")} de{" "}
-                    {pagination.totalPages.toLocaleString("es-ES")}
+                    {format("Página {page} de {pages}", {
+                      page: pagination.page.toLocaleString(locale),
+                      pages: pagination.totalPages.toLocaleString(locale),
+                    })}
                   </span>
                   <button
                     className="button button--secondary"
@@ -1144,7 +1208,7 @@ export function DesktopFolderScanner() {
                     onClick={() => setPage((current) => current + 1)}
                     type="button"
                   >
-                    Siguiente
+                    {t("Siguiente")}
                   </button>
                 </nav>
               ) : null}
@@ -1156,28 +1220,25 @@ export function DesktopFolderScanner() {
                 >
                   <div className="organization-section-heading">
                     <div>
-                      <p className="eyebrow">Etiquetas locales reversibles</p>
+                      <p className="eyebrow">{t("Etiquetas locales reversibles")}</p>
                       <h3 id="metadata-write-title">
-                        Escribir metadatos en archivos
+                        {t("Escribir metadatos en archivos")}
                       </h3>
                     </div>
                     <span>
-                      Máximo {MAX_METADATA_WRITE_TRACKS} pistas por lote
+                      {t("Máximo")} {MAX_METADATA_WRITE_TRACKS} {t("pistas por lote")}
                     </span>
                   </div>
                   {selectedTracks.length > MAX_METADATA_WRITE_TRACKS ? (
                     <p className="form-message form-message--error" role="status">
-                      Reduce la selección a {MAX_METADATA_WRITE_TRACKS} pistas
-                      para revisar cada cambio y mantener manejable la copia de
-                      seguridad.
+                      {locale === "en"
+                        ? `Reduce the selection to ${MAX_METADATA_WRITE_TRACKS} tracks to review each change and keep the backup manageable.`
+                        : `Reduce la selección a ${MAX_METADATA_WRITE_TRACKS} pistas para revisar cada cambio y mantener manejable la copia de seguridad.`}
                     </p>
                   ) : (
                     <>
                       <p className="organization-muted">
-                        Edita únicamente los campos que quieras guardar. La
-                        previsualización no modifica nada; al confirmar, Rust
-                        comprueba cambios externos, copia cada archivo completo,
-                        escribe el lote y relee las etiquetas para verificarlo.
+                        {t("Edita únicamente los campos que quieras guardar. La previsualización no modifica nada; al confirmar, Rust comprueba cambios externos, copia cada archivo completo, escribe el lote y relee las etiquetas para verificarlo.")}
                       </p>
                       <div className="metadata-editor-list">
                         {selectedTracks.map((track) => {
@@ -1198,7 +1259,7 @@ export function DesktopFolderScanner() {
                               <small>{track.relativePath}</small>
                               <div className="metadata-editor-grid">
                                 <label className="field">
-                                  Título
+                                  {t("Título")}
                                   <input
                                     maxLength={300}
                                     onChange={(event) =>
@@ -1212,7 +1273,7 @@ export function DesktopFolderScanner() {
                                   />
                                 </label>
                                 <label className="field">
-                                  Artista
+                                  {t("Artista")}
                                   <input
                                     maxLength={300}
                                     onChange={(event) =>
@@ -1226,7 +1287,7 @@ export function DesktopFolderScanner() {
                                   />
                                 </label>
                                 <label className="field">
-                                  Álbum
+                                  {t("Álbum")}
                                   <input
                                     maxLength={300}
                                     onChange={(event) =>
@@ -1240,7 +1301,7 @@ export function DesktopFolderScanner() {
                                   />
                                 </label>
                                 <label className="field">
-                                  Género
+                                  {t("Género")}
                                   <input
                                     maxLength={120}
                                     onChange={(event) =>
@@ -1270,7 +1331,7 @@ export function DesktopFolderScanner() {
                                   />
                                 </label>
                                 <label className="field">
-                                  Tonalidad
+                                  {t("Tonalidad")}
                                   <input
                                     maxLength={24}
                                     onChange={(event) =>
@@ -1280,14 +1341,14 @@ export function DesktopFolderScanner() {
                                         event.target.value,
                                       )
                                     }
-                                    placeholder="Am o 8A"
+                                    placeholder={t("Am o 8A")}
                                     value={draft.musicalKey}
                                   />
                                 </label>
                               </div>
                               {bpmInvalid ? (
                                 <span className="field-error">
-                                  El BPM debe estar entre 20 y 300.
+                                  {t("El BPM debe estar entre 20 y 300.")}
                                 </span>
                               ) : null}
                             </fieldset>
@@ -1304,8 +1365,8 @@ export function DesktopFolderScanner() {
                           type="button"
                         >
                           {metadataBusy
-                            ? "Verificando…"
-                            : "Previsualizar cambios"}
+                            ? t("Verificando…")
+                            : t("Previsualizar cambios")}
                         </button>
                         <button
                           className="button button--primary"
@@ -1315,7 +1376,7 @@ export function DesktopFolderScanner() {
                           onClick={() => void runMetadataWrite(true)}
                           type="button"
                         >
-                          Escribir con copia de seguridad
+                          {t("Escribir con copia de seguridad")}
                         </button>
                         {lastMetadataRunId ? (
                           <button
@@ -1324,7 +1385,7 @@ export function DesktopFolderScanner() {
                             onClick={() => void undoLastMetadataWrite()}
                             type="button"
                           >
-                            Deshacer última escritura
+                            {t("Deshacer última escritura")}
                           </button>
                         ) : null}
                       </div>
@@ -1335,7 +1396,7 @@ export function DesktopFolderScanner() {
                       ) : null}
                       {metadataPreview?.files.length ? (
                         <div className="metadata-write-preview">
-                          <h4>Cambios pendientes de confirmación</h4>
+                          <h4>{t("Cambios pendientes de confirmación")}</h4>
                           <ol>
                             {metadataPreview.files.map((file) => (
                               <li key={file.scanId}>
@@ -1344,11 +1405,11 @@ export function DesktopFolderScanner() {
                                   {file.changes.map((change) => (
                                     <li key={change.field}>
                                       <span>
-                                        {metadataFieldLabel(change.field)}
+                                        {metadataFieldLabel(locale, change.field)}
                                       </span>
                                       <span>
-                                        {metadataDisplayValue(change.before)} →{" "}
-                                        {metadataDisplayValue(change.after)}
+                                        {metadataDisplayValue(locale, change.before)} →{" "}
+                                        {metadataDisplayValue(locale, change.after)}
                                       </span>
                                     </li>
                                   ))}
@@ -1360,19 +1421,19 @@ export function DesktopFolderScanner() {
                       ) : null}
                       {metadataHistory.length ? (
                         <ol
-                          aria-label="Historial de escritura de metadatos"
+                          aria-label={t("Historial de escritura de metadatos")}
                           className="reorganization-history"
                         >
                           {metadataHistory.map((entry) => (
                             <li key={entry.runId}>
                               <span>
                                 {new Date(entry.createdAt * 1000).toLocaleString(
-                                  "es-ES",
+                                  locale,
                                 )}
                               </span>
                               <strong>
-                                {entry.fileCount} archivos
-                                {entry.undone ? " · restaurados" : ""}
+                                {entry.fileCount} {t("archivos")}
+                                {entry.undone ? ` · ${t("restaurados")}` : ""}
                               </strong>
                             </li>
                           ))}
@@ -1391,10 +1452,10 @@ export function DesktopFolderScanner() {
                   <div className="organization-section-heading">
                     <div>
                       <p className="eyebrow">VirtualDJ</p>
-                      <h3 id="virtualdj-export-title">Exportar lista</h3>
+                      <h3 id="virtualdj-export-title">{t("Exportar lista")}</h3>
                     </div>
                     <label>
-                      Nombre de la lista
+                      {t("Nombre de la lista")}
                       <input
                         maxLength={120}
                         onChange={(event) =>
@@ -1405,11 +1466,9 @@ export function DesktopFolderScanner() {
                     </label>
                   </div>
                   <p className="organization-muted">
-                    El XML nativo es la opción recomendada para VirtualDJ 2024+.
-                    M3U8 mantiene compatibilidad con flujos heredados. Ambos
-                    formatos conservan el orden de las{" "}
-                    {selectedTracks.length.toLocaleString("es-ES")} pistas y nunca
-                    copian ni modifican el audio.
+                    {locale === "en"
+                      ? `Native XML is the recommended option for VirtualDJ 2024+. M3U8 maintains compatibility with legacy workflows. Both formats preserve the order of the ${selectedTracks.length.toLocaleString(locale)} tracks and never copy or modify audio.`
+                      : `El XML nativo es la opción recomendada para VirtualDJ 2024+. M3U8 mantiene compatibilidad con flujos heredados. Ambos formatos conservan el orden de las ${selectedTracks.length.toLocaleString(locale)} pistas y nunca copian ni modifican el audio.`}
                   </p>
                   <div className="action-row">
                     <button
@@ -1421,8 +1480,8 @@ export function DesktopFolderScanner() {
                       type="button"
                     >
                       {exportingVirtualDj === "xml"
-                        ? "Preparando XML…"
-                        : "Guardar XML nativo"}
+                        ? t("Preparando XML…")
+                        : t("Guardar XML nativo")}
                     </button>
                     <button
                       className="button button--secondary"
@@ -1433,8 +1492,8 @@ export function DesktopFolderScanner() {
                       type="button"
                     >
                       {exportingVirtualDj === "m3u8"
-                        ? "Preparando M3U8…"
-                        : "Guardar M3U8 compatible"}
+                        ? t("Preparando M3U8…")
+                        : t("Guardar M3U8 compatible")}
                     </button>
                     <button
                       className="button button--primary"
@@ -1442,14 +1501,16 @@ export function DesktopFolderScanner() {
                       onClick={() => void exportCratesToVirtualDj()}
                       type="button"
                     >
-                      Exportar {desktopCrates.length} crates y jerarquías
+                      {locale === "en" ? "Export" : "Exportar"}{" "}
+                      {desktopCrates.length}{" "}
+                      {locale === "en" ? "crates and hierarchies" : "crates y jerarquías"}
                     </button>
                     <button
                       className="button button--secondary"
                       onClick={() => void importVirtualDjLists()}
                       type="button"
                     >
-                      Previsualizar cambios de My Lists
+                      {t("Previsualizar cambios de My Lists")}
                     </button>
                   </div>
                   {virtualDjMessage ? (
@@ -1459,15 +1520,15 @@ export function DesktopFolderScanner() {
                   ) : null}
                   {virtualDjImport?.lists.length ? (
                     <div className="virtualdj-reconciliation">
-                      <h4>Reconciliación pendiente de revisión</h4>
+                      <h4>{t("Reconciliación pendiente de revisión")}</h4>
                       <ul>
                         {virtualDjImport.lists.map((list) => (
                           <li key={list.relativePath}>
                             <div>
                               <strong>{list.name}</strong>
                               <span>
-                                {list.linkedTrackIds.length} pistas vinculadas ·{" "}
-                                {list.unresolvedPaths.length} sin resolver
+                                {list.linkedTrackIds.length} {t("pistas vinculadas")} ·{" "}
+                                {list.unresolvedPaths.length} {t("sin resolver")}
                               </span>
                               <small>{list.relativePath}</small>
                             </div>
@@ -1480,7 +1541,7 @@ export function DesktopFolderScanner() {
                                 }
                                 type="button"
                               >
-                                Combinar con crate
+                                {t("Combinar con crate")}
                               </button>
                               <button
                                 className="button button--danger"
@@ -1490,16 +1551,14 @@ export function DesktopFolderScanner() {
                                 }
                                 type="button"
                               >
-                                Reemplazar crate
+                                {t("Reemplazar crate")}
                               </button>
                             </div>
                           </li>
                         ))}
                       </ul>
                       <p className="organization-muted">
-                        La importación solo propone cambios. Las pistas sin
-                        vínculo y los movimientos conflictivos deben revisarse
-                        antes de aplicar cualquier actualización al crate.
+                        {t("La importación solo propone cambios. Las pistas sin vínculo y los movimientos conflictivos deben revisarse antes de aplicar cualquier actualización al crate.")}
                       </p>
                     </div>
                   ) : null}
@@ -1513,11 +1572,11 @@ export function DesktopFolderScanner() {
                 >
                   <div className="organization-section-heading">
                     <div>
-                      <p className="eyebrow">Reorganización reversible</p>
-                      <h3 id="desktop-plan-title">Plan de organización</h3>
+                      <p className="eyebrow">{t("Reorganización reversible")}</p>
+                      <h3 id="desktop-plan-title">{t("Plan de organización")}</h3>
                     </div>
                     <label>
-                      Agrupar por
+                      {t("Agrupar por")}
                       <select
                         onChange={(event) =>
                           setOrganizationScheme(
@@ -1526,17 +1585,16 @@ export function DesktopFolderScanner() {
                         }
                         value={organizationScheme}
                       >
-                        <option value="artist-album">Artista / álbum</option>
-                        <option value="genre-artist">Género / artista</option>
-                        <option value="key-bpm">Tonalidad / BPM</option>
+                        <option value="artist-album">{t("Artista / álbum")}</option>
+                        <option value="genre-artist">{t("Género / artista")}</option>
+                        <option value="key-bpm">{t("Tonalidad / BPM")}</option>
                       </select>
                     </label>
                   </div>
                   <p className="organization-muted">
-                    Estas rutas son una propuesta segura para{" "}
-                    {organizationPreview.length.toLocaleString("es-ES")} pistas.
-                    La simulación nativa vuelve a comprobar cambios externos y
-                    colisiones justo antes de aplicar el lote.
+                    {locale === "en"
+                      ? `These paths are a safe proposal for ${organizationPreview.length.toLocaleString(locale)} tracks. The native simulation rechecks external changes and collisions immediately before applying the batch.`
+                      : `Estas rutas son una propuesta segura para ${organizationPreview.length.toLocaleString(locale)} pistas. La simulación nativa vuelve a comprobar cambios externos y colisiones justo antes de aplicar el lote.`}
                   </p>
                   <ol>
                     {organizationPreview.slice(0, 10).map((item) => (
@@ -1544,16 +1602,16 @@ export function DesktopFolderScanner() {
                         <span>{item.sourcePath}</span>
                         <strong>→ {item.targetPath}</strong>
                         {item.collisionResolved ? (
-                          <small>Nombre ajustado para evitar una colisión</small>
+                          <small>{t("Nombre ajustado para evitar una colisión")}</small>
                         ) : null}
                       </li>
                     ))}
                   </ol>
                   {organizationPreview.length > 10 ? (
                     <p className="organization-muted">
-                      Se muestran 10 de{" "}
-                      {organizationPreview.length.toLocaleString("es-ES")} rutas
-                      propuestas.
+                      {locale === "en"
+                        ? `Showing 10 of ${organizationPreview.length.toLocaleString(locale)} proposed paths.`
+                        : `Se muestran 10 de ${organizationPreview.length.toLocaleString(locale)} rutas propuestas.`}
                     </p>
                   ) : null}
                   <div className="action-row">
@@ -1563,7 +1621,7 @@ export function DesktopFolderScanner() {
                       onClick={() => void runReorganization(false)}
                       type="button"
                     >
-                      Ejecutar simulación final
+                      {t("Ejecutar simulación final")}
                     </button>
                     <button
                       className="button button--primary"
@@ -1572,8 +1630,8 @@ export function DesktopFolderScanner() {
                       type="button"
                     >
                       {reorganizationBusy
-                        ? "Verificando…"
-                        : "Aplicar plan con historial"}
+                        ? t("Verificando…")
+                        : t("Aplicar plan con historial")}
                     </button>
                     {lastReorganizationRunId ? (
                       <button
@@ -1582,7 +1640,7 @@ export function DesktopFolderScanner() {
                         onClick={() => void undoLastReorganization()}
                         type="button"
                       >
-                        Deshacer última reorganización
+                        {t("Deshacer última reorganización")}
                       </button>
                     ) : null}
                   </div>
@@ -1593,19 +1651,19 @@ export function DesktopFolderScanner() {
                   ) : null}
                   {reorganizationHistory.length ? (
                     <ol
-                      aria-label="Historial de reorganización"
+                      aria-label={t("Historial de reorganización")}
                       className="reorganization-history"
                     >
                       {reorganizationHistory.map((entry) => (
                         <li key={entry.runId}>
                           <span>
                             {new Date(entry.createdAt * 1000).toLocaleString(
-                              "es-ES",
+                              locale,
                             )}
                           </span>
                           <strong>
-                            {entry.moveCount} movimientos
-                            {entry.undone ? " · deshechos" : ""}
+                            {entry.moveCount} {t("movimientos")}
+                            {entry.undone ? ` · ${t("deshechos")}` : ""}
                           </strong>
                         </li>
                       ))}
@@ -1616,7 +1674,7 @@ export function DesktopFolderScanner() {
             </>
           ) : (
             <p className="organization-muted">
-              No se encontraron formatos de audio compatibles en esta carpeta.
+              {t("No se encontraron formatos de audio compatibles en esta carpeta.")}
             </p>
           )}
         </section>

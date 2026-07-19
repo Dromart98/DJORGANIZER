@@ -49,29 +49,36 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   const secondTitle = `E2E Peak ${runId}`;
   const crateName = `E2E Set ${runId}`;
 
+  await page.context().addCookies([
+    {
+      name: "djorganizer-locale",
+      url: "http://127.0.0.1:3100",
+      value: "en",
+    },
+  ]);
   await page.goto("/signup?next=/import");
-  await page.getByLabel("Nombre").fill("DJ E2E");
-  await page.getByLabel("Correo").fill(email);
-  await page.getByLabel("Contraseña").fill(password);
-  await page.getByRole("button", { name: "Crear cuenta" }).click();
+  await page.getByLabel("Name").fill("DJ E2E");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Create account" }).click();
 
   await expect(page).toHaveURL(/\/import$/, { timeout: 20_000 });
   await expect(
-    page.getByRole("heading", { name: "Importar música" }),
+    page.getByRole("heading", { name: "Import music" }),
   ).toBeVisible({ timeout: 20_000 });
 
   await page.goto("/");
   const gettingStarted = page.locator(".getting-started");
   await expect(
     gettingStarted.getByRole("heading", {
-      name: "Prepara tu primera sesión",
+      name: "Prepare your first set",
     }),
   ).toBeVisible();
   await expect(
-    gettingStarted.getByText("0 de 3 pasos completados"),
+    gettingStarted.getByText("0 of 3 steps completed"),
   ).toBeVisible();
   await expect(
-    gettingStarted.getByRole("link", { name: /seleccionar las primeras canciones/i }),
+    gettingStarted.getByRole("link", { name: /select your first tracks/i }),
   ).toHaveClass(/button--primary/);
   expect(
     await page.evaluate(
@@ -83,60 +90,41 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
 
   await page.goto("/library");
   await expect(
-    page.getByRole("heading", { name: "Tu biblioteca está vacía" }),
+    page.getByRole("heading", { name: "Your library is empty" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Importar música" }),
+    page.getByRole("link", { name: "Import music" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Añadir una pista manualmente" }),
+    page.getByRole("link", { name: "Add a track manually" }),
   ).toBeVisible();
 
   await page.goto("/crates");
   await expect(
     page.getByRole("heading", {
-      name: "Todavía no hay música para un crate",
+      name: "There is no music for a crate yet",
     }),
   ).toBeVisible();
   await expect(
     page
       .locator("form.organization-form")
-      .filter({ has: page.getByRole("heading", { name: "Crear crate" }) }),
+      .filter({ has: page.getByRole("heading", { name: "Create crate" }) }),
   ).toHaveCount(0);
 
-  await page.context().addCookies([
-    {
-      name: "djorganizer-locale",
-      url: "http://127.0.0.1:3100",
-      value: "en",
-    },
-  ]);
-  await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Prepare your first set" }),
-  ).toBeVisible();
-  await expect(page.getByText("0 of 3 steps completed")).toBeVisible();
-  await page.context().addCookies([
-    {
-      name: "djorganizer-locale",
-      url: "http://127.0.0.1:3100",
-      value: "es",
-    },
-  ]);
   await page.goto("/");
   const keyboardImportLink = page.getByRole("link", {
-    name: /seleccionar las primeras canciones/i,
+    name: /select your first tracks/i,
   });
   await keyboardImportLink.focus();
   await expect(keyboardImportLink).toBeFocused();
   await keyboardImportLink.press("Enter");
   await expect(page).toHaveURL(/\/import$/);
   await expect(
-    page.getByRole("heading", { name: "Elige cómo seleccionar tu música" }),
+    page.getByRole("heading", { name: "Choose how to select your music" }),
   ).toBeVisible();
-  await expect(page.getByText("Archivos desde el navegador")).toBeVisible();
+  await expect(page.getByText("Files from the browser")).toBeVisible();
   await expect(
-    page.getByText("Carpeta en la aplicación de escritorio", { exact: true }),
+    page.getByText("Folder in the desktop app", { exact: true }),
   ).toBeVisible();
 
   await page.locator("#audio-files").setInputFiles([
@@ -164,7 +152,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     page.getByRole("checkbox", { name: /OpenAI/i }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Sugerir género con OpenAI" }),
+    page.getByRole("button", { name: "Suggest genre with OpenAI" }),
   ).toHaveCount(2);
 
   const fillReviewedAnalysis = async (
@@ -178,37 +166,37 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     await expect(keyInput).toBeEnabled({ timeout: 30_000 });
     await bpmInput.fill(bpm);
     await keyInput.fill(musicalKey);
-    await expect(item.getByLabel("Artista (opcional)")).toHaveValue("");
+    await expect(item.getByLabel("Artist (optional)")).toHaveValue("");
   };
 
   await fillReviewedAnalysis(firstItem, "120", "Am");
   await fillReviewedAnalysis(secondItem, "128", "C");
 
-  await page.getByRole("button", { name: "Guardar 2 pistas" }).click();
-  await expect(page.getByText("Guardada", { exact: true })).toHaveCount(2, {
+  await page.getByRole("button", { name: "Save 2 tracks" }).click();
+  await expect(page.getByText("Saved", { exact: true })).toHaveCount(2, {
     timeout: 20_000,
   });
 
   await page.goto("/");
   await expect(
-    page.locator(".getting-started").getByText("2 de 3 pasos completados"),
+    page.locator(".getting-started").getByText("2 of 3 steps completed"),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: /crear el primer crate/i }),
+    page.getByRole("link", { name: /create the first crate/i }),
   ).toHaveClass(/button--primary/);
 
   await page.goto(`/library?q=${encodeURIComponent(`missing-${runId}`)}`);
   await expect(
     page.getByRole("heading", {
-      name: "No hay resultados para estos filtros",
+      name: "No results for these filters",
     }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Tu biblioteca está vacía" }),
+    page.getByRole("heading", { name: "Your library is empty" }),
   ).toHaveCount(0);
-  await page.getByRole("link", { name: "Limpiar filtros" }).click();
+  await page.getByRole("link", { name: "Clear filters" }).click();
   await expect(
-    page.getByRole("heading", { name: "Biblioteca" }),
+    page.getByRole("heading", { name: "Library" }),
   ).toBeVisible();
   const libraryTable = page.locator("tbody");
   await expect(
@@ -218,27 +206,27 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     libraryTable.getByText(secondTitle, { exact: true }),
   ).toBeVisible();
   await expect(
-    libraryTable.getByText("Artista desconocido", { exact: true }),
+    libraryTable.getByText("Unknown artist", { exact: true }),
   ).toHaveCount(2);
 
   await page.goto("/crates");
   await expect(
-    page.getByRole("heading", { name: "Crea tu primer crate" }),
+    page.getByRole("heading", { name: "Create your first crate" }),
   ).toBeVisible();
   await expect(
     page.getByText(
-      "Un crate es una lista ordenada de referencias a tus pistas.",
+      "A crate is an ordered list of references to your tracks.",
       { exact: false },
     ),
   ).toBeVisible();
   const createCrateForm = page
     .locator("form.organization-form")
-    .filter({ has: page.getByRole("heading", { name: "Crear crate" }) });
-  await createCrateForm.getByLabel("Nombre").fill(crateName);
+    .filter({ has: page.getByRole("heading", { name: "Create crate" }) });
+  await createCrateForm.getByLabel("Name").fill(crateName);
   await createCrateForm
-    .getByLabel("Descripción")
-    .fill("Progresión autenticada de extremo a extremo");
-  await createCrateForm.getByRole("button", { name: "Crear crate" }).click();
+    .getByLabel("Description")
+    .fill("Authenticated end-to-end progression");
+  await createCrateForm.getByRole("button", { name: "Create crate" }).click();
 
   await expect(page).toHaveURL(/\/crates\/[0-9a-f-]+\?created=1$/, {
     timeout: 20_000,
@@ -249,32 +237,32 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await page.goto("/");
   await expect(page.locator(".getting-started")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "Prepara tu próxima sesión" }),
+    page.getByRole("heading", { name: "Prepare your next set" }),
   ).toBeVisible();
 
   await page.goto("/?__e2eError=1");
   const recoveryAlert = page.getByRole("alert", {
-    name: "No se pudo cargar la pantalla",
+    name: "The screen could not be loaded",
   });
   await expect(
     recoveryAlert.getByRole("heading", {
-      name: "No se pudo cargar la pantalla",
+      name: "The screen could not be loaded",
     }),
   ).toBeVisible();
   await expect(
     recoveryAlert.getByText("Controlled route failure", { exact: false }),
   ).toHaveCount(0);
   await expect(
-    recoveryAlert.getByRole("button", { name: "Reintentar" }),
+    recoveryAlert.getByRole("button", { name: "Retry" }),
   ).toBeVisible();
   await expect(
-    recoveryAlert.getByRole("link", { name: "Ir a Biblioteca" }),
+    recoveryAlert.getByRole("link", { name: "Go to Library" }),
   ).toBeVisible();
   await expect(recoveryAlert.getByRole("heading")).toBeFocused();
-  await recoveryAlert.getByRole("button", { name: "Reintentar" }).click();
+  await recoveryAlert.getByRole("button", { name: "Retry" }).click();
   await expect(recoveryAlert).toBeVisible();
   await recoveryAlert
-    .getByRole("link", { name: "Ir a Biblioteca" })
+    .getByRole("link", { name: "Go to Library" })
     .click();
   await expect(page).toHaveURL(/\/library$/);
 
@@ -285,7 +273,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
       .locator(".available-track-list li")
       .filter({ hasText: title });
     await expect(candidate).toBeVisible();
-    await candidate.getByRole("button", { name: "Añadir" }).click();
+    await candidate.getByRole("button", { name: "Add" }).click();
     await expect(page).toHaveURL(/trackAdded=1$/, { timeout: 20_000 });
     await expect(candidate).toHaveCount(0);
   };
@@ -299,11 +287,27 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(orderedTitles.nth(1)).toContainText(secondTitle);
 
   await page
-    .getByRole("button", { name: `Subir ${secondTitle}` })
+    .getByRole("button", { name: `Move ${secondTitle} up` })
     .click();
   await expect(orderedTitles.nth(0)).toContainText(secondTitle);
   await expect(orderedTitles.nth(1)).toContainText(firstTitle);
 
+  await page.goto("/settings?source=e2e");
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Private diagnostics" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Backups" }),
+  ).toBeVisible();
+  await page.getByLabel("Language", { exact: false }).selectOption("es");
+  await expect(page).toHaveURL(/\/settings\?source=e2e$/);
+  await expect(page.getByRole("heading", { name: "Ajustes" })).toBeVisible();
+  await page.getByLabel("Idioma", { exact: false }).selectOption("en");
+  await expect(page).toHaveURL(/\/settings\?source=e2e$/);
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+  await page.goto(crateUrl);
   await orderedTitles
     .filter({ hasText: firstTitle })
     .getByRole("link", { name: firstTitle })
@@ -315,13 +319,13 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     page.getByRole("heading", { name: firstTitle }),
   ).toBeVisible({ timeout: 20_000 });
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Eliminar canción" }).click();
+  await page.getByRole("button", { name: "Delete track" }).click();
 
   await expect(page).toHaveURL(/\/library\?deleted=1$/, {
     timeout: 20_000,
   });
   await expect(
-    page.getByText("La selección se eliminó correctamente."),
+    page.getByText("The selection was deleted successfully."),
   ).toBeVisible();
   await expect(
     page.locator("tbody").getByText(firstTitle, { exact: true }),

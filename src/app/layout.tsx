@@ -7,17 +7,23 @@ import { ConnectivityStatus } from "@/components/pwa/connectivity-status";
 import { OfflineSyncManager } from "@/components/pwa/offline-sync-manager";
 import { PwaRegistration } from "@/components/pwa/pwa-registration";
 import { DiagnosticsCapture } from "@/components/settings/privacy-diagnostics";
+import { translate } from "@/lib/i18n/functional";
 import { resolveLocale } from "@/lib/i18n/i18n";
+import { getCurrentLocale } from "@/lib/i18n/server";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: { default: "DJOrganizer", template: "%s · DJOrganizer" },
-  description: "Organiza tu biblioteca musical para cada sesión.",
-  manifest: "/manifest.webmanifest",
-  icons: {
-    icon: "/icon.svg",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getCurrentLocale();
+  return {
+    title: { default: "DJOrganizer", template: "%s · DJOrganizer" },
+    description: translate(
+      locale,
+      "Organiza tu biblioteca musical para cada sesión.",
+    ),
+    manifest: "/manifest.webmanifest",
+    icons: { icon: "/icon.svg" },
+  };
+}
 
 export const viewport: Viewport = {
   colorScheme: "dark",

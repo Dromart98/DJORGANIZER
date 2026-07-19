@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
+import { formatTrackCount, translate } from "@/lib/i18n/functional";
 import { getMessages } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
@@ -25,7 +26,10 @@ const errorMessages: Record<string, string> = {
   "save-tag": "No se pudo guardar la etiqueta.",
 };
 
-export const metadata = { title: "Crates y etiquetas" };
+export async function generateMetadata() {
+  const locale = await getCurrentLocale();
+  return { title: translate(locale, "Crates y etiquetas") };
+}
 
 export default async function CratesPage({ searchParams }: CratesPageProps) {
   const [user, query, locale] = await Promise.all([
@@ -78,6 +82,8 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
   const trackTagRows = trackTags ?? [];
   const hasTracks = (trackCount ?? 0) > 0;
   const emptyCopy = getMessages(locale).cratesEmpty;
+  const t = (message: Parameters<typeof translate>[1]) =>
+    translate(locale, message);
   const crateCounts = new Map<string, number>();
   for (const membership of crateTrackRows) {
     crateCounts.set(
@@ -94,22 +100,24 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
   }
 
   const error =
-    typeof query.error === "string" ? errorMessages[query.error] : null;
+    typeof query.error === "string" && errorMessages[query.error]
+      ? t(errorMessages[query.error] as Parameters<typeof translate>[1])
+      : null;
   const success =
     query.crateDeleted === "1"
-      ? "El crate se eliminó sin borrar sus canciones."
+      ? t("El crate se eliminó sin borrar sus canciones.")
       : query.tagCreated === "1"
-        ? "La etiqueta se creó correctamente."
+        ? t("La etiqueta se creó correctamente.")
         : query.tagDeleted === "1"
-          ? "La etiqueta se eliminó de la biblioteca."
+          ? t("La etiqueta se eliminó de la biblioteca.")
           : null;
 
   return (
     <>
       <PageHeader
-        description="Prepara sesiones con orden propio y clasifica canciones con etiquetas reutilizables."
-        eyebrow="Organización"
-        title="Crates y etiquetas"
+        description={t("Prepara sesiones con orden propio y clasifica canciones con etiquetas reutilizables.")}
+        eyebrow={t("Organización")}
+        title={t("Crates y etiquetas")}
       />
 
       {error ? (
@@ -127,8 +135,8 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
         <div>
           <div className="organization-section-heading">
             <div>
-              <p className="eyebrow">Sesiones</p>
-              <h2>Tus crates</h2>
+              <p className="eyebrow">{t("Sesiones")}</p>
+              <h2>{t("Tus crates")}</h2>
             </div>
             <span>{crateRows.length}</span>
           </div>
@@ -150,17 +158,17 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                       <strong>{crate.name}</strong>
                       {crate.parent_id ? (
                         <small>
-                          Dentro de{" "}
+                          {t("Dentro de")}{" "}
                           {crateRows.find((item) => item.id === crate.parent_id)
-                            ?.name ?? "otro crate"}
+                            ?.name ?? t("otro crate")}
                         </small>
                       ) : null}
                       <p>
-                        {crate.description || "Sin descripción"}
+                        {crate.description || t("Sin descripción")}
                       </p>
                     </div>
                     <span>
-                      {count} {count === 1 ? "pista" : "pistas"}
+                      {formatTrackCount(locale, count)}
                     </span>
                   </Link>
                 );
@@ -212,21 +220,21 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
               id="create-crate"
             >
               <div>
-                <p className="eyebrow">Nuevo</p>
-                <h2>Crear crate</h2>
+                <p className="eyebrow">{t("Nuevo")}</p>
+                <h2>{t("Crear crate")}</h2>
               </div>
               <label className="field">
-                Nombre
+                {t("Nombre")}
                 <input maxLength={120} name="name" required />
               </label>
               <label className="field">
-                Descripción
+                {t("Descripción")}
                 <textarea maxLength={1000} name="description" rows={3} />
               </label>
               <label className="field">
-                Carpeta superior
+                {t("Carpeta superior")}
                 <select defaultValue="" name="parentId">
-                  <option value="">Nivel principal</option>
+                  <option value="">{t("Nivel principal")}</option>
                   {crateRows.map((crate) => (
                     <option key={crate.id} value={crate.id}>
                       {crate.name}
@@ -235,7 +243,7 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                 </select>
               </label>
               <button className="button button--primary" type="submit">
-                Crear crate
+                {t("Crear crate")}
               </button>
             </form>
           ) : (
@@ -255,8 +263,8 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
 
           <div className="card organization-form">
             <div>
-              <p className="eyebrow">Clasificación</p>
-              <h2>Etiquetas</h2>
+              <p className="eyebrow">{t("Clasificación")}</p>
+              <h2>{t("Etiquetas")}</h2>
             </div>
             <form
               action={createTagAction}
@@ -264,11 +272,11 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
               data-offline-action="tag-create"
             >
               <label className="field">
-                Nombre
+                {t("Nombre")}
                 <input maxLength={80} name="name" required />
               </label>
               <button className="button button--secondary" type="submit">
-                Añadir
+                {t("Añadir")}
               </button>
             </form>
             {tagRows.length ? (
@@ -276,7 +284,7 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                 {tagRows.map((tag: Tables<"tags">) => (
                   <li key={tag.id}>
                     <span>{tag.name}</span>
-                    <small>{tagCounts.get(tag.id) ?? 0} pistas</small>
+                    <small>{formatTrackCount(locale, tagCounts.get(tag.id) ?? 0)}</small>
                     <DeleteTagForm
                       name={tag.name}
                       revision={tag.updated_at}
@@ -287,7 +295,7 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
               </ul>
             ) : (
               <p className="organization-muted">
-                Aún no has creado etiquetas.
+                {t("Aún no has creado etiquetas.")}
               </p>
             )}
           </div>

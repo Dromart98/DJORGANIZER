@@ -8,6 +8,7 @@ import {
   updateTrackAction,
   type TrackActionState,
 } from "@/app/library/actions";
+import { useTranslator } from "@/components/i18n/locale-provider";
 import type { Tables } from "@/types/database";
 
 const INITIAL_TRACK_ACTION_STATE = {
@@ -32,13 +33,14 @@ function FieldError({
 
 function SaveButton({ mode }: { mode: TrackFormProps["mode"] }) {
   const { pending } = useFormStatus();
+  const { t } = useTranslator();
   return (
     <button className="button button--primary" disabled={pending} type="submit">
       {pending
-        ? "Guardando…"
+        ? t("Guardando…")
         : mode === "create"
-          ? "Añadir canción"
-          : "Guardar cambios"}
+          ? t("Añadir canción")
+          : t("Guardar cambios")}
     </button>
   );
 }
@@ -49,6 +51,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
     action,
     INITIAL_TRACK_ACTION_STATE,
   );
+  const { t } = useTranslator();
 
   return (
     <form
@@ -68,7 +71,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
 
       <div className="form-grid">
         <label className="field field--wide">
-          <span>Título *</span>
+          <span>{t("Título *")}</span>
           <input
             autoFocus
             defaultValue={track?.title}
@@ -79,7 +82,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="title" />
         </label>
         <label className="field">
-          <span>Artista</span>
+          <span>{t("Artista")}</span>
           <input
             defaultValue={track?.artist ?? ""}
             maxLength={300}
@@ -88,12 +91,12 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="artist" />
         </label>
         <label className="field">
-          <span>Álbum</span>
+          <span>{t("Álbum")}</span>
           <input defaultValue={track?.album ?? ""} maxLength={300} name="album" />
           <FieldError errors={state.fieldErrors} name="album" />
         </label>
         <label className="field">
-          <span>Género</span>
+          <span>{t("Género")}</span>
           <input defaultValue={track?.genre ?? ""} maxLength={120} name="genre" />
           <FieldError errors={state.fieldErrors} name="genre" />
         </label>
@@ -110,14 +113,14 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="bpm" />
         </label>
         <label className="field">
-          <span>Tonalidad</span>
+          <span>{t("Tonalidad")}</span>
           <input
             defaultValue={track?.musical_key ?? ""}
             maxLength={16}
             name="musical_key"
-            placeholder="Am, A minor o 8A"
+            placeholder={t("Am, A minor o 8A")}
           />
-          <small>Se normaliza y completa Camelot al guardar.</small>
+          <small>{t("Se normaliza y completa Camelot al guardar.")}</small>
           <FieldError errors={state.fieldErrors} name="musical_key" />
         </label>
         <label className="field">
@@ -131,7 +134,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="camelot_key" />
         </label>
         <label className="field">
-          <span>Duración (segundos)</span>
+          <span>{t("Duración (segundos)")}</span>
           <input
             defaultValue={track?.duration_seconds ?? ""}
             min={0}
@@ -142,7 +145,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="duration_seconds" />
         </label>
         <label className="field">
-          <span>Año</span>
+          <span>{t("Año")}</span>
           <input
             defaultValue={track?.release_year ?? ""}
             max={2100}
@@ -153,7 +156,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="release_year" />
         </label>
         <label className="field">
-          <span>Energía (0–100)</span>
+          <span>{t("Energía (0–100)")}</span>
           <input
             defaultValue={track?.energy ?? ""}
             max={100}
@@ -164,9 +167,9 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="energy" />
         </label>
         <label className="field">
-          <span>Valoración</span>
+          <span>{t("Valoración")}</span>
           <select defaultValue={track?.rating ?? ""} name="rating">
-            <option value="">Sin valorar</option>
+            <option value="">{t("Sin valorar")}</option>
             {[0, 1, 2, 3, 4, 5].map((rating) => (
               <option key={rating} value={rating}>
                 {rating}
@@ -176,7 +179,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="rating" />
         </label>
         <label className="field field--full">
-          <span>Comentarios</span>
+          <span>{t("Comentarios")}</span>
           <textarea
             defaultValue={track?.comments ?? ""}
             maxLength={5000}
@@ -189,7 +192,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
 
       <div className="form-actions">
         <Link className="button button--secondary" href="/library">
-          Cancelar
+          {t("Cancelar")}
         </Link>
         <SaveButton mode={mode} />
       </div>

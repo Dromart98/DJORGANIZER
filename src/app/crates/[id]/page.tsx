@@ -11,6 +11,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
+import { formatMessage, formatTrackCount, translate } from "@/lib/i18n/functional";
+import type { Locale } from "@/lib/i18n/i18n";
+import { getCurrentLocale } from "@/lib/i18n/server";
 import { safeSearchTerm } from "@/lib/library/track-query";
 import { organizationIdSchema } from "@/lib/organization/schemas";
 import { createClient } from "@/lib/supabase/server";
@@ -39,23 +42,28 @@ const errorMessages: Record<string, string> = {
   "save-crate": "No se pudieron guardar los cambios.",
 };
 
-function trackSummary(track: Tables<"tracks">) {
+function trackSummary(locale: Locale, track: Tables<"tracks">) {
   const duration =
     track.duration_seconds === null
-      ? "Duración —"
+      ? translate(locale, "Duración —")
       : formatDuration(Math.round(track.duration_seconds));
   return `${track.bpm ? `${track.bpm} BPM` : "BPM —"} · ${
-    track.musical_key ?? "Tonalidad —"
+    track.musical_key ?? `${translate(locale, "Tonalidad")} —`
   } · ${duration}`;
 }
 
-export const metadata = { title: "Detalle de crate" };
+export async function generateMetadata() {
+  const locale = await getCurrentLocale();
+  return { title: translate(locale, "Detalle de crate") };
+}
 
 export default async function CrateDetailPage({
   params,
   searchParams,
 }: CrateDetailPageProps) {
-  const user = await requireUser();
+  const [user, locale] = await Promise.all([requireUser(), getCurrentLocale()]);
+  const t = (message: Parameters<typeof translate>[1]) =>
+    translate(locale, message);
   const { id } = await params;
   const parsedId = organizationIdSchema.safeParse(id);
   if (!parsedId.success) notFound();
@@ -177,16 +185,18 @@ export default async function CrateDetailPage({
   );
 
   const error =
-    typeof query.error === "string" ? errorMessages[query.error] : null;
+    typeof query.error === "string" && errorMessages[query.error]
+      ? t(errorMessages[query.error] as Parameters<typeof translate>[1])
+      : null;
   const success =
     query.created === "1"
-      ? "El crate se creó correctamente."
+      ? t("El crate se creó correctamente.")
       : query.updated === "1"
-        ? "Los cambios se guardaron."
+        ? t("Los cambios se guardaron.")
         : query.trackAdded === "1"
-          ? "La pista se añadió al final del crate."
+          ? t("La pista se añadió al final del crate.")
           : query.trackRemoved === "1"
-            ? "La pista se quitó del crate."
+            ? t("La pista se quitó del crate.")
             : null;
 
   return (
@@ -201,9 +211,9 @@ export default async function CrateDetailPage({
         }
         description={
           crate.description ||
-          "Ordena las pistas en la secuencia que quieras usar durante la sesión."
+          t("Ordena las pistas en la secuencia que quieras usar durante la sesión.")
         }
-        eyebrow="Crate"
+        eyebrow={t("Crate")}
         title={crate.name}
       />
 
@@ -222,11 +232,11 @@ export default async function CrateDetailPage({
         <div>
           <div className="organization-section-heading">
             <div>
-              <p className="eyebrow">Orden de sesión</p>
-              <h2>{totalMemberships} pistas</h2>
+              <p className="eyebrow">{t("Orden de sesión")}</p>
+              <h2>{formatTrackCount(locale, totalMemberships)}</h2>
             </div>
             <Link className="button button--secondary" href="/crates">
-              Volver
+              {t("Volver")}
             </Link>
           </div>
 
@@ -239,8 +249,8 @@ export default async function CrateDetailPage({
                   <span className="crate-track__position">{globalIndex + 1}</span>
                   <div>
                     <Link href={`/library/${track.id}`}>{track.title}</Link>
-                    <strong>{track.artist ?? "Artista desconocido"}</strong>
-                    <small>{trackSummary(track)}</small>
+                    <strong>{track.artist ?? t("Artista desconocido")}</strong>
+                    <small>{trackSummary(locale, track)}</small>
                   </div>
                   <div className="crate-track__actions">
                     <form
@@ -251,7 +261,9 @@ export default async function CrateDetailPage({
                       <input name="trackId" type="hidden" value={track.id} />
                       <input name="direction" type="hidden" value="up" />
                       <button
-                        aria-label={`Subir ${track.title}`}
+                        aria-label={formatMessage(locale, "Subir {name}", {
+                          name: track.title,
+                        })}
                         disabled={globalIndex === 0}
                         type="submit"
                       >
@@ -266,7 +278,9 @@ export default async function CrateDetailPage({
                       <input name="trackId" type="hidden" value={track.id} />
                       <input name="direction" type="hidden" value="down" />
                       <button
-                        aria-label={`Bajar ${track.title}`}
+                        aria-label={formatMessage(locale, "Bajar {name}", {
+                          name: track.title,
+                        })}
                         disabled={globalIndex === totalMemberships - 1}
                         type="submit"
                       >
@@ -279,7 +293,7 @@ export default async function CrateDetailPage({
                     >
                       <input name="crateId" type="hidden" value={crate.id} />
                       <input name="trackId" type="hidden" value={track.id} />
-                      <button type="submit">Quitar</button>
+                      <button type="submit">{t("Quitar")}</button>
                     </form>
                   </div>
                 </li>
@@ -288,13 +302,13 @@ export default async function CrateDetailPage({
             </ol>
           ) : (
             <EmptyState
-              description="Busca en tu biblioteca y añade la primera pista."
+              description={t("Busca en tu biblioteca y añade la primera pista.")}
               icon={<Icon name="library" />}
-              title="Este crate está vacío"
+              title={t("Este crate está vacío")}
             />
           )}
           {totalMemberships > CRATE_TRACKS_PER_PAGE ? (
-            <nav aria-label="Paginación del crate" className="pagination">
+            <nav aria-label={t("Paginación del crate")} className="pagination">
               {requestedPage > 1 ? (
                 <Link
                   className="button button--secondary"
@@ -303,7 +317,7 @@ export default async function CrateDetailPage({
                     cratePage: String(requestedPage - 1),
                   })}`}
                 >
-                  Anterior
+                  {t("Anterior")}
                 </Link>
               ) : (
                 <span />
@@ -319,7 +333,7 @@ export default async function CrateDetailPage({
                     cratePage: String(requestedPage + 1),
                   })}`}
                 >
-                  Siguiente
+                  {t("Siguiente")}
                 </Link>
               ) : (
                 <span />
@@ -335,13 +349,13 @@ export default async function CrateDetailPage({
             data-offline-action="crate-update"
           >
             <div>
-              <p className="eyebrow">Datos</p>
-              <h2>Editar crate</h2>
+              <p className="eyebrow">{t("Datos")}</p>
+              <h2>{t("Editar crate")}</h2>
             </div>
             <input name="id" type="hidden" value={crate.id} />
             <input name="revision" type="hidden" value={crate.updated_at} />
             <label className="field">
-              Nombre
+              {t("Nombre")}
               <input
                 defaultValue={crate.name}
                 maxLength={120}
@@ -350,7 +364,7 @@ export default async function CrateDetailPage({
               />
             </label>
             <label className="field">
-              Descripción
+              {t("Descripción")}
               <textarea
                 defaultValue={crate.description ?? ""}
                 maxLength={1000}
@@ -359,9 +373,9 @@ export default async function CrateDetailPage({
               />
             </label>
             <label className="field">
-              Carpeta superior
+              {t("Carpeta superior")}
               <select defaultValue={crate.parent_id ?? ""} name="parentId">
-                <option value="">Nivel principal</option>
+                <option value="">{t("Nivel principal")}</option>
                 {(allCrates ?? [])
                   .filter((candidate) => candidate.id !== crate.id)
                   .map((candidate) => (
@@ -372,28 +386,28 @@ export default async function CrateDetailPage({
               </select>
             </label>
             <button className="button button--primary" type="submit">
-              Guardar cambios
+              {t("Guardar cambios")}
             </button>
           </form>
 
           <div className="card organization-form">
             <div>
-              <p className="eyebrow">Biblioteca</p>
-              <h2>Añadir pistas</h2>
+              <p className="eyebrow">{t("Biblioteca")}</p>
+              <h2>{t("Añadir pistas")}</h2>
             </div>
             <form className="crate-search" method="get">
               <label className="field">
-                Buscar
+                {t("Buscar")}
                 <input
                   defaultValue={search}
                   maxLength={100}
                   name="q"
-                  placeholder="Título o artista"
+                  placeholder={t("Título o artista")}
                   type="search"
                 />
               </label>
               <button className="button button--secondary" type="submit">
-                Buscar
+                {t("Buscar")}
               </button>
             </form>
             {availableTracks.length ? (
@@ -402,7 +416,7 @@ export default async function CrateDetailPage({
                   <li key={track.id}>
                     <div>
                       <strong>{track.title}</strong>
-                      <span>{track.artist ?? "Artista desconocido"}</span>
+                      <span>{track.artist ?? t("Artista desconocido")}</span>
                     </div>
                     <form
                       action={addTrackToCrateAction}
@@ -410,7 +424,7 @@ export default async function CrateDetailPage({
                     >
                       <input name="crateId" type="hidden" value={crate.id} />
                       <input name="trackId" type="hidden" value={track.id} />
-                      <button type="submit">Añadir</button>
+                      <button type="submit">{t("Añadir")}</button>
                     </form>
                   </li>
                 ))}
@@ -418,8 +432,8 @@ export default async function CrateDetailPage({
             ) : (
               <p className="organization-muted">
                 {search
-                  ? "No hay pistas disponibles para esta búsqueda."
-                  : "No quedan pistas disponibles para añadir."}
+                  ? t("No hay pistas disponibles para esta búsqueda.")
+                  : t("No quedan pistas disponibles para añadir.")}
               </p>
             )}
           </div>
