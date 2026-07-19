@@ -52,9 +52,9 @@ remota acepta exclusivamente `https://djorganizer-beta.vercel.app`. El comando
 pertenecen a la sesión nativa activa; la web no puede suministrarle rutas
 absolutas arbitrarias.
 
-No se conceden plugins de sistema de archivos, shell o proceso. La única
-escritura permitida es un archivo de lista XML en el destino que la persona
-confirme mediante el selector nativo. La fase no mueve, renombra, elimina,
+No se conceden plugins de sistema de archivos, shell o proceso. Las únicas
+escrituras permitidas son archivos de lista XML o M3U8 en el destino que la
+persona confirme mediante el selector nativo. La fase no mueve, renombra, elimina,
 reproduce, sube ni modifica audio. La detección es de igualdad binaria: una
 copia idéntica se agrupa aunque cambie de nombre, pero un archivo reetiquetado o
 recodificado se considera distinto.
