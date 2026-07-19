@@ -311,7 +311,7 @@ export function AudioImporter() {
 
       automaticTargets = completedItems.filter(
         (item) =>
-          item.status === "ready" &&
+          (item.status === "ready" || item.status === "invalid") &&
           !excludedFromAnalysis.has(item.id) &&
           Boolean(item.data) &&
           Boolean(item.file),
@@ -378,7 +378,7 @@ export function AudioImporter() {
         data: ImportTrackInput;
         file: File;
       } =>
-        item.status === "ready" &&
+        (item.status === "ready" || item.status === "invalid") &&
         Boolean(item.data) &&
         Boolean(item.file) &&
         (item.data?.bpm === null || item.data?.musical_key === null),
@@ -1035,7 +1035,7 @@ export function AudioImporter() {
                         value={item.data.bpm ?? ""}
                       />
                       {item.file &&
-                      item.status === "ready" &&
+                      (item.status === "ready" || item.status === "invalid") &&
                       item.bpmStatus !== "analyzing" ? (
                         <button
                           className="import-analyze-link"
@@ -1077,7 +1077,7 @@ export function AudioImporter() {
                         value={item.data.musical_key ?? ""}
                       />
                       {item.file &&
-                      item.status === "ready" &&
+                      (item.status === "ready" || item.status === "invalid") &&
                       item.keyStatus !== "analyzing" ? (
                         <button
                           className="import-analyze-link"
