@@ -98,7 +98,7 @@ export function DesktopFolderScanner() {
   const [virtualDjListName, setVirtualDjListName] = useState("DJOrganizer");
   const [exportingVirtualDj, setExportingVirtualDj] = useState(false);
   const [virtualDjMessage, setVirtualDjMessage] = useState<string | null>(null);
-  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(
     () => new Set(),
   );
   const filteredTracks = useMemo(
@@ -112,18 +112,18 @@ export function DesktopFolderScanner() {
   const selectedTracks = useMemo(
     () =>
       result?.tracks.filter((track) =>
-        selectedPaths.has(track.relativePath),
+        selectedTrackIds.has(track.scanId),
       ) ?? [],
-    [result, selectedPaths],
+    [result, selectedTrackIds],
   );
   const organizationPreview = useMemo(
     () => createOrganizationPreview(selectedTracks, organizationScheme),
     [organizationScheme, selectedTracks],
   );
-  const visiblePaths = pagination.items.map((track) => track.relativePath);
+  const visibleTrackIds = pagination.items.map((track) => track.scanId);
   const allVisibleSelected =
-    visiblePaths.length > 0 &&
-    visiblePaths.every((relativePath) => selectedPaths.has(relativePath));
+    visibleTrackIds.length > 0 &&
+    visibleTrackIds.every((scanId) => selectedTrackIds.has(scanId));
 
   useEffect(() => {
     setDesktopAvailable(Boolean(getTauriCore()));
@@ -153,7 +153,7 @@ export function DesktopFolderScanner() {
       setPage(1);
       setVirtualDjListName(nextResult.rootName);
       setVirtualDjMessage(null);
-      setSelectedPaths(new Set());
+      setSelectedTrackIds(new Set());
     } catch {
       setMessage(
         "No se pudo leer esa carpeta. Comprueba sus permisos y vuelve a intentarlo.",
@@ -163,26 +163,26 @@ export function DesktopFolderScanner() {
     }
   }
 
-  function toggleTrack(relativePath: string) {
-    setSelectedPaths((current) => {
+  function toggleTrack(scanId: string) {
+    setSelectedTrackIds((current) => {
       const next = new Set(current);
-      if (next.has(relativePath)) {
-        next.delete(relativePath);
+      if (next.has(scanId)) {
+        next.delete(scanId);
       } else {
-        next.add(relativePath);
+        next.add(scanId);
       }
       return next;
     });
   }
 
   function toggleVisibleTracks() {
-    setSelectedPaths((current) => {
+    setSelectedTrackIds((current) => {
       const next = new Set(current);
-      for (const relativePath of visiblePaths) {
+      for (const scanId of visibleTrackIds) {
         if (allVisibleSelected) {
-          next.delete(relativePath);
+          next.delete(scanId);
         } else {
-          next.add(relativePath);
+          next.add(scanId);
         }
       }
       return next;
@@ -201,7 +201,7 @@ export function DesktopFolderScanner() {
         "export_virtualdj_list",
         {
           sessionId: result.sessionId,
-          relativePaths: selectedTracks.map((track) => track.relativePath),
+          trackIds: selectedTracks.map((track) => track.scanId),
           listName: virtualDjListName,
         },
       );
@@ -315,7 +315,7 @@ export function DesktopFolderScanner() {
 
               <p className="organization-muted" role="status">
                 {filteredTracks.length.toLocaleString("es-ES")} resultados ·{" "}
-                {selectedPaths.size.toLocaleString("es-ES")} seleccionados. La
+                {selectedTrackIds.size.toLocaleString("es-ES")} seleccionados. La
                 selección permanece solo en esta ventana y todavía no ejecuta
                 cambios en los archivos.
               </p>
@@ -323,12 +323,12 @@ export function DesktopFolderScanner() {
               {pagination.items.length ? (
                 <ul className="available-track-list desktop-scan-results">
                   {pagination.items.map((track) => (
-                    <li key={track.relativePath}>
+                    <li key={track.scanId}>
                       <label className="desktop-track-selection">
                         <input
                           aria-label={`Seleccionar ${track.title ?? track.name}`}
-                          checked={selectedPaths.has(track.relativePath)}
-                          onChange={() => toggleTrack(track.relativePath)}
+                          checked={selectedTrackIds.has(track.scanId)}
+                          onChange={() => toggleTrack(track.scanId)}
                           type="checkbox"
                         />
                       </label>
@@ -461,7 +461,7 @@ export function DesktopFolderScanner() {
                   </p>
                   <ol>
                     {organizationPreview.slice(0, 10).map((item) => (
-                      <li key={item.sourcePath}>
+                      <li key={item.targetPath}>
                         <span>{item.sourcePath}</span>
                         <strong>→ {item.targetPath}</strong>
                         {item.collisionResolved ? (
