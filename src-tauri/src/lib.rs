@@ -217,7 +217,10 @@ fn mark_exact_duplicates(candidates: &mut [ScanCandidate]) -> (usize, usize, usi
     let mut duplicate_sets = Vec::new();
     let mut fingerprint_failures = 0;
 
-    for same_size in candidates_by_size.into_values().filter(|group| group.len() > 1) {
+    for same_size in candidates_by_size
+        .into_values()
+        .filter(|group| group.len() > 1)
+    {
         let mut by_fingerprint: HashMap<[u8; 32], Vec<usize>> = HashMap::new();
 
         for index in same_size {
@@ -234,12 +237,7 @@ fn mark_exact_duplicates(candidates: &mut [ScanCandidate]) -> (usize, usize, usi
     }
 
     for group in &mut duplicate_sets {
-        group.sort_by_key(|index| {
-            candidates[*index]
-                .track
-                .relative_path
-                .to_ascii_lowercase()
-        });
+        group.sort_by_key(|index| candidates[*index].track.relative_path.to_ascii_lowercase());
     }
     duplicate_sets.sort_by_key(|group| {
         candidates[group[0]]
@@ -557,10 +555,8 @@ mod tests {
         let root = test_directory();
         let nested = root.join("Nested");
         fs::create_dir_all(&nested).expect("nested directory should be created");
-        fs::write(root.join("First.mp3"), [1_u8, 2, 3])
-            .expect("first fixture should be written");
-        fs::write(nested.join("Copy.mp3"), [1_u8, 2, 3])
-            .expect("copy fixture should be written");
+        fs::write(root.join("First.mp3"), [1_u8, 2, 3]).expect("first fixture should be written");
+        fs::write(nested.join("Copy.mp3"), [1_u8, 2, 3]).expect("copy fixture should be written");
         fs::write(root.join("Different.mp3"), [1_u8, 2, 4])
             .expect("different fixture should be written");
 
