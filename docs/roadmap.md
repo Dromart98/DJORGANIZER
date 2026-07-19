@@ -53,9 +53,9 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 
 ### Inteligencia y calidad musical
 
-- [ ] Analizar automáticamente BPM y tonalidad en cuanto se seleccionen archivos
+- [x] Analizar automáticamente BPM y tonalidad en cuanto se seleccionen archivos
   para importar, sin requerir un botón adicional; mostrar progreso, permitir
-  cancelar y conservar la corrección manual. El análisis seguirá siendo local.
+  cancelar y conservar la corrección manual. El análisis sigue siendo local.
 - [ ] Clasificar géneros con la API de OpenAI y la familia `gpt-audio`. Esta
   función será opcional y requerirá consentimiento explícito antes de enviar un
   fragmento autorizado; la clave permanecerá en el servidor. Definir taxonomía,

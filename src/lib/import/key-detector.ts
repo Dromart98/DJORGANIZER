@@ -4,13 +4,7 @@ import { estimateMusicalKey } from "@/lib/music/key-detection";
 const BUFFER_SIZE = 4096;
 const HOP_SIZE = 8192;
 
-export async function detectKeyFromFile(
-  file: File,
-  audioContext: AudioContext,
-) {
-  const audioBuffer = await audioContext.decodeAudioData(
-    await file.arrayBuffer(),
-  );
+export async function detectKeyFromAudioBuffer(audioBuffer: AudioBuffer) {
   const window = bpmAnalysisWindow(audioBuffer.duration);
   if (!window) {
     throw new Error("El archivo es demasiado corto para analizar su tonalidad.");
@@ -50,3 +44,13 @@ export async function detectKeyFromFile(
   return result;
 }
 
+
+export async function detectKeyFromFile(
+  file: File,
+  audioContext: AudioContext,
+) {
+  const audioBuffer = await audioContext.decodeAudioData(
+    await file.arrayBuffer(),
+  );
+  return detectKeyFromAudioBuffer(audioBuffer);
+}

@@ -695,3 +695,25 @@ td strong { color: #f0f3f4; font-weight: 650; }
     grid-column: 1;
   }
 }
+
+
+.import-analysis-progress {
+  display: grid;
+  grid-template-columns: auto minmax(8rem, 14rem) auto;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.import-analysis-progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .import-analysis-progress {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+}
