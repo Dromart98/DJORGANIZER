@@ -219,9 +219,9 @@ La base de escritorio usa Tauri 2 y vive en `src-tauri/`. En desarrollo abre
 el servidor local de Next.js; el binario inicial de producción carga
 exclusivamente `https://djorganizer-beta.vercel.app`.
 
-La aplicación de escritorio expone un único comando nativo al origen oficial de
-producción. Ese comando siempre abre el selector de carpetas del sistema y
-realiza un escaneo acotado y de solo lectura. Recoge nombres, rutas relativas,
+La aplicación de escritorio expone comandos nativos acotados al origen oficial
+de producción. El escaneo siempre abre el selector de carpetas del sistema y
+realiza una lectura limitada de la ubicación confirmada. Recoge nombres, rutas relativas,
 extensiones y tamaños, y lee etiquetas de título, artista, álbum, género, BPM,
 tonalidad y duración cuando existen. También agrupa copias binarias exactas:
 solo calcula SHA-256 en streaming para archivos del mismo tamaño y nunca devuelve
@@ -236,6 +236,16 @@ sobre los archivos. Para las pistas seleccionadas se puede previsualizar una
 organización por artista/álbum, género/artista o tonalidad/BPM. Las rutas se
 sanean, los nombres reservados se neutralizan y las colisiones se resuelven en
 la propuesta, pero esta fase no mueve ni renombra archivos.
+
+Las pistas seleccionadas también pueden guardarse como una **List nativa de
+VirtualDJ 2024+** en XML. Rust conserva las rutas absolutas únicamente en la
+sesión local del escaneo, valida que toda selección pertenezca a esa sesión y
+abre el selector de guardado del sistema. La lista conserva el orden e incluye
+tamaño y metadatos disponibles; no copia ni modifica el audio y no edita
+`database.xml`.
+
+El roadmap vivo, incluida la compatibilidad M3U8 y la exportación directa de
+crates, está en [`docs/roadmap.md`](docs/roadmap.md).
 
 Para validar el núcleo Rust:
 
