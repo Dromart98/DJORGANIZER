@@ -6,8 +6,11 @@ use lofty::{
     tag::{Accessor, ItemKey},
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::{
+    collections::{BTreeMap, HashMap},
     fs,
+    io::{BufReader, Read},
     path::{Path, PathBuf},
 };
 use tauri::AppHandle;
@@ -45,6 +48,7 @@ struct ScannedAudioFile {
     duration_seconds: Option<f64>,
     bpm: Option<f64>,
     musical_key: Option<String>,
+    duplicate_group: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,7 +59,16 @@ struct FolderScanResult {
     examined_entries: usize,
     skipped_entries: usize,
     metadata_failures: usize,
+    duplicate_groups: usize,
+    duplicate_tracks: usize,
+    fingerprint_failures: usize,
     truncated: bool,
+}
+
+#[derive(Debug)]
+struct ScanCandidate {
+    path: PathBuf,
+    track: ScannedAudioFile,
 }
 
 fn audio_extension(path: &Path) -> Option<String> {
@@ -162,6 +175,90 @@ fn read_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
     Ok(metadata)
 }
 
+fn hash_file(path: &Path, expected_size: u64) -> Result<[u8; 32], String> {
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut bytes_read = 0_u64;
+
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        if count == 0 {
+            break;
+        }
+        bytes_read = bytes_read
+            .checked_add(count as u64)
+            .ok_or_else(|| "El archivo excede el tamaño compatible.".to_owned())?;
+        if bytes_read > expected_size {
+            return Err("El archivo cambió durante el escaneo.".to_owned());
+        }
+        hasher.update(&buffer[..count]);
+    }
+
+    if bytes_read != expected_size {
+        return Err("El archivo cambió durante el escaneo.".to_owned());
+    }
+
+    Ok(hasher.finalize().into())
+}
+
+fn mark_exact_duplicates(candidates: &mut [ScanCandidate]) -> (usize, usize, usize) {
+    let mut candidates_by_size: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        candidates_by_size
+            .entry(candidate.track.size_bytes)
+            .or_default()
+            .push(index);
+    }
+
+    let mut duplicate_sets = Vec::new();
+    let mut fingerprint_failures = 0;
+
+    for same_size in candidates_by_size.into_values().filter(|group| group.len() > 1) {
+        let mut by_fingerprint: HashMap<[u8; 32], Vec<usize>> = HashMap::new();
+
+        for index in same_size {
+            let candidate = &candidates[index];
+            match hash_file(&candidate.path, candidate.track.size_bytes) {
+                Ok(fingerprint) => {
+                    by_fingerprint.entry(fingerprint).or_default().push(index);
+                }
+                Err(_) => fingerprint_failures += 1,
+            }
+        }
+
+        duplicate_sets.extend(by_fingerprint.into_values().filter(|group| group.len() > 1));
+    }
+
+    for group in &mut duplicate_sets {
+        group.sort_by_key(|index| {
+            candidates[*index]
+                .track
+                .relative_path
+                .to_ascii_lowercase()
+        });
+    }
+    duplicate_sets.sort_by_key(|group| {
+        candidates[group[0]]
+            .track
+            .relative_path
+            .to_ascii_lowercase()
+    });
+
+    let duplicate_tracks = duplicate_sets.iter().map(Vec::len).sum();
+    for (group_index, group) in duplicate_sets.iter().enumerate() {
+        let label = format!("DUP-{:03}", group_index + 1);
+        for index in group {
+            candidates[*index].track.duplicate_group = Some(label.clone());
+        }
+    }
+
+    (duplicate_sets.len(), duplicate_tracks, fingerprint_failures)
+}
+
 fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
     if !root.is_dir() {
         return Err("La selección no es una carpeta accesible.".to_owned());
@@ -175,7 +272,7 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
         .to_owned();
 
     let mut pending = vec![root.to_path_buf()];
-    let mut tracks = Vec::new();
+    let mut candidates = Vec::new();
     let mut examined_entries = 0;
     let mut skipped_entries = 0;
     let mut metadata_failures = 0;
@@ -194,7 +291,7 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
         };
 
         for entry in entries {
-            if examined_entries >= MAX_ENTRIES || tracks.len() >= MAX_TRACKS {
+            if examined_entries >= MAX_ENTRIES || candidates.len() >= MAX_TRACKS {
                 truncated = true;
                 break 'folders;
             }
@@ -257,24 +354,34 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
                 }
             };
 
-            tracks.push(ScannedAudioFile {
-                name,
-                relative_path,
-                extension,
-                size_bytes: file_metadata.len(),
-                metadata_read,
-                title: metadata.title,
-                artist: metadata.artist,
-                album: metadata.album,
-                genre: metadata.genre,
-                duration_seconds: metadata.duration_seconds,
-                bpm: metadata.bpm,
-                musical_key: metadata.musical_key,
+            candidates.push(ScanCandidate {
+                path,
+                track: ScannedAudioFile {
+                    name,
+                    relative_path,
+                    extension,
+                    size_bytes: file_metadata.len(),
+                    metadata_read,
+                    title: metadata.title,
+                    artist: metadata.artist,
+                    album: metadata.album,
+                    genre: metadata.genre,
+                    duration_seconds: metadata.duration_seconds,
+                    bpm: metadata.bpm,
+                    musical_key: metadata.musical_key,
+                    duplicate_group: None,
+                },
             });
         }
     }
 
-    tracks.sort_by_key(|track| track.relative_path.to_ascii_lowercase());
+    candidates.sort_by_key(|candidate| candidate.track.relative_path.to_ascii_lowercase());
+    let (duplicate_groups, duplicate_tracks, fingerprint_failures) =
+        mark_exact_duplicates(&mut candidates);
+    let tracks = candidates
+        .into_iter()
+        .map(|candidate| candidate.track)
+        .collect();
 
     Ok(FolderScanResult {
         root_name,
@@ -282,6 +389,9 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
         examined_entries,
         skipped_entries,
         metadata_failures,
+        duplicate_groups,
+        duplicate_tracks,
+        fingerprint_failures,
         truncated,
     })
 }
@@ -312,8 +422,9 @@ async fn choose_and_scan_music_folder(app: AppHandle) -> Result<Option<FolderSca
 ///
 /// The sole native command always opens an operating-system folder picker and
 /// then performs a bounded, read-only scan. It reads file metadata and embedded
-/// tags but never accepts a path supplied by remote web content and never writes,
-/// moves, renames, uploads, hashes, or persists files.
+/// tags and compares exact-content fingerprints only for same-size candidates. It
+/// never accepts a path supplied by remote web content and never writes, moves,
+/// renames, uploads, returns fingerprints, or persists files.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -434,7 +545,41 @@ mod tests {
         assert_eq!(result.tracks[0].size_bytes, 3);
         assert!(!result.tracks[0].metadata_read);
         assert_eq!(result.metadata_failures, 1);
+        assert_eq!(result.duplicate_groups, 0);
+        assert_eq!(result.duplicate_tracks, 0);
         assert!(!result.truncated);
+
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn identifies_only_exact_local_duplicates() {
+        let root = test_directory();
+        let nested = root.join("Nested");
+        fs::create_dir_all(&nested).expect("nested directory should be created");
+        fs::write(root.join("First.mp3"), [1_u8, 2, 3])
+            .expect("first fixture should be written");
+        fs::write(nested.join("Copy.mp3"), [1_u8, 2, 3])
+            .expect("copy fixture should be written");
+        fs::write(root.join("Different.mp3"), [1_u8, 2, 4])
+            .expect("different fixture should be written");
+
+        let result = scan_music_folder(&root).expect("folder should be scanned");
+        let duplicate_labels: Vec<_> = result
+            .tracks
+            .iter()
+            .filter_map(|track| track.duplicate_group.as_deref())
+            .collect();
+
+        assert_eq!(result.duplicate_groups, 1);
+        assert_eq!(result.duplicate_tracks, 2);
+        assert_eq!(result.fingerprint_failures, 0);
+        assert_eq!(duplicate_labels, vec!["DUP-001", "DUP-001"]);
+        assert!(result
+            .tracks
+            .iter()
+            .find(|track| track.name == "Different.mp3")
+            .is_some_and(|track| track.duplicate_group.is_none()));
 
         fs::remove_dir_all(root).expect("test directory should be removed");
     }
