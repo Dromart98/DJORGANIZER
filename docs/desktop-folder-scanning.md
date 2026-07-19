@@ -28,7 +28,10 @@ para los archivos candidatos. La huella local nunca se devuelve a la web ni se
 persiste. Tras el escaneo, la sesión autenticada puede entregar a Rust las
 huellas y tamaños ya guardados en la biblioteca del usuario; Rust calcula solo
 las comparaciones necesarias y conserva en memoria el vínculo entre el ID
-persistente y el ID opaco del escaneo. Las rutas absolutas permanecen en Rust.
+persistente y el ID opaco del escaneo. React recibe únicamente esos pares de
+identificadores para marcar las coincidencias y preparar acciones posteriores;
+no recibe huellas calculadas localmente ni rutas. Las rutas absolutas permanecen
+en Rust.
 No se decodifican muestras ni se calcula BPM o tonalidad. Si una etiqueta o una
 comparación falla, la pista se conserva y el fallo se contabiliza.
 
