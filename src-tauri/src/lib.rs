@@ -1,5 +1,7 @@
 use lofty::{
+    config::ParseOptions,
     file::{AudioFile, TaggedFileExt},
+    mp4::{AtomData, AtomIdent, Ilst, Mp4File},
     read_from_path,
     tag::{Accessor, ItemKey},
 };
@@ -73,7 +75,68 @@ fn parse_bpm(value: &str) -> Option<f64> {
     (20.0..=300.0).contains(&bpm).then_some(bpm)
 }
 
+fn parse_mp4_bpm_value(value: &AtomData) -> Option<f64> {
+    match value {
+        AtomData::SignedInteger(value) => parse_bpm(&value.to_string()),
+        AtomData::UnsignedInteger(value) => parse_bpm(&value.to_string()),
+        AtomData::UTF8(value) | AtomData::UTF16(value) => parse_bpm(value),
+        AtomData::Unknown { data, .. } if !data.is_empty() && data.len() <= 4 => {
+            let value = data
+                .iter()
+                .try_fold(0_u32, |value, byte| value.checked_mul(256)?.checked_add(*byte as u32))?;
+            parse_bpm(&value.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn mp4_text(ilst: &Ilst, key: ItemKey) -> Option<String> {
+    let ident = AtomIdent::try_from(key).ok()?;
+    let atom = ilst.get(&ident)?;
+
+    atom.data().find_map(|value| match value {
+        AtomData::UTF8(value) | AtomData::UTF16(value) => cleaned_text(value),
+        _ => None,
+    })
+}
+
+fn read_mp4_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mp4_file =
+        Mp4File::read_from(&mut file, ParseOptions::new()).map_err(|error| error.to_string())?;
+    let duration = mp4_file.properties().duration().as_secs_f64();
+    let mut metadata = AudioMetadata {
+        duration_seconds: (duration > 0.0).then_some(duration),
+        ..AudioMetadata::default()
+    };
+
+    if let Some(ilst) = mp4_file.ilst() {
+        metadata.title = ilst.title().as_deref().and_then(cleaned_text);
+        metadata.artist = ilst.artist().as_deref().and_then(cleaned_text);
+        metadata.album = ilst.album().as_deref().and_then(cleaned_text);
+        metadata.genre = ilst.genre().as_deref().and_then(cleaned_text);
+        metadata.bpm = mp4_text(ilst, ItemKey::Bpm)
+            .as_deref()
+            .and_then(parse_bpm)
+            .or_else(|| {
+                ilst.get(&AtomIdent::Fourcc(*b"tmpo"))
+                    .and_then(|atom| atom.data().find_map(parse_mp4_bpm_value))
+            });
+        metadata.musical_key = mp4_text(ilst, ItemKey::InitialKey);
+    }
+
+    Ok(metadata)
+}
+
 fn read_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
+    if path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("m4a"))
+    {
+        return read_mp4_audio_metadata(path);
+    }
+
     let tagged_file = read_from_path(path).map_err(|error| error.to_string())?;
     let duration = tagged_file.properties().duration().as_secs_f64();
     let mut metadata = AudioMetadata {
@@ -262,7 +325,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{audio_extension, parse_bpm, read_audio_metadata, scan_music_folder};
+    use super::{
+        audio_extension, parse_bpm, parse_mp4_bpm_value, read_audio_metadata, scan_music_folder,
+    };
+    use lofty::mp4::AtomData;
     use std::{
         fs,
         path::Path,
@@ -321,6 +387,16 @@ mod tests {
         assert_eq!(parse_bpm("124,5"), Some(124.5));
         assert_eq!(parse_bpm("0"), None);
         assert_eq!(parse_bpm("not-a-number"), None);
+    }
+
+    #[test]
+    fn parses_numeric_mp4_bpm_values() {
+        assert_eq!(parse_mp4_bpm_value(&AtomData::SignedInteger(128)), Some(128.0));
+        assert_eq!(
+            parse_mp4_bpm_value(&AtomData::UnsignedInteger(124)),
+            Some(124.0)
+        );
+        assert_eq!(parse_mp4_bpm_value(&AtomData::SignedInteger(0)), None);
     }
 
     #[test]
