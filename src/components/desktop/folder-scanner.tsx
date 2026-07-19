@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  createOrganizationPreview,
   filterScannedTracks,
   paginateScannedTracks,
+  type OrganizationScheme,
   type ScanReviewFilter,
   type ScannedAudioFile,
 } from "@/lib/desktop/scan-review";
@@ -85,6 +87,8 @@ export function DesktopFolderScanner() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ScanReviewFilter>("all");
   const [page, setPage] = useState(1);
+  const [organizationScheme, setOrganizationScheme] =
+    useState<OrganizationScheme>("artist-album");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(
     () => new Set(),
   );
@@ -95,6 +99,17 @@ export function DesktopFolderScanner() {
   const pagination = useMemo(
     () => paginateScannedTracks(filteredTracks, page),
     [filteredTracks, page],
+  );
+  const selectedTracks = useMemo(
+    () =>
+      result?.tracks.filter((track) =>
+        selectedPaths.has(track.relativePath),
+      ) ?? [],
+    [result, selectedPaths],
+  );
+  const organizationPreview = useMemo(
+    () => createOrganizationPreview(selectedTracks, organizationScheme),
+    [organizationScheme, selectedTracks],
   );
   const visiblePaths = pagination.items.map((track) => track.relativePath);
   const allVisibleSelected =
@@ -321,6 +336,58 @@ export function DesktopFolderScanner() {
                     Siguiente
                   </button>
                 </nav>
+              ) : null}
+
+              {organizationPreview.length ? (
+                <section
+                  aria-labelledby="desktop-plan-title"
+                  className="desktop-reorganization-preview"
+                >
+                  <div className="organization-section-heading">
+                    <div>
+                      <p className="eyebrow">Solo previsualización</p>
+                      <h3 id="desktop-plan-title">Plan de organización</h3>
+                    </div>
+                    <label>
+                      Agrupar por
+                      <select
+                        onChange={(event) =>
+                          setOrganizationScheme(
+                            event.target.value as OrganizationScheme,
+                          )
+                        }
+                        value={organizationScheme}
+                      >
+                        <option value="artist-album">Artista / álbum</option>
+                        <option value="genre-artist">Género / artista</option>
+                        <option value="key-bpm">Tonalidad / BPM</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p className="organization-muted">
+                    Estas rutas son una propuesta segura para{" "}
+                    {organizationPreview.length.toLocaleString("es-ES")} pistas.
+                    No se moverá, renombrará ni escribirá ningún archivo.
+                  </p>
+                  <ol>
+                    {organizationPreview.slice(0, 10).map((item) => (
+                      <li key={item.sourcePath}>
+                        <span>{item.sourcePath}</span>
+                        <strong>→ {item.targetPath}</strong>
+                        {item.collisionResolved ? (
+                          <small>Nombre ajustado para evitar una colisión</small>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                  {organizationPreview.length > 10 ? (
+                    <p className="organization-muted">
+                      Se muestran 10 de{" "}
+                      {organizationPreview.length.toLocaleString("es-ES")} rutas
+                      propuestas.
+                    </p>
+                  ) : null}
+                </section>
               ) : null}
             </>
           ) : (
