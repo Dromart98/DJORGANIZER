@@ -784,8 +784,7 @@ mod tests {
     use super::{
         audio_extension, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
         export_path_text, parse_bpm, parse_mp4_bpm_value, read_audio_metadata,
-        safe_export_file_name,
-        scan_music_folder, ScannedAudioFile, SessionTrack,
+        safe_export_file_name, scan_music_folder, ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use std::{
