@@ -11,10 +11,11 @@ import {
 } from "@/lib/desktop/scan-review";
 
 interface TauriCore {
-  invoke<T>(command: string): Promise<T>;
+  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 }
 
 interface FolderScanResult {
+  sessionId: string;
   rootName: string;
   tracks: ScannedAudioFile[];
   examinedEntries: number;
@@ -24,6 +25,11 @@ interface FolderScanResult {
   duplicateTracks: number;
   fingerprintFailures: number;
   truncated: boolean;
+}
+
+interface VirtualDjExportResult {
+  cancelled: boolean;
+  exportedTracks: number;
 }
 
 function getTauriCore(): TauriCore | undefined {
@@ -89,6 +95,9 @@ export function DesktopFolderScanner() {
   const [page, setPage] = useState(1);
   const [organizationScheme, setOrganizationScheme] =
     useState<OrganizationScheme>("artist-album");
+  const [virtualDjListName, setVirtualDjListName] = useState("DJOrganizer");
+  const [exportingVirtualDj, setExportingVirtualDj] = useState(false);
+  const [virtualDjMessage, setVirtualDjMessage] = useState<string | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(
     () => new Set(),
   );
@@ -142,6 +151,8 @@ export function DesktopFolderScanner() {
       setQuery("");
       setFilter("all");
       setPage(1);
+      setVirtualDjListName(nextResult.rootName);
+      setVirtualDjMessage(null);
       setSelectedPaths(new Set());
     } catch {
       setMessage(
@@ -176,6 +187,36 @@ export function DesktopFolderScanner() {
       }
       return next;
     });
+  }
+
+  async function exportToVirtualDj() {
+    const core = getTauriCore();
+    if (!core || !result || !selectedTracks.length) return;
+
+    setExportingVirtualDj(true);
+    setVirtualDjMessage(null);
+
+    try {
+      const exportResult = await core.invoke<VirtualDjExportResult>(
+        "export_virtualdj_list",
+        {
+          sessionId: result.sessionId,
+          relativePaths: selectedTracks.map((track) => track.relativePath),
+          listName: virtualDjListName,
+        },
+      );
+      setVirtualDjMessage(
+        exportResult.cancelled
+          ? "Exportación cancelada. No se ha escrito ninguna lista."
+          : `Lista guardada con ${exportResult.exportedTracks.toLocaleString("es-ES")} pistas. Ya puedes abrirla o copiarla a My Lists en VirtualDJ.`,
+      );
+    } catch {
+      setVirtualDjMessage(
+        "No se pudo guardar la lista. Vuelve a escanear la carpeta y comprueba el destino elegido.",
+      );
+    } finally {
+      setExportingVirtualDj(false);
+    }
   }
 
   return (
@@ -336,6 +377,55 @@ export function DesktopFolderScanner() {
                     Siguiente
                   </button>
                 </nav>
+              ) : null}
+
+              {selectedTracks.length ? (
+                <section
+                  aria-labelledby="virtualdj-export-title"
+                  className="desktop-reorganization-preview desktop-virtualdj-export"
+                >
+                  <div className="organization-section-heading">
+                    <div>
+                      <p className="eyebrow">VirtualDJ 2024+</p>
+                      <h3 id="virtualdj-export-title">Exportar lista nativa</h3>
+                    </div>
+                    <label>
+                      Nombre de la lista
+                      <input
+                        maxLength={120}
+                        onChange={(event) =>
+                          setVirtualDjListName(event.target.value)
+                        }
+                        value={virtualDjListName}
+                      />
+                    </label>
+                  </div>
+                  <p className="organization-muted">
+                    Se guardará un archivo XML ordenado con las{" "}
+                    {selectedTracks.length.toLocaleString("es-ES")} pistas
+                    seleccionadas. El audio no se copia ni se modifica y la ruta
+                    de destino solo la eliges tú mediante el selector del sistema.
+                  </p>
+                  <div>
+                    <button
+                      className="button button--secondary"
+                      disabled={
+                        exportingVirtualDj || !virtualDjListName.trim()
+                      }
+                      onClick={() => void exportToVirtualDj()}
+                      type="button"
+                    >
+                      {exportingVirtualDj
+                        ? "Preparando lista…"
+                        : "Guardar lista para VirtualDJ"}
+                    </button>
+                  </div>
+                  {virtualDjMessage ? (
+                    <p className="organization-muted" role="status">
+                      {virtualDjMessage}
+                    </p>
+                  ) : null}
+                </section>
               ) : null}
 
               {organizationPreview.length ? (
