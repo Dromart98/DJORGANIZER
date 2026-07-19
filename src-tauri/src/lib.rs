@@ -81,7 +81,10 @@ fn read_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
         ..AudioMetadata::default()
     };
 
-    if let Some(tag) = tagged_file.primary_tag().or_else(|| tagged_file.first_tag()) {
+    if let Some(tag) = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+    {
         metadata.title = tag.title().as_deref().and_then(cleaned_text);
         metadata.artist = tag.artist().as_deref().and_then(cleaned_text);
         metadata.album = tag.album().as_deref().and_then(cleaned_text);
@@ -90,9 +93,7 @@ fn read_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
             .get_string(ItemKey::Bpm)
             .or_else(|| tag.get_string(ItemKey::IntegerBpm))
             .and_then(parse_bpm);
-        metadata.musical_key = tag
-            .get_string(ItemKey::InitialKey)
-            .and_then(cleaned_text);
+        metadata.musical_key = tag.get_string(ItemKey::InitialKey).and_then(cleaned_text);
     }
 
     Ok(metadata)
@@ -342,8 +343,7 @@ mod tests {
         let root = test_directory();
         let set = root.join("Set A");
         fs::create_dir_all(&set).expect("nested directory should be created");
-        fs::write(set.join("Opening.MP3"), [1_u8, 2, 3])
-            .expect("audio fixture should be written");
+        fs::write(set.join("Opening.MP3"), [1_u8, 2, 3]).expect("audio fixture should be written");
         fs::write(root.join("notes.txt"), b"not audio").expect("text fixture should be written");
 
         let result = scan_music_folder(&root).expect("folder should be scanned");
