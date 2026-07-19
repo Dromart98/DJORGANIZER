@@ -232,7 +232,10 @@ audio.
 El resultado local completo se puede buscar por nombre, ruta y metadatos,
 filtrar por duplicados o errores de lectura y recorrer en páginas de 25 pistas.
 La selección múltiple permanece en memoria y no ejecuta todavía operaciones
-sobre los archivos.
+sobre los archivos. Para las pistas seleccionadas se puede previsualizar una
+organización por artista/álbum, género/artista o tonalidad/BPM. Las rutas se
+sanean, los nombres reservados se neutralizan y las colisiones se resuelven en
+la propuesta, pero esta fase no mueve ni renombra archivos.
 
 Para validar el núcleo Rust:
 
