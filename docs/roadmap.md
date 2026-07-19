@@ -56,6 +56,12 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 - [ ] Analizar automáticamente BPM y tonalidad en cuanto se seleccionen archivos
   para importar, sin requerir un botón adicional; mostrar progreso, permitir
   cancelar y conservar la corrección manual. El análisis seguirá siendo local.
+- [ ] Clasificar géneros con la API de OpenAI y la familia `gpt-audio`. Esta
+  función será opcional y requerirá consentimiento explícito antes de enviar un
+  fragmento autorizado; la clave permanecerá en el servidor. Definir taxonomía,
+  respuesta estructurada, confianza, límites de coste, caché por huella y
+  corrección manual. Confirmar el modelo de audio vigente al implementar.
+  Referencia: [gpt-audio](https://developers.openai.com/api/docs/models/gpt-audio).
 - [ ] Calcular energía real con una escala documentada y editable.
 - [ ] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
