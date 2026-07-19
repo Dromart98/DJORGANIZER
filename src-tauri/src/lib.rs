@@ -81,9 +81,9 @@ fn parse_mp4_bpm_value(value: &AtomData) -> Option<f64> {
         AtomData::UnsignedInteger(value) => parse_bpm(&value.to_string()),
         AtomData::UTF8(value) | AtomData::UTF16(value) => parse_bpm(value),
         AtomData::Unknown { data, .. } if !data.is_empty() && data.len() <= 4 => {
-            let value = data
-                .iter()
-                .try_fold(0_u32, |value, byte| value.checked_mul(256)?.checked_add(*byte as u32))?;
+            let value = data.iter().try_fold(0_u32, |value, byte| {
+                value.checked_mul(256)?.checked_add(*byte as u32)
+            })?;
             parse_bpm(&value.to_string())
         }
         _ => None,
@@ -391,7 +391,10 @@ mod tests {
 
     #[test]
     fn parses_numeric_mp4_bpm_values() {
-        assert_eq!(parse_mp4_bpm_value(&AtomData::SignedInteger(128)), Some(128.0));
+        assert_eq!(
+            parse_mp4_bpm_value(&AtomData::SignedInteger(128)),
+            Some(128.0)
+        );
         assert_eq!(
             parse_mp4_bpm_value(&AtomData::UnsignedInteger(124)),
             Some(124.0)
