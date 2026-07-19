@@ -9,6 +9,7 @@ import {
 
 const tracks: ScannedAudioFile[] = [
   {
+    scanId: "track-1",
     name: "Opening.mp3",
     relativePath: "Set/Opening.mp3",
     extension: "mp3",
@@ -24,6 +25,7 @@ const tracks: ScannedAudioFile[] = [
     duplicateGroup: "DUP-001",
   },
   {
+    scanId: "track-2",
     name: "Closing.flac",
     relativePath: "Set/Closing.flac",
     extension: "flac",
