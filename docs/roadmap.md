@@ -26,7 +26,7 @@ request independiente, con pruebas, revisión y despliegue de producción desde
 
 ### Integración con VirtualDJ
 
-- [ ] Exportar también M3U8 como formato de compatibilidad heredada.
+- [x] Exportar también M3U8 como formato de compatibilidad heredada.
 - [ ] Asociar de forma local una pista persistente de DJOrganizer con su archivo
   en cada dispositivo mediante huella y ruta, sin publicar la ruta absoluta.
 - [ ] Exportar crates de DJOrganizer a Lists de VirtualDJ conservando su orden.
@@ -53,6 +53,9 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 
 ### Inteligencia y calidad musical
 
+- [ ] Analizar automáticamente BPM y tonalidad en cuanto se seleccionen archivos
+  para importar, sin requerir un botón adicional; mostrar progreso, permitir
+  cancelar y conservar la corrección manual. El análisis seguirá siendo local.
 - [ ] Calcular energía real con una escala documentada y editable.
 - [ ] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
