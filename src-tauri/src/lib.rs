@@ -479,6 +479,12 @@ fn xml_escape_attribute(value: &str) -> String {
     escaped
 }
 
+fn export_path_text(path: &Path) -> Result<&str, String> {
+    path.to_str().ok_or_else(|| {
+        "Una ruta contiene bytes que no son UTF-8 y no puede exportarse de forma segura.".to_owned()
+    })
+}
+
 fn push_xml_attribute(xml: &mut String, name: &str, value: &str) {
     xml.push(' ');
     xml.push_str(name);
@@ -487,7 +493,7 @@ fn push_xml_attribute(xml: &mut String, name: &str, value: &str) {
     xml.push('"');
 }
 
-fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> String {
+fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> Result<String, String> {
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <VirtualFolder noDuplicates=\"yes\" singleDrive=\"no\" ordered=\"yes\">\n",
@@ -499,7 +505,7 @@ fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> String {
         push_xml_attribute(
             &mut xml,
             "path",
-            &session_track.absolute_path.to_string_lossy(),
+            export_path_text(&session_track.absolute_path)?,
         );
         push_xml_attribute(&mut xml, "size", &track.size_bytes.to_string());
         if let Some(artist) = track.artist.as_deref() {
@@ -522,7 +528,7 @@ fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> String {
     }
 
     xml.push_str("</VirtualFolder>\n");
-    xml
+    Ok(xml)
 }
 
 fn m3u8_label(track: &ScannedAudioFile) -> String {
@@ -540,7 +546,7 @@ fn build_virtualdj_m3u8(tracks: &[SessionTrack]) -> Result<String, String> {
     let mut m3u8 = String::from("#EXTM3U\n");
 
     for session_track in tracks {
-        let absolute_path = session_track.absolute_path.to_string_lossy();
+        let absolute_path = export_path_text(&session_track.absolute_path)?;
         if absolute_path.contains(|character| matches!(character, '\r' | '\n')) {
             return Err(
                 "Una ruta contiene un salto de línea incompatible con M3U8. Usa la exportación XML."
@@ -703,7 +709,7 @@ async fn export_virtualdj_list(
     let destination = destination
         .into_path()
         .map_err(|error| format!("El destino elegido no es una ruta local válida: {error}"))?;
-    let xml = build_virtualdj_list_xml(&selected_tracks);
+    let xml = build_virtualdj_list_xml(&selected_tracks)?;
     fs::write(destination, xml)
         .map_err(|error| format!("No se pudo guardar la lista de VirtualDJ: {error}"))?;
 
@@ -777,7 +783,8 @@ pub fn run() {
 mod tests {
     use super::{
         audio_extension, build_virtualdj_list_xml, build_virtualdj_m3u8, create_track_id,
-        parse_bpm, parse_mp4_bpm_value, read_audio_metadata, safe_export_file_name,
+        export_path_text, parse_bpm, parse_mp4_bpm_value, read_audio_metadata,
+        safe_export_file_name,
         scan_music_folder, ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
@@ -993,7 +1000,7 @@ mod tests {
             },
         ];
 
-        let xml = build_virtualdj_list_xml(&tracks);
+        let xml = build_virtualdj_list_xml(&tracks).expect("XML should be generated");
 
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(
@@ -1018,6 +1025,20 @@ mod tests {
         assert!(build_virtualdj_m3u8(&[incompatible])
             .expect_err("line breaks in paths must be rejected")
             .contains("XML"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_export_paths() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
+
+        let path = PathBuf::from(OsString::from_vec(vec![
+            b'/', b'm', b'u', b's', b'i', b'c', b'/', 0xff, b'.', b'm', b'p', b'3',
+        ]));
+
+        assert!(export_path_text(&path)
+            .expect_err("a lossy path must be rejected")
+            .contains("UTF-8"));
     }
 
     #[test]
