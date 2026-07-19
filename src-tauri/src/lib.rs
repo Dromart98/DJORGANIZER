@@ -123,9 +123,17 @@ struct LibraryLinkMatch {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LibraryTrackLink {
+    scan_id: String,
+    track_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LibraryLinkResult {
     fingerprint_failures: usize,
     linked_tracks: usize,
+    links: Vec<LibraryTrackLink>,
     unmatched_tracks: usize,
 }
 
@@ -809,7 +817,16 @@ async fn link_library_tracks(
     .await
     .map_err(|error| format!("La vinculación local se interrumpió: {error}"))??;
 
-    let linked_tracks = matches.links.len();
+    let mut links = matches
+        .links
+        .iter()
+        .map(|(track_id, scan_id)| LibraryTrackLink {
+            scan_id: scan_id.clone(),
+            track_id: track_id.clone(),
+        })
+        .collect::<Vec<_>>();
+    links.sort_by(|left, right| left.track_id.cmp(&right.track_id));
+    let linked_tracks = links.len();
     let mut current_session = state
         .scan_session
         .lock()
@@ -825,6 +842,7 @@ async fn link_library_tracks(
     Ok(LibraryLinkResult {
         fingerprint_failures: matches.fingerprint_failures,
         linked_tracks,
+        links,
         unmatched_tracks: matches.unmatched_tracks,
     })
 }
