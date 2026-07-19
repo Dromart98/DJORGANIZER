@@ -96,7 +96,8 @@ export function safePathSegment(value: string | null, fallback: string) {
       .replace(/^\.+/, "")
       .replace(/[. ]+$/, "")
       .trim()
-      .slice(0, 80);
+      .slice(0, 80)
+      .replace(/[. ]+$/, "");
 
   const segment = clean(value ?? "") || clean(fallback) || "Sin datos";
   return WINDOWS_RESERVED_NAME.test(segment) ? `_${segment}` : segment;
