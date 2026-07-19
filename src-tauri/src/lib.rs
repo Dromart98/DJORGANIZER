@@ -8,12 +8,14 @@ use lofty::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     io::{BufReader, Read},
     path::{Path, PathBuf},
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 const AUDIO_EXTENSIONS: &[&str] = &[
@@ -33,7 +35,7 @@ struct AudioMetadata {
     musical_key: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScannedAudioFile {
     name: String,
@@ -54,6 +56,7 @@ struct ScannedAudioFile {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FolderScanResult {
+    session_id: String,
     root_name: String,
     tracks: Vec<ScannedAudioFile>,
     examined_entries: usize,
@@ -69,6 +72,36 @@ struct FolderScanResult {
 struct ScanCandidate {
     path: PathBuf,
     track: ScannedAudioFile,
+}
+
+#[derive(Clone, Debug)]
+struct SessionTrack {
+    absolute_path: PathBuf,
+    track: ScannedAudioFile,
+}
+
+#[derive(Debug)]
+struct CompletedScan {
+    result: FolderScanResult,
+    session_tracks: Vec<SessionTrack>,
+}
+
+#[derive(Debug)]
+struct ScanSession {
+    id: String,
+    tracks: HashMap<String, SessionTrack>,
+}
+
+#[derive(Debug, Default)]
+struct DesktopState {
+    scan_session: Mutex<Option<ScanSession>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VirtualDjExportResult {
+    cancelled: bool,
+    exported_tracks: usize,
 }
 
 fn audio_extension(path: &Path) -> Option<String> {
@@ -257,7 +290,7 @@ fn mark_exact_duplicates(candidates: &mut [ScanCandidate]) -> (usize, usize, usi
     (duplicate_sets.len(), duplicate_tracks, fingerprint_failures)
 }
 
-fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
+fn scan_music_folder(root: &Path, session_id: String) -> Result<CompletedScan, String> {
     if !root.is_dir() {
         return Err("La selección no es una carpeta accesible.".to_owned());
     }
@@ -376,26 +409,129 @@ fn scan_music_folder(root: &Path) -> Result<FolderScanResult, String> {
     candidates.sort_by_key(|candidate| candidate.track.relative_path.to_ascii_lowercase());
     let (duplicate_groups, duplicate_tracks, fingerprint_failures) =
         mark_exact_duplicates(&mut candidates);
+    let session_tracks = candidates
+        .iter()
+        .map(|candidate| SessionTrack {
+            absolute_path: candidate.path.clone(),
+            track: candidate.track.clone(),
+        })
+        .collect();
     let tracks = candidates
         .into_iter()
         .map(|candidate| candidate.track)
         .collect();
 
-    Ok(FolderScanResult {
-        root_name,
-        tracks,
-        examined_entries,
-        skipped_entries,
-        metadata_failures,
-        duplicate_groups,
-        duplicate_tracks,
-        fingerprint_failures,
-        truncated,
+    Ok(CompletedScan {
+        result: FolderScanResult {
+            session_id,
+            root_name,
+            tracks,
+            examined_entries,
+            skipped_entries,
+            metadata_failures,
+            duplicate_groups,
+            duplicate_tracks,
+            fingerprint_failures,
+            truncated,
+        },
+        session_tracks,
     })
 }
 
+fn create_scan_session_id(root: &Path) -> Result<String, String> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "No se pudo crear una sesión segura para el escaneo.".to_owned())?;
+    let mut hasher = Sha256::new();
+    hasher.update(root.to_string_lossy().as_bytes());
+    hasher.update(elapsed.as_nanos().to_le_bytes());
+    hasher.update(std::process::id().to_le_bytes());
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn xml_escape_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn push_xml_attribute(xml: &mut String, name: &str, value: &str) {
+    xml.push(' ');
+    xml.push_str(name);
+    xml.push_str("=\"");
+    xml.push_str(&xml_escape_attribute(value));
+    xml.push('"');
+}
+
+fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> String {
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<VirtualFolder noDuplicates=\"yes\" singleDrive=\"no\" ordered=\"yes\">\n",
+    );
+
+    for (index, session_track) in tracks.iter().enumerate() {
+        let track = &session_track.track;
+        xml.push_str("  <song");
+        push_xml_attribute(
+            &mut xml,
+            "path",
+            &session_track.absolute_path.to_string_lossy(),
+        );
+        push_xml_attribute(&mut xml, "size", &track.size_bytes.to_string());
+        if let Some(artist) = track.artist.as_deref() {
+            push_xml_attribute(&mut xml, "artist", artist);
+        }
+        if let Some(title) = track.title.as_deref() {
+            push_xml_attribute(&mut xml, "title", title);
+        }
+        if let Some(duration) = track.duration_seconds {
+            push_xml_attribute(&mut xml, "songlength", &format!("{duration:.3}"));
+        }
+        if let Some(bpm) = track.bpm {
+            push_xml_attribute(&mut xml, "bpm", &format!("{bpm:.3}"));
+        }
+        if let Some(key) = track.musical_key.as_deref() {
+            push_xml_attribute(&mut xml, "key", key);
+        }
+        push_xml_attribute(&mut xml, "idx", &index.to_string());
+        xml.push_str(" />\n");
+    }
+
+    xml.push_str("</VirtualFolder>\n");
+    xml
+}
+
+fn safe_export_file_name(list_name: &str) -> String {
+    let sanitized: String = list_name
+        .chars()
+        .map(|character| match character {
+            '\0'..='\u{1f}' | '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => ' ',
+            _ => character,
+        })
+        .collect();
+    let sanitized = sanitized
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_matches(['.', ' '])
+        .chars()
+        .take(80)
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "DJOrganizer".to_owned()
+    } else {
+        sanitized
+    }
+}
+
 #[tauri::command]
-async fn choose_and_scan_music_folder(app: AppHandle) -> Result<Option<FolderScanResult>, String> {
+async fn choose_and_scan_music_folder(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<Option<FolderScanResult>, String> {
     let selection = app
         .dialog()
         .file()
@@ -408,26 +544,118 @@ async fn choose_and_scan_music_folder(app: AppHandle) -> Result<Option<FolderSca
     let root = selection
         .into_path()
         .map_err(|error| format!("La carpeta seleccionada no es una ruta local válida: {error}"))?;
+    let session_id = create_scan_session_id(&root)?;
+    let scan_session_id = session_id.clone();
 
-    let scan = tauri::async_runtime::spawn_blocking(move || scan_music_folder(&root))
-        .await
-        .map_err(|error| format!("El escaneo local se interrumpió: {error}"))??;
+    let completed =
+        tauri::async_runtime::spawn_blocking(move || scan_music_folder(&root, scan_session_id))
+            .await
+            .map_err(|error| format!("El escaneo local se interrumpió: {error}"))??;
 
-    Ok(Some(scan))
+    let tracks = completed
+        .session_tracks
+        .iter()
+        .cloned()
+        .map(|track| (track.track.relative_path.clone(), track))
+        .collect();
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    *current_session = Some(ScanSession {
+        id: session_id,
+        tracks,
+    });
+
+    Ok(Some(completed.result))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn export_virtualdj_list(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    session_id: String,
+    relative_paths: Vec<String>,
+    list_name: String,
+) -> Result<VirtualDjExportResult, String> {
+    let list_name = list_name.trim();
+    if list_name.is_empty() || list_name.chars().count() > 120 {
+        return Err("El nombre de la lista debe tener entre 1 y 120 caracteres.".to_owned());
+    }
+    if relative_paths.is_empty() || relative_paths.len() > MAX_TRACKS {
+        return Err("Selecciona entre 1 y 10.000 pistas para exportar.".to_owned());
+    }
+
+    let mut unique_paths = HashSet::with_capacity(relative_paths.len());
+    let selected_tracks = {
+        let current_session = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let session = current_session
+            .as_ref()
+            .filter(|session| session.id == session_id)
+            .ok_or_else(|| "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned())?;
+
+        relative_paths
+            .iter()
+            .map(|relative_path| {
+                if !unique_paths.insert(relative_path) {
+                    return Err("La selección contiene una pista repetida.".to_owned());
+                }
+                session
+                    .tracks
+                    .get(relative_path)
+                    .cloned()
+                    .ok_or_else(|| "La selección no pertenece al escaneo activo.".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    let default_name = format!("{}.xml", safe_export_file_name(list_name));
+    let destination = app
+        .dialog()
+        .file()
+        .set_title("Guardar lista para VirtualDJ")
+        .set_file_name(default_name)
+        .add_filter("VirtualDJ List", &["xml"])
+        .blocking_save_file();
+
+    let Some(destination) = destination else {
+        return Ok(VirtualDjExportResult {
+            cancelled: true,
+            exported_tracks: 0,
+        });
+    };
+    let destination = destination
+        .into_path()
+        .map_err(|error| format!("El destino elegido no es una ruta local válida: {error}"))?;
+    let xml = build_virtualdj_list_xml(&selected_tracks);
+    fs::write(destination, xml)
+        .map_err(|error| format!("No se pudo guardar la lista de VirtualDJ: {error}"))?;
+
+    Ok(VirtualDjExportResult {
+        cancelled: false,
+        exported_tracks: selected_tracks.len(),
+    })
 }
 
 /// Starts the desktop application.
 ///
-/// The sole native command always opens an operating-system folder picker and
-/// then performs a bounded, read-only scan. It reads file metadata and embedded
-/// tags and compares exact-content fingerprints only for same-size candidates. It
-/// never accepts a path supplied by remote web content and never writes, moves,
-/// renames, uploads, returns fingerprints, or persists files.
+/// The native scan command opens an operating-system folder picker and performs
+/// a bounded local scan. The VirtualDJ export command accepts only relative paths
+/// from the active native scan session, opens a save dialog, and writes one XML
+/// list chosen by the user. Neither command moves, renames, uploads, or modifies
+/// audio files.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(DesktopState::default())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![choose_and_scan_music_folder])
+        .invoke_handler(tauri::generate_handler![
+            choose_and_scan_music_folder,
+            export_virtualdj_list
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run DJOrganizer desktop");
 }
@@ -435,7 +663,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_extension, parse_bpm, parse_mp4_bpm_value, read_audio_metadata, scan_music_folder,
+        audio_extension, build_virtualdj_list_xml, parse_bpm, parse_mp4_bpm_value,
+        read_audio_metadata, safe_export_file_name, scan_music_folder, ScannedAudioFile,
+        SessionTrack,
     };
     use lofty::mp4::AtomData;
     use std::{
@@ -534,7 +764,9 @@ mod tests {
         fs::write(set.join("Opening.MP3"), [1_u8, 2, 3]).expect("audio fixture should be written");
         fs::write(root.join("notes.txt"), b"not audio").expect("text fixture should be written");
 
-        let result = scan_music_folder(&root).expect("folder should be scanned");
+        let result = scan_music_folder(&root, "test-session".to_owned())
+            .expect("folder should be scanned")
+            .result;
 
         assert_eq!(result.tracks.len(), 1);
         assert_eq!(result.tracks[0].name, "Opening.MP3");
@@ -560,7 +792,9 @@ mod tests {
         fs::write(root.join("Different.mp3"), [1_u8, 2, 4])
             .expect("different fixture should be written");
 
-        let result = scan_music_folder(&root).expect("folder should be scanned");
+        let result = scan_music_folder(&root, "test-session".to_owned())
+            .expect("folder should be scanned")
+            .result;
         let duplicate_labels: Vec<_> = result
             .tracks
             .iter()
@@ -586,9 +820,69 @@ mod tests {
         let file = root.join("track.wav");
         fs::write(&file, [0_u8]).expect("fixture should be written");
 
-        let error = scan_music_folder(&file).expect_err("a file is not a valid scan root");
+        let error = scan_music_folder(&file, "test-session".to_owned())
+            .expect_err("a file is not a valid scan root");
 
         assert!(error.contains("carpeta"));
         fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn builds_ordered_virtualdj_xml_and_escapes_metadata() {
+        let tracks = vec![
+            SessionTrack {
+                absolute_path: "/music/A&B/Opening \"Live\".mp3".into(),
+                track: ScannedAudioFile {
+                    name: "Opening.mp3".to_owned(),
+                    relative_path: "A/Opening.mp3".to_owned(),
+                    extension: "mp3".to_owned(),
+                    size_bytes: 42,
+                    metadata_read: true,
+                    title: Some("Opening <Live>".to_owned()),
+                    artist: Some("DJ & Co.".to_owned()),
+                    album: None,
+                    genre: None,
+                    duration_seconds: Some(180.5),
+                    bpm: Some(124.0),
+                    musical_key: Some("Am".to_owned()),
+                    duplicate_group: None,
+                },
+            },
+            SessionTrack {
+                absolute_path: "/music/Closing.flac".into(),
+                track: ScannedAudioFile {
+                    name: "Closing.flac".to_owned(),
+                    relative_path: "Closing.flac".to_owned(),
+                    extension: "flac".to_owned(),
+                    size_bytes: 84,
+                    metadata_read: false,
+                    title: None,
+                    artist: None,
+                    album: None,
+                    genre: None,
+                    duration_seconds: None,
+                    bpm: None,
+                    musical_key: None,
+                    duplicate_group: None,
+                },
+            },
+        ];
+
+        let xml = build_virtualdj_list_xml(&tracks);
+
+        assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(xml.contains("<VirtualFolder noDuplicates=\"yes\" singleDrive=\"no\" ordered=\"yes\">"));
+        assert!(xml.contains("path=\"/music/A&amp;B/Opening &quot;Live&quot;.mp3\""));
+        assert!(xml.contains("title=\"Opening &lt;Live&gt;\""));
+        assert!(xml.contains("artist=\"DJ &amp; Co.\""));
+        assert!(xml.contains("songlength=\"180.500\" bpm=\"124.000\" key=\"Am\" idx=\"0\""));
+        assert!(xml.find("Opening").unwrap() < xml.find("Closing").unwrap());
+        assert!(xml.ends_with("</VirtualFolder>\n"));
+    }
+
+    #[test]
+    fn sanitizes_default_virtualdj_file_names() {
+        assert_eq!(safe_export_file_name("  Warm-up: Friday / 01  "), "Warm-up Friday 01");
+        assert_eq!(safe_export_file_name("..."), "DJOrganizer");
     }
 }
