@@ -21,8 +21,6 @@ export type TrackActionState = {
   status: "idle" | "error";
 };
 
-export const INITIAL_TRACK_ACTION_STATE: TrackActionState = { status: "idle" };
-
 function validationState(error: ZodError): TrackActionState {
   return {
     fieldErrors: error.flatten().fieldErrors,

@@ -5,10 +5,14 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   createTrackAction,
-  INITIAL_TRACK_ACTION_STATE,
   updateTrackAction,
+  type TrackActionState,
 } from "@/app/library/actions";
 import type { Tables } from "@/types/database";
+
+const INITIAL_TRACK_ACTION_STATE = {
+  status: "idle",
+} satisfies TrackActionState;
 
 type TrackFormProps = {
   mode: "create" | "update";
