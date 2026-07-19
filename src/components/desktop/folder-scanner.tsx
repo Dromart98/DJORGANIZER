@@ -32,6 +32,8 @@ interface VirtualDjExportResult {
   exportedTracks: number;
 }
 
+type VirtualDjExportFormat = "xml" | "m3u8";
+
 function getTauriCore(): TauriCore | undefined {
   if (typeof window === "undefined") return undefined;
 
@@ -96,7 +98,8 @@ export function DesktopFolderScanner() {
   const [organizationScheme, setOrganizationScheme] =
     useState<OrganizationScheme>("artist-album");
   const [virtualDjListName, setVirtualDjListName] = useState("DJOrganizer");
-  const [exportingVirtualDj, setExportingVirtualDj] = useState(false);
+  const [exportingVirtualDj, setExportingVirtualDj] =
+    useState<VirtualDjExportFormat | null>(null);
   const [virtualDjMessage, setVirtualDjMessage] = useState<string | null>(null);
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(
     () => new Set(),
@@ -189,33 +192,37 @@ export function DesktopFolderScanner() {
     });
   }
 
-  async function exportToVirtualDj() {
+  async function exportToVirtualDj(format: VirtualDjExportFormat) {
     const core = getTauriCore();
     if (!core || !result || !selectedTracks.length) return;
 
-    setExportingVirtualDj(true);
+    setExportingVirtualDj(format);
     setVirtualDjMessage(null);
 
     try {
-      const exportResult = await core.invoke<VirtualDjExportResult>(
-        "export_virtualdj_list",
-        {
-          sessionId: result.sessionId,
-          trackIds: selectedTracks.map((track) => track.scanId),
-          listName: virtualDjListName,
-        },
-      );
+      const command =
+        format === "xml"
+          ? "export_virtualdj_list"
+          : "export_virtualdj_m3u8";
+      const exportResult = await core.invoke<VirtualDjExportResult>(command, {
+        sessionId: result.sessionId,
+        trackIds: selectedTracks.map((track) => track.scanId),
+        listName: virtualDjListName,
+      });
+      const formatLabel = format === "xml" ? "XML nativa" : "M3U8";
       setVirtualDjMessage(
         exportResult.cancelled
           ? "Exportación cancelada. No se ha escrito ninguna lista."
-          : `Lista guardada con ${exportResult.exportedTracks.toLocaleString("es-ES")} pistas. Ya puedes abrirla o copiarla a My Lists en VirtualDJ.`,
+          : `Lista ${formatLabel} guardada con ${exportResult.exportedTracks.toLocaleString("es-ES")} pistas.`,
       );
     } catch {
       setVirtualDjMessage(
-        "No se pudo guardar la lista. Vuelve a escanear la carpeta y comprueba el destino elegido.",
+        format === "xml"
+          ? "No se pudo guardar la lista XML. Vuelve a escanear la carpeta y comprueba el destino elegido."
+          : "No se pudo guardar la lista M3U8. Si alguna ruta contiene saltos de línea, usa el formato XML.",
       );
     } finally {
-      setExportingVirtualDj(false);
+      setExportingVirtualDj(null);
     }
   }
 
@@ -386,8 +393,8 @@ export function DesktopFolderScanner() {
                 >
                   <div className="organization-section-heading">
                     <div>
-                      <p className="eyebrow">VirtualDJ 2024+</p>
-                      <h3 id="virtualdj-export-title">Exportar lista nativa</h3>
+                      <p className="eyebrow">VirtualDJ</p>
+                      <h3 id="virtualdj-export-title">Exportar lista</h3>
                     </div>
                     <label>
                       Nombre de la lista
@@ -401,23 +408,36 @@ export function DesktopFolderScanner() {
                     </label>
                   </div>
                   <p className="organization-muted">
-                    Se guardará un archivo XML ordenado con las{" "}
-                    {selectedTracks.length.toLocaleString("es-ES")} pistas
-                    seleccionadas. El audio no se copia ni se modifica y la ruta
-                    de destino solo la eliges tú mediante el selector del sistema.
+                    El XML nativo es la opción recomendada para VirtualDJ 2024+.
+                    M3U8 mantiene compatibilidad con flujos heredados. Ambos
+                    formatos conservan el orden de las{" "}
+                    {selectedTracks.length.toLocaleString("es-ES")} pistas y nunca
+                    copian ni modifican el audio.
                   </p>
-                  <div>
+                  <div className="action-row">
                     <button
                       className="button button--secondary"
                       disabled={
-                        exportingVirtualDj || !virtualDjListName.trim()
+                        Boolean(exportingVirtualDj) || !virtualDjListName.trim()
                       }
-                      onClick={() => void exportToVirtualDj()}
+                      onClick={() => void exportToVirtualDj("xml")}
                       type="button"
                     >
-                      {exportingVirtualDj
-                        ? "Preparando lista…"
-                        : "Guardar lista para VirtualDJ"}
+                      {exportingVirtualDj === "xml"
+                        ? "Preparando XML…"
+                        : "Guardar XML nativo"}
+                    </button>
+                    <button
+                      className="button button--secondary"
+                      disabled={
+                        Boolean(exportingVirtualDj) || !virtualDjListName.trim()
+                      }
+                      onClick={() => void exportToVirtualDj("m3u8")}
+                      type="button"
+                    >
+                      {exportingVirtualDj === "m3u8"
+                        ? "Preparando M3U8…"
+                        : "Guardar M3U8 compatible"}
                     </button>
                   </div>
                   {virtualDjMessage ? (
