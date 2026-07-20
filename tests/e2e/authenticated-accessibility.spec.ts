@@ -13,6 +13,8 @@ test("@authenticated exposes screen-reader navigation and library state", async 
   const email = `a11y-${runId}@djorganizer.test`;
   const password = `DjOrganizer-${runId}!`;
   const title = `Accessible track ${runId}`;
+  const isMobile = testInfo.project.name === "mobile";
+  const navigationName = isMobile ? "Mobile navigation" : "Main navigation";
 
   await page.context().addCookies([
     {
@@ -32,7 +34,7 @@ test("@authenticated exposes screen-reader navigation and library state", async 
   await expect(page.getByRole("main")).toHaveAttribute("id", "main-content");
   await expect(
     page
-      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("navigation", { name: navigationName })
       .getByRole("link", { name: "Library", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 
@@ -45,14 +47,9 @@ test("@authenticated exposes screen-reader navigation and library state", async 
   await page.goto("/library");
   await expect(
     page
-      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("navigation", { name: navigationName })
       .getByRole("link", { name: "Library", exact: true }),
   ).toHaveAttribute("aria-current", "page");
-
-  await expect(page.locator("table caption")).toHaveText("Library");
-  await expect(
-    page.getByRole("columnheader", { name: "Added" }),
-  ).toHaveAttribute("aria-sort", "ascending");
 
   const selectionStatus = page.locator(".bulk-toolbar [role='status']");
   await expect(selectionStatus).toHaveText("0 selected items");
@@ -64,11 +61,25 @@ test("@authenticated exposes screen-reader navigation and library state", async 
   await expect(trackCheckbox).toBeChecked();
   await expect(selectionStatus).toHaveText("1 selected item");
 
+  if (isMobile) {
+    await expect(
+      page.getByRole("link", { name: `Edit: ${title}` }),
+    ).toBeVisible();
+    return;
+  }
+
+  await expect(page.locator("table caption")).toHaveText("Library");
+  await expect(
+    page.getByRole("columnheader", { name: "Added" }),
+  ).toHaveAttribute("aria-sort", "ascending");
   await expect(
     page.getByRole("link", { name: `View and edit: ${title}` }),
   ).toBeVisible();
 
-  await page.getByRole("columnheader", { name: "Title" }).getByRole("link").click();
+  await page
+    .getByRole("columnheader", { name: "Title" })
+    .getByRole("link")
+    .click();
   await expect(page).toHaveURL(/sort=title/);
   await expect(
     page.getByRole("columnheader", { name: "Title" }),
