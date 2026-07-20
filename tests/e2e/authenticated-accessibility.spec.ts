@@ -51,7 +51,7 @@ test("@authenticated exposes screen-reader navigation and library state", async 
       .getByRole("link", { name: "Library", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 
-  const selectionStatus = page.locator(".bulk-toolbar [role='status']");
+  const selectionStatus = page.locator(".bulk-toolbar > [role='status']");
   await expect(selectionStatus).toHaveText("0 selected items");
 
   const trackCheckbox = page.getByRole("checkbox", {
