@@ -28,6 +28,7 @@ const english = {
   "Buscar actualizaciones": "Check for updates",
   "Buscar cambios ahora": "Check for changes now",
   "Buscar en biblioteca…": "Search library…",
+  "Busca, filtra y edita tus pistas.": "Search, filter and edit your tracks.",
   "Buscar en el escaneo": "Search scan",
   "Cambios pendientes de confirmación": "Changes awaiting confirmation",
   "Cancelar": "Cancel",
@@ -102,6 +103,8 @@ const english = {
   "Importación privada": "Private import",
   "Importar": "Import",
   "Importar música": "Import music",
+  "Selecciona archivos, revisa BPM y tonalidad, y guarda los metadatos.":
+    "Select files, review BPM and key, then save the metadata.",
   "Instalar": "Install",
   "La importación solo propone cambios. Las pistas sin vínculo y los movimientos conflictivos deben revisarse antes de aplicar cualquier actualización al crate.":
     "Import only proposes changes. Unlinked tracks and conflicting moves must be reviewed before applying any update to the crate.",
@@ -391,6 +394,7 @@ const english = {
   "No se pudo guardar la etiqueta.": "The tag could not be saved.",
   "Nuevo": "New",
   "Organización": "Organization",
+  "Ordena sesiones y reutiliza etiquetas.": "Order sets and reuse tags.",
   "otro crate": "another crate",
   "Prepara sesiones con orden propio y clasifica canciones con etiquetas reutilizables.":
     "Prepare sets in your own order and classify tracks with reusable tags.",

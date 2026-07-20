@@ -70,7 +70,7 @@ export default async function LibraryPage({
             {t("Añadir canción")}
           </Link>
         }
-        description={t("Busca, filtra y edita tu colección privada guardada en Supabase.")}
+        description={t("Busca, filtra y edita tus pistas.")}
         eyebrow={t("Colección")}
         title={t("Biblioteca")}
       />

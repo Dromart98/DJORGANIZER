@@ -1502,7 +1502,9 @@ export function DesktopFolderScanner() {
                   <div className="organization-section-heading">
                     <div>
                       <p className="eyebrow">VirtualDJ</p>
-                      <h3 id="virtualdj-export-title">{t("Exportar lista")}</h3>
+                      <h3 id="virtualdj-export-title">
+                        {locale === "en" ? "Export selected tracks" : "Exportar pistas seleccionadas"}
+                      </h3>
                     </div>
                     <label>
                       {t("Nombre de la lista")}
@@ -1517,8 +1519,8 @@ export function DesktopFolderScanner() {
                   </div>
                   <p className="organization-muted">
                     {locale === "en"
-                      ? `Native XML is the recommended option for VirtualDJ 2024+. M3U8 maintains compatibility with legacy workflows. Both formats preserve the order of the ${selectedTracks.length.toLocaleString(locale)} tracks and never copy or modify audio.`
-                      : `El XML nativo es la opción recomendada para VirtualDJ 2024+. M3U8 mantiene compatibilidad con flujos heredados. Ambos formatos conservan el orden de las ${selectedTracks.length.toLocaleString(locale)} pistas y nunca copian ni modifican el audio.`}
+                      ? `Choose VirtualDJ XML or M3U8. Both preserve the order of ${selectedTracks.length.toLocaleString(locale)} tracks and do not modify audio.`
+                      : `Elige XML de VirtualDJ o M3U8. Ambos conservan el orden de ${selectedTracks.length.toLocaleString(locale)} pistas y no modifican el audio.`}
                   </p>
                   <div className="action-row">
                     <fieldset className="virtualdj-reconciliation">
@@ -1537,7 +1539,7 @@ export function DesktopFolderScanner() {
                     >
                       {exportingVirtualDj === "xml"
                         ? t("Preparando XML…")
-                        : t("Guardar XML nativo")}
+                        : locale === "en" ? "Export VirtualDJ XML" : "Exportar XML de VirtualDJ"}
                     </button>
                     <button
                       className="button button--secondary"
@@ -1549,7 +1551,7 @@ export function DesktopFolderScanner() {
                     >
                       {exportingVirtualDj === "m3u8"
                         ? t("Preparando M3U8…")
-                        : t("Guardar M3U8 compatible")}
+                        : locale === "en" ? "Export M3U8" : "Exportar M3U8"}
                     </button>
                     <button
                       className="button button--primary"

@@ -53,6 +53,7 @@ export function AppShell({
   const pathname = usePathname();
   const copy = getMessages(locale).navigation;
   const navigation: { href: string; label: string; icon: IconName }[] = [
+    { href: "/", label: copy.home, icon: "home" },
     { href: "/library", label: copy.library, icon: "library" },
     { href: "/import", label: copy.import, icon: "import" },
     { href: "/crates", label: copy.crates, icon: "crates" },

@@ -115,7 +115,7 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
   return (
     <>
       <PageHeader
-        description={t("Prepara sesiones con orden propio y clasifica canciones con etiquetas reutilizables.")}
+        description={t("Ordena sesiones y reutiliza etiquetas.")}
         eyebrow={t("Organización")}
         title={t("Crates y etiquetas")}
       />
