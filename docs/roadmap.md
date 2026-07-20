@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-07-19.
+Actualizado: 2026-07-20.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -110,7 +110,12 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   y se ejecuta contra una base efímera en CI.
 - [x] Navegación semántica, enlace de salto, foco visible, estados accesibles y
   validación responsive por teclado.
-- [ ] Completar auditoría con lector de pantalla en los flujos autenticados.
+- [x] Preparación reproducible de la auditoría con lector de pantalla: matriz de
+  flujos, prueba autenticada de contratos semánticos, navegación activa con
+  `aria-current`, orden de tabla con `aria-sort`, contador de selección
+  anunciable y acciones de pista con contexto accesible.
+- [ ] Completar la auditoría manual con NVDA en los flujos autenticados, en
+  español e inglés, y verificar de nuevo cualquier defecto corregido.
 - [x] Primera fase de onboarding autenticado no bloqueante, ayuda contextual en
   Importar, estados vacíos dependientes de pistas reales y recuperación
   accesible ante errores de carga. El progreso se deriva de conteos existentes,
