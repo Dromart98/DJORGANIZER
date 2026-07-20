@@ -104,6 +104,7 @@ export default async function CrateDetailPage({
         .eq("user_id", user.id)
         .order("position", { ascending: true })
         .order("created_at", { ascending: true })
+        .order("track_id", { ascending: true })
         .range(rangeFrom, rangeTo),
       supabase
         .from("crates")
@@ -138,6 +139,7 @@ export default async function CrateDetailPage({
       .eq("user_id", user.id)
       .order("position", { ascending: true })
       .order("created_at", { ascending: true })
+      .order("track_id", { ascending: true })
       .range(from, from + CRATE_EXPORT_TRACKS_PER_PAGE - 1);
     if (allMembershipsError) throw new Error("No se pudo preparar la exportación del crate.");
     exportTrackIds.push(...(data ?? []).map((membership) => membership.track_id));

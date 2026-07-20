@@ -370,6 +370,7 @@ export async function getDesktopCratesForExportAction(): Promise<{
       .order("crate_id", { ascending: true })
       .order("position", { ascending: true })
       .order("created_at", { ascending: true })
+      .order("track_id", { ascending: true })
       .range(from, from + MEMBERSHIPS_PER_PAGE - 1);
     if (error) return { crates: [], message: "No se pudieron preparar los crates." };
     memberships.push(...(data ?? []));
