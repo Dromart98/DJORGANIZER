@@ -79,6 +79,15 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   mantener una alternativa segura cuando el dispositivo no pueda cargar el
   modelo.
   Referencia: [laion/larger_clap_music](https://huggingface.co/laion/larger_clap_music).
+- [ ] Añadir un botón para analizar el género de múltiples pistas o de toda la
+  biblioteca mediante procesamiento por lotes. Debe mostrar una previsualización
+  con proveedor, confianza, coste estimado cuando use API, progreso, cancelación,
+  errores parciales y canciones omitidas. No debe cargar toda la biblioteca en
+  memoria, reenviar pistas ya clasificadas sin autorización ni aplicar géneros
+  automáticamente: las sugerencias deben revisarse y aceptarse individualmente
+  o mediante una confirmación masiva explícita. Cuando se use
+  `laion/larger_clap_music`, priorizar ejecución local; cuando se use una API,
+  exigir consentimiento y límites por usuario antes de enviar cada fragmento.
 - [x] Calcular energía real con una escala documentada y editable.
 - [x] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
