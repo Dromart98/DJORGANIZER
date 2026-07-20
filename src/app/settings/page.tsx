@@ -14,10 +14,12 @@ export async function generateMetadata() {
   const locale = await getCurrentLocale();
   return { title: translate(locale, "Ajustes") };
 }
+
 export default async function SettingsPage() {
   const [user, locale] = await Promise.all([requireUser(), getCurrentLocale()]);
   const t = (message: Parameters<typeof translate>[1]) =>
     translate(locale, message);
+  const desktopUpdatesAvailable = process.env.NODE_ENV === "production";
 
   return (
     <>
@@ -48,14 +50,16 @@ export default async function SettingsPage() {
         </div>
         <span className="badge muted-badge">{t("Solo local")}</span>
       </Card>
-      <Card className="settings-card">
-        <div>
-          <h2>{t("Actualizaciones de escritorio")}</h2>
-          <p>{t("Los instaladores comprueban versiones firmadas publicadas en GitHub.")}</p>
-          <DesktopUpdateManager />
-        </div>
-        <span className="badge muted-badge">{t("Firmadas")}</span>
-      </Card>
+      {desktopUpdatesAvailable ? (
+        <Card className="settings-card">
+          <div>
+            <h2>{t("Actualizaciones de escritorio")}</h2>
+            <p>{t("Los instaladores comprueban versiones firmadas publicadas en GitHub.")}</p>
+            <DesktopUpdateManager />
+          </div>
+          <span className="badge muted-badge">{t("Firmadas")}</span>
+        </Card>
+      ) : null}
       <Card className="settings-card">
         <div>
           <h2>{t("Idioma / Language")}</h2>
