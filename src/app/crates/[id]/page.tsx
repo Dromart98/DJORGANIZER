@@ -7,6 +7,7 @@ import {
   updateCrateAction,
 } from "@/app/crates/actions";
 import { DeleteCrateForm } from "@/components/organization/delete-organization-forms";
+import { DesktopExportLink } from "@/components/desktop/desktop-export-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
 import { PageHeader } from "@/components/ui/page-header";
@@ -127,6 +128,15 @@ export default async function CrateDetailPage({
   }
 
   const membershipRows: CrateMembership[] = memberships ?? [];
+  const { data: allMemberships, error: allMembershipsError } = await supabase
+    .from("crate_tracks")
+    .select("track_id")
+    .eq("crate_id", crate.id)
+    .eq("user_id", user.id)
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (allMembershipsError) throw new Error("No se pudo preparar la exportación del crate.");
+  const exportTrackIds = (allMemberships ?? []).map((membership) => membership.track_id);
   const memberIds = membershipRows.map((membership) => membership.track_id);
   const { data: memberTracks, error: tracksError } = memberIds.length
     ? await supabase
@@ -238,6 +248,7 @@ export default async function CrateDetailPage({
             <Link className="button button--secondary" href="/crates">
               {t("Volver")}
             </Link>
+            <DesktopExportLink request={{ crateId: crate.id, crateName: crate.name, trackIds: exportTrackIds }} />
           </div>
 
           {orderedTracks.length ? (

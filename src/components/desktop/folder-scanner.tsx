@@ -18,6 +18,11 @@ import {
   type ScannedAudioFile,
 } from "@/lib/desktop/scan-review";
 import { translate, translateKnown } from "@/lib/i18n/functional";
+import {
+  DESKTOP_EXPORT_REQUEST_KEY,
+  resolveLinkedScanIds,
+  type DesktopExportRequest,
+} from "@/lib/desktop/export-request";
 import type { Locale } from "@/lib/i18n/i18n";
 
 interface TauriCore {
@@ -298,6 +303,7 @@ export function DesktopFolderScanner() {
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [exportTrackOrder, setExportTrackOrder] = useState<string[] | null>(null);
   const filteredTracks = useMemo(
     () => filterScannedTracks(result?.tracks ?? [], query, filter),
     [filter, query, result],
@@ -306,13 +312,11 @@ export function DesktopFolderScanner() {
     () => paginateScannedTracks(filteredTracks, page),
     [filteredTracks, page],
   );
-  const selectedTracks = useMemo(
-    () =>
-      result?.tracks.filter((track) =>
-        selectedTrackIds.has(track.scanId),
-      ) ?? [],
-    [result, selectedTrackIds],
-  );
+  const selectedTracks = useMemo(() => {
+    const tracksByScanId = new Map((result?.tracks ?? []).map((track) => [track.scanId, track]));
+    if (exportTrackOrder) return exportTrackOrder.flatMap((scanId) => tracksByScanId.get(scanId) ?? []);
+    return (result?.tracks ?? []).filter((track) => selectedTrackIds.has(track.scanId));
+  }, [exportTrackOrder, result, selectedTrackIds]);
   const organizationPreview = useMemo(
     () => createOrganizationPreview(selectedTracks, organizationScheme),
     [organizationScheme, selectedTracks],
@@ -367,9 +371,25 @@ export function DesktopFolderScanner() {
             candidates: library.candidates,
           },
         );
-        setLinkedScanIds(
-          new Set(linkResult.links.map((link) => link.scanId)),
-        );
+        setLinkedScanIds(new Set(linkResult.links.map((link) => link.scanId)));
+        const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
+        if (rawRequest) {
+          sessionStorage.removeItem(DESKTOP_EXPORT_REQUEST_KEY);
+          try {
+            const request = JSON.parse(rawRequest) as DesktopExportRequest;
+            const resolved = resolveLinkedScanIds(request, linkResult.links);
+            setSelectedTrackIds(new Set(resolved.scanIds));
+            setExportTrackOrder(resolved.scanIds);
+            setVirtualDjListName(request.crateName || scanResult.rootName);
+            setVirtualDjMessage(
+              resolved.omitted
+                ? (locale === "en" ? `${resolved.omitted} tracks without a local link were omitted.` : `Se omitieron ${resolved.omitted} pistas sin vínculo local.`)
+                : (locale === "en" ? "Selected tracks are ready to export." : "Las pistas seleccionadas están listas para exportar."),
+            );
+          } catch {
+            setVirtualDjMessage(locale === "en" ? "The requested export could not be prepared." : "No se pudo preparar la exportación solicitada.");
+          }
+        }
         const failureMessage = linkResult.fingerprintFailures
           ? locale === "en"
             ? ` ${linkResult.fingerprintFailures.toLocaleString(locale)} local files could not be checked.`
@@ -425,6 +445,7 @@ export function DesktopFolderScanner() {
       setVirtualDjListName(nextResult.rootName);
       setVirtualDjMessage(null);
       setSelectedTrackIds(new Set());
+      setExportTrackOrder(null);
       setLinkedScanIds(new Set());
       setLastReorganizationRunId(null);
       setReorganizationHistory([]);

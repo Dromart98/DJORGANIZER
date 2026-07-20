@@ -31,7 +31,7 @@ export default async function SettingsPage() {
           <h2>{t("Cuenta conectada")}</h2>
           <p>{user.email ?? t("Usuario autenticado")}</p>
         </div>
-        <span className="badge">Supabase Auth</span>
+        <span className="badge">{t("Cuenta protegida")}</span>
       </Card>
       <Card className="settings-card">
         <div>

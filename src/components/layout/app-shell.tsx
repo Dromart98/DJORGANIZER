@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getMessages, type Locale } from "@/lib/i18n/i18n";
 import { Icon, type IconName } from "./icon";
 
@@ -21,21 +21,24 @@ function Brand({ homeLabel }: { homeLabel: string }) {
 function NavLinks({
   navigation,
   pathname,
+  collapsed,
 }: {
   navigation: { href: string; label: string; icon: IconName }[];
   pathname: string;
+  collapsed?: boolean;
 }) {
   return navigation.map(({ href, label, icon }) => {
     const active = isActive(pathname, href);
     return (
       <Link
         aria-current={active ? "page" : undefined}
+        aria-label={collapsed ? label : undefined}
         className={active ? "active" : ""}
         href={href}
         key={href}
       >
         <Icon name={icon} />
-        <span>{label}</span>
+        <span className={collapsed ? "visually-hidden" : undefined}>{label}</span>
       </Link>
     );
   });
@@ -51,6 +54,14 @@ export function AppShell({
   locale: Locale;
 }) {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => setCollapsed(localStorage.getItem("djorganizer-sidebar-collapsed") === "1"), []);
+  function toggleSidebar() {
+    setCollapsed((current) => {
+      localStorage.setItem("djorganizer-sidebar-collapsed", current ? "0" : "1");
+      return !current;
+    });
+  }
   const copy = getMessages(locale).navigation;
   const navigation: { href: string; label: string; icon: IconName }[] = [
     { href: "/", label: copy.home, icon: "home" },
@@ -80,15 +91,16 @@ export function AppShell({
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${collapsed ? " app-shell--collapsed" : ""}`}>
       <a className="skip-link" href="#main-content">
         {copy.skip}
       </a>
       <aside>
         <Brand homeLabel={copy.home} />
         <nav aria-label={copy.main}>
-          <NavLinks navigation={navigation} pathname={pathname} />
+          <NavLinks collapsed={collapsed} navigation={navigation} pathname={pathname} />
         </nav>
+        <button aria-expanded={!collapsed} aria-label={collapsed ? "Desplegar barra lateral" : "Plegar barra lateral"} className="sidebar-toggle" onClick={toggleSidebar} type="button" title={collapsed ? "Desplegar barra lateral" : "Plegar barra lateral"}>{collapsed ? "›" : "‹"}</button>
         {authStatus}
       </aside>
       <header className="mobile-topbar">

@@ -9,6 +9,7 @@ import {
 import { deleteTracksAction } from "@/app/library/actions";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import { BulkEditForm } from "@/components/library/bulk-edit-form";
+import { DesktopExportLink } from "@/components/desktop/desktop-export-link";
 import {
   formatDeleteTracksConfirmation,
   formatSelectedCount,
@@ -77,6 +78,7 @@ export function TrackTable({
           {formatSelectedCount(locale, selected.size)}
         </span>
         <div className="bulk-actions">
+          <DesktopExportLink request={{ trackIds: Array.from(selected) }} />
           <BulkEditForm
             returnTo={returnTo}
             selectedIds={Array.from(selected)}
