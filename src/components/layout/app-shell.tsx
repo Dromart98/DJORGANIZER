@@ -25,12 +25,20 @@ function NavLinks({
   navigation: { href: string; label: string; icon: IconName }[];
   pathname: string;
 }) {
-  return navigation.map(({ href, label, icon }) => (
-    <Link className={isActive(pathname, href) ? "active" : ""} href={href} key={href}>
-      <Icon name={icon} />
-      <span>{label}</span>
-    </Link>
-  ));
+  return navigation.map(({ href, label, icon }) => {
+    const active = isActive(pathname, href);
+    return (
+      <Link
+        aria-current={active ? "page" : undefined}
+        className={active ? "active" : ""}
+        href={href}
+        key={href}
+      >
+        <Icon name={icon} />
+        <span>{label}</span>
+      </Link>
+    );
+  });
 }
 
 export function AppShell({
