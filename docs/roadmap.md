@@ -130,5 +130,9 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   una prueba recursiva; el contenido del usuario y los contratos persistidos no
   se traducen.
 - [x] Contratos de capacidades para Rekordbox, Serato y Traktor.
-- [ ] Implementaciones posteriores con Rekordbox, Serato, Traktor y ecosistemas CDJ,
+- [x] Exportación XML de playlists de Rekordbox mediante Bridge desde una sesión
+  local de Tauri, sin escribir OneLibrary, Device Library ni audio.
+- [ ] Importación desde Rekordbox, cues, loops y beatgrids; OneLibrary y Device
+  Library siguen fuera de alcance.
+- [ ] Implementaciones posteriores con Serato, Traktor y ecosistemas CDJ,
   después de estabilizar VirtualDJ.
