@@ -345,7 +345,7 @@ export async function getDesktopCratesForExportAction(): Promise<{
 }> {
   const user = await requireUser();
   const supabase = await createClient();
-  const [{ data: crates, error: cratesError }, { data: memberships, error: membershipsError }] =
+  const [{ data: crates, error: cratesError }, { count: membershipCount, error: membershipsError }] =
     await Promise.all([
       supabase
         .from("crates")
@@ -354,12 +354,26 @@ export async function getDesktopCratesForExportAction(): Promise<{
         .order("name"),
       supabase
         .from("crate_tracks")
-        .select("crate_id, track_id, position")
+        .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
-        .order("position"),
     ]);
   if (cratesError || membershipsError) {
     return { crates: [], message: "No se pudieron preparar los crates." };
+  }
+  const memberships: Array<{ crate_id: string; position: number; track_id: string }> = [];
+  const MEMBERSHIPS_PER_PAGE = 500;
+  for (let from = 0; from < (membershipCount ?? 0); from += MEMBERSHIPS_PER_PAGE) {
+    const { data, error } = await supabase
+      .from("crate_tracks")
+      .select("crate_id, track_id, position")
+      .eq("user_id", user.id)
+      .order("crate_id", { ascending: true })
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("track_id", { ascending: true })
+      .range(from, from + MEMBERSHIPS_PER_PAGE - 1);
+    if (error) return { crates: [], message: "No se pudieron preparar los crates." };
+    memberships.push(...(data ?? []));
   }
   const rows = crates ?? [];
   const byId = new Map(rows.map((crate) => [crate.id, crate]));
@@ -377,12 +391,12 @@ export async function getDesktopCratesForExportAction(): Promise<{
     return hierarchy;
   };
   const tracksByCrate = new Map<string, string[]>();
-  for (const membership of memberships ?? []) {
+  for (const membership of memberships) {
     const trackIds = tracksByCrate.get(membership.crate_id) ?? [];
     trackIds.push(membership.track_id);
     tracksByCrate.set(membership.crate_id, trackIds);
   }
-  const trackIds = [...new Set((memberships ?? []).map((membership) => membership.track_id))];
+  const trackIds = [...new Set(memberships.map((membership) => membership.track_id))];
   const tracks = [] as Array<{ artist: string | null; id: string; title: string }>;
   for (let index = 0; index < trackIds.length; index += 500) {
     const { data, error } = await supabase

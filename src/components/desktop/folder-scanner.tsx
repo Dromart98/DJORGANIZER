@@ -20,8 +20,8 @@ import {
 import { translate, translateKnown } from "@/lib/i18n/functional";
 import {
   DESKTOP_EXPORT_REQUEST_KEY,
+  isDesktopExportRequest,
   resolveLinkedScanIds,
-  type DesktopExportRequest,
 } from "@/lib/desktop/export-request";
 import type { Locale } from "@/lib/i18n/i18n";
 
@@ -376,7 +376,8 @@ export function DesktopFolderScanner() {
         if (rawRequest) {
           sessionStorage.removeItem(DESKTOP_EXPORT_REQUEST_KEY);
           try {
-            const request = JSON.parse(rawRequest) as DesktopExportRequest;
+            const request: unknown = JSON.parse(rawRequest);
+            if (!isDesktopExportRequest(request)) throw new Error("Invalid export request");
             const resolved = resolveLinkedScanIds(request, linkResult.links);
             setSelectedTrackIds(new Set(resolved.scanIds));
             setExportTrackOrder(resolved.scanIds);

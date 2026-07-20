@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveLinkedScanIds } from "./export-request";
+import { isDesktopExportRequest, resolveLinkedScanIds } from "./export-request";
 
 describe("resolveLinkedScanIds", () => {
   it("keeps the requested crate order and omits tracks without a local link", () => {
@@ -12,5 +12,54 @@ describe("resolveLinkedScanIds", () => {
         ],
       ),
     ).toEqual({ omitted: 1, scanIds: ["scan-b", "scan-a"] });
+  });
+
+  it("keeps library selection order, including an empty selection", () => {
+    expect(resolveLinkedScanIds({ trackIds: [] }, [])).toEqual({
+      omitted: 0,
+      scanIds: [],
+    });
+    expect(
+      resolveLinkedScanIds(
+        { trackIds: ["track-a", "track-b"] },
+        [
+          { scanId: "scan-a", trackId: "track-a" },
+          { scanId: "scan-b", trackId: "track-b" },
+        ],
+      ),
+    ).toEqual({ omitted: 0, scanIds: ["scan-a", "scan-b"] });
+  });
+
+  it("deduplicates requested IDs without inventing local paths", () => {
+    expect(
+      resolveLinkedScanIds(
+        { crateName: "Closing set", trackIds: ["track-a", "track-a", "missing"] },
+        [{ scanId: "scan-a", trackId: "track-a" }],
+      ),
+    ).toEqual({ omitted: 1, scanIds: ["scan-a"] });
+  });
+
+  it("accepts requests with only the permitted properties", () => {
+    expect(isDesktopExportRequest({ trackIds: [] })).toBe(true);
+    expect(isDesktopExportRequest({ trackIds: ["track-a"] })).toBe(true);
+    expect(
+      isDesktopExportRequest({
+        crateId: "crate-a",
+        crateName: "Closing set",
+        trackIds: ["track-a"],
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects corrupt values, paths, and all additional properties", () => {
+    expect(isDesktopExportRequest({ trackIds: ["track-a", 1] })).toBe(false);
+    expect(isDesktopExportRequest({ trackIds: "track-a" })).toBe(false);
+    expect(isDesktopExportRequest({ trackIds: [""] })).toBe(false);
+    expect(isDesktopExportRequest({ crateId: "", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ path: "C:\\Music\\song.mp3", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ absolutePath: "/music/song.mp3", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ sessionId: "session-1", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ trackIds: ["track-a"], unexpected: true })).toBe(false);
+    expect(isDesktopExportRequest(null)).toBe(false);
   });
 });
