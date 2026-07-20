@@ -304,6 +304,7 @@ struct RekordboxExportPreview {
     linked_tracks: usize,
     playlists: usize,
     total_tracks: usize,
+    unlinked_track_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -982,27 +983,55 @@ fn build_rekordbox_xml(
         }
         xml.push_str(" />\n");
     }
-    xml.push_str("  </COLLECTION>\n  <PLAYLISTS>\n    <NODE Type=\"0\" Name=\"ROOT\" Count=\"");
-    xml.push_str(&crates.len().to_string());
-    xml.push_str("\">\n");
-    // Each selected crate is exported as a playlist. Hierarchy names are kept
-    // in the preview contract; nested folder emission is intentionally bounded.
-    for (crate_input, tracks) in crates {
-        xml.push_str("      <NODE Type=\"1\"");
-        push_xml_attribute(&mut xml, "Name", &crate_input.name);
-        push_xml_attribute(&mut xml, "KeyType", "0");
-        push_xml_attribute(&mut xml, "Entries", &tracks.len().to_string());
-        xml.push_str(">\n");
-        for track in tracks {
-            let id = by_scan_id
-                .get(&track.track.scan_id)
-                .expect("selected track has an ID")
-                .0;
-            xml.push_str(&format!("        <TRACK Key=\"{id}\" />\n"));
-        }
-        xml.push_str("      </NODE>\n");
+    #[derive(Default)]
+    struct Folder<'a> {
+        children: BTreeMap<String, Folder<'a>>,
+        playlists: Vec<(&'a RekordboxCrateInput, &'a Vec<SessionTrack>)>,
     }
-    xml.push_str("    </NODE>\n  </PLAYLISTS>\n</DJ_PLAYLISTS>\n");
+    fn emit_folder(
+        xml: &mut String,
+        name: &str,
+        folder: &Folder<'_>,
+        ids: &BTreeMap<String, (usize, SessionTrack)>,
+        indent: usize,
+    ) {
+        let pad = " ".repeat(indent);
+        xml.push_str(&format!(
+            "{pad}<NODE Type=\"0\" Name=\"{}",
+            xml_escape_attribute(name)
+        ));
+        xml.push_str(&format!(
+            "\" Count=\"{}\">\n",
+            folder.children.len() + folder.playlists.len()
+        ));
+        for (child_name, child) in &folder.children {
+            emit_folder(xml, child_name, child, ids, indent + 2);
+        }
+        for (crate_input, tracks) in &folder.playlists {
+            xml.push_str(&format!("{}  <NODE Type=\"1\"", pad));
+            push_xml_attribute(xml, "Name", &crate_input.name);
+            push_xml_attribute(xml, "KeyType", "0");
+            push_xml_attribute(xml, "Entries", &tracks.len().to_string());
+            xml.push_str(">\n");
+            for track in *tracks {
+                let id = ids.get(&track.track.scan_id).expect("selected track ID").0;
+                xml.push_str(&format!("{}    <TRACK Key=\"{id}\" />\n", pad));
+            }
+            xml.push_str(&format!("{}  </NODE>\n", pad));
+        }
+        xml.push_str(&format!("{pad}</NODE>\n"));
+    }
+    let mut root = Folder::default();
+    for (crate_input, tracks) in crates {
+        let mut folder = &mut root;
+        for level in &crate_input.hierarchy {
+            folder = folder.children.entry(level.clone()).or_default();
+        }
+        folder.playlists.push((crate_input, tracks));
+    }
+    xml.push_str("  </COLLECTION>\n  <PLAYLISTS>\n");
+    emit_folder(&mut xml, "ROOT", &root, &by_scan_id, 4);
+    xml.push_str("  </PLAYLISTS>\n</DJ_PLAYLISTS>\n");
     if xml.len() > MAX_REKORDBOX_XML_BYTES {
         return Err("El XML estimado supera el límite de 20 MB.".to_owned());
     }
@@ -2644,6 +2673,7 @@ async fn preview_rekordbox_export(
     let mut duplicate_names = Vec::new();
     let mut linked_tracks = 0;
     let mut excluded_tracks = 0;
+    let mut unlinked_track_ids = Vec::new();
     for crate_input in &crates {
         if crate_input.hierarchy.len() > 8
             || crate_input.name.trim().is_empty()
@@ -2659,7 +2689,8 @@ async fn preview_rekordbox_export(
             if session.library_links.contains_key(track_id) {
                 linked_tracks += 1
             } else {
-                excluded_tracks += 1
+                excluded_tracks += 1;
+                unlinked_track_ids.push(track_id.clone());
             }
         }
     }
@@ -2669,6 +2700,7 @@ async fn preview_rekordbox_export(
         linked_tracks,
         playlists: crates.len(),
         total_tracks: linked_tracks + excluded_tracks,
+        unlinked_track_ids,
     })
 }
 
@@ -2701,6 +2733,15 @@ async fn export_rekordbox_xml(
             .ok_or_else(|| {
                 "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
             })?;
+        let expected_exclusions = crates
+            .iter()
+            .flat_map(|crate_input| crate_input.track_ids.iter())
+            .filter(|id| !session.library_links.contains_key(*id))
+            .cloned()
+            .collect::<HashSet<_>>();
+        if excluded != expected_exclusions {
+            return Err("Las exclusiones confirmadas no coinciden exactamente con la previsualización actual. Vuelve a revisar las pistas sin vínculo.".to_owned());
+        }
         crates.into_iter().map(|crate_input| {
             let mut tracks = Vec::new();
             for id in &crate_input.track_ids {
