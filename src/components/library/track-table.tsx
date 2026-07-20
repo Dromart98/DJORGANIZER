@@ -73,7 +73,9 @@ export function TrackTable({
   return (
     <>
       <div className="bulk-toolbar">
-        <span>{formatSelectedCount(locale, selected.size)}</span>
+        <span aria-atomic="true" role="status">
+          {formatSelectedCount(locale, selected.size)}
+        </span>
         <div className="bulk-actions">
           <BulkEditForm
             returnTo={returnTo}
@@ -155,6 +157,7 @@ export function TrackTable({
 
       <div className="table-wrap library-table">
         <table>
+          <caption className="visually-hidden">{t("Biblioteca")}</caption>
           <thead>
             <tr>
               <th className="select-cell">
@@ -166,7 +169,16 @@ export function TrackTable({
                 />
               </th>
               {columns.map((column) => (
-                <th key={column.key}>
+                <th
+                  aria-sort={
+                    query.sort === column.key
+                      ? query.direction === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none"
+                  }
+                  key={column.key}
+                >
                   <Link href={sortHref(query, column.key)}>
                     {t(column.label as Parameters<typeof t>[0])}
                     <span
@@ -228,7 +240,11 @@ export function TrackTable({
                 <td className="numeric">{track.energy ?? "—"}</td>
                 <td>{track.rating === null ? "—" : `${track.rating}/5`}</td>
                 <td>
-                  <Link className="table-action" href={`/library/${track.id}`}>
+                  <Link
+                    aria-label={`${t("Ver y editar")}: ${track.title}`}
+                    className="table-action"
+                    href={`/library/${track.id}`}
+                  >
                     {t("Ver y editar")}
                   </Link>
                 </td>
@@ -263,7 +279,12 @@ export function TrackTable({
                 {displayDuration(track.duration_seconds)}
               </small>
             </div>
-            <Link href={`/library/${track.id}`}>{t("Editar")}</Link>
+            <Link
+              aria-label={`${t("Editar")}: ${track.title}`}
+              href={`/library/${track.id}`}
+            >
+              {t("Editar")}
+            </Link>
           </article>
         ))}
       </div>
