@@ -11,10 +11,15 @@ export function isDesktopExportRequest(
 ): value is DesktopExportRequest {
   if (!value || typeof value !== "object") return false;
   const request = value as Record<string, unknown>;
+  const allowedKeys = new Set(["trackIds", "crateId", "crateName"]);
   return (
+    Object.keys(request).every((key) => allowedKeys.has(key)) &&
     Array.isArray(request.trackIds) &&
-    request.trackIds.every((trackId) => typeof trackId === "string") &&
-    (request.crateId === undefined || typeof request.crateId === "string") &&
+    request.trackIds.every(
+      (trackId) => typeof trackId === "string" && trackId.length > 0,
+    ) &&
+    (request.crateId === undefined ||
+      (typeof request.crateId === "string" && request.crateId.length > 0)) &&
     (request.crateName === undefined || typeof request.crateName === "string")
   );
 }

@@ -39,10 +39,27 @@ describe("resolveLinkedScanIds", () => {
     ).toEqual({ omitted: 1, scanIds: ["scan-a"] });
   });
 
-  it("accepts only valid, path-free requests", () => {
-    expect(isDesktopExportRequest({ crateName: "Set", trackIds: ["track-a"] })).toBe(true);
+  it("accepts requests with only the permitted properties", () => {
+    expect(isDesktopExportRequest({ trackIds: [] })).toBe(true);
+    expect(isDesktopExportRequest({ trackIds: ["track-a"] })).toBe(true);
+    expect(
+      isDesktopExportRequest({
+        crateId: "crate-a",
+        crateName: "Closing set",
+        trackIds: ["track-a"],
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects corrupt values, paths, and all additional properties", () => {
     expect(isDesktopExportRequest({ trackIds: ["track-a", 1] })).toBe(false);
     expect(isDesktopExportRequest({ trackIds: "track-a" })).toBe(false);
+    expect(isDesktopExportRequest({ trackIds: [""] })).toBe(false);
+    expect(isDesktopExportRequest({ crateId: "", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ path: "C:\\Music\\song.mp3", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ absolutePath: "/music/song.mp3", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ sessionId: "session-1", trackIds: ["track-a"] })).toBe(false);
+    expect(isDesktopExportRequest({ trackIds: ["track-a"], unexpected: true })).toBe(false);
     expect(isDesktopExportRequest(null)).toBe(false);
   });
 });
