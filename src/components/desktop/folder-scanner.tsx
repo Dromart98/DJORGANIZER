@@ -268,6 +268,7 @@ export function DesktopFolderScanner() {
     useState<VirtualDjExportFormat | null>(null);
   const [virtualDjMessage, setVirtualDjMessage] = useState<string | null>(null);
   const [desktopCrates, setDesktopCrates] = useState<DesktopCrateExport[]>([]);
+  const [selectedCrateIds, setSelectedCrateIds] = useState<Set<string>>(() => new Set());
   const [rekordboxPreview, setRekordboxPreview] = useState<RekordboxExportPreview | null>(null);
   const [rekordboxBusy, setRekordboxBusy] = useState(false);
   const [virtualDjImport, setVirtualDjImport] =
@@ -639,7 +640,7 @@ export function DesktopFolderScanner() {
   }
 
   function rekordboxCrates() {
-    return desktopCrates.map((crate) => ({
+    return desktopCrates.filter((crate) => selectedCrateIds.has(crate.id)).map((crate) => ({
       hierarchy: crate.hierarchy,
       id: crate.id,
       name: crate.name,
@@ -649,7 +650,7 @@ export function DesktopFolderScanner() {
 
   async function previewRekordboxExport() {
     const core = getTauriCore();
-    if (!core || !result || !desktopCrates.length) return;
+    if (!core || !result || !selectedCrateIds.size) return;
     setRekordboxBusy(true);
     try {
       setRekordboxPreview(await core.invoke<RekordboxExportPreview>("preview_rekordbox_export", { crates: rekordboxCrates(), sessionId: result.sessionId }));
@@ -1520,6 +1521,12 @@ export function DesktopFolderScanner() {
                       : `El XML nativo es la opción recomendada para VirtualDJ 2024+. M3U8 mantiene compatibilidad con flujos heredados. Ambos formatos conservan el orden de las ${selectedTracks.length.toLocaleString(locale)} pistas y nunca copian ni modifican el audio.`}
                   </p>
                   <div className="action-row">
+                    <fieldset className="virtualdj-reconciliation">
+                      <legend>{locale === "en" ? "Rekordbox crates" : "Crates de Rekordbox"}</legend>
+                      <button type="button" className="button button--secondary" onClick={() => setSelectedCrateIds(new Set(desktopCrates.map((crate) => crate.id)))}>{locale === "en" ? "Select all" : "Seleccionar todos"}</button>
+                      <button type="button" className="button button--secondary" onClick={() => setSelectedCrateIds(new Set())}>{locale === "en" ? "Clear" : "Limpiar"}</button>
+                      {desktopCrates.map((crate) => <label key={crate.id}><input type="checkbox" checked={selectedCrateIds.has(crate.id)} onChange={() => setSelectedCrateIds((current) => { const next = new Set(current); if (next.has(crate.id)) next.delete(crate.id); else next.add(crate.id); return next; })} /> {crate.name}</label>)}
+                    </fieldset>
                     <button
                       className="button button--secondary"
                       disabled={
@@ -1556,7 +1563,7 @@ export function DesktopFolderScanner() {
                     </button>
                     <button
                       className="button button--secondary"
-                      disabled={!desktopCrates.length || rekordboxBusy}
+                      disabled={!selectedCrateIds.size || rekordboxBusy}
                       onClick={() => void previewRekordboxExport()}
                       type="button"
                     >

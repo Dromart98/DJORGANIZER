@@ -946,9 +946,10 @@ fn build_rekordbox_xml(
     let mut by_scan_id = BTreeMap::<String, (usize, SessionTrack)>::new();
     for (_, tracks) in crates {
         for track in tracks {
-            by_scan_id
-                .entry(track.track.scan_id.clone())
-                .or_insert_with(|| (by_scan_id.len() + 1, track.clone()));
+            if !by_scan_id.contains_key(&track.track.scan_id) {
+                let next_id = by_scan_id.len() + 1;
+                by_scan_id.insert(track.track.scan_id.clone(), (next_id, track.clone()));
+            }
         }
     }
     xml.push_str(&format!(
@@ -2746,7 +2747,13 @@ async fn export_rekordbox_xml(
             let mut tracks = Vec::new();
             for id in &crate_input.track_ids {
                 match session.library_links.get(id).and_then(|scan_id| session.tracks.get(scan_id)).cloned() {
-                    Some(track) => tracks.push(track),
+                    Some(track) => {
+                        let metadata = fs::metadata(&track.absolute_path).map_err(|_| "Un archivo vinculado ya no existe. Vuelve a escanear antes de exportar.".to_owned())?;
+                        if !metadata.is_file() || metadata.len() != track.track.size_bytes || !track.absolute_path.is_absolute() || export_path_text(&track.absolute_path).is_err() {
+                            return Err("Un archivo vinculado cambió desde el escaneo. Vuelve a escanear antes de exportar.".to_owned());
+                        }
+                        tracks.push(track)
+                    }
                     None if excluded.contains(id) => (),
                     None => return Err("Hay pistas sin vínculo local. Confirma sus exclusiones antes de exportar.".to_owned()),
                 }
@@ -3551,7 +3558,7 @@ mod tests {
         assert!(xml.starts_with(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DJ_PLAYLISTS Version=\"1.0.0\">"
         ));
-        assert!(xml.contains("Location=\"file://localhost/music/A&amp;B.mp3\""));
+        assert!(xml.contains("Location=\"file://localhost/music/A%26B.mp3\""));
         assert!(xml.contains("Name=\"A &amp; B\""));
         assert!(xml.contains("<TRACK Key=\"1\" />"));
     }

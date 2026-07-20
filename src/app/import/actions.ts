@@ -383,11 +383,17 @@ export async function getDesktopCratesForExportAction(): Promise<{
     tracksByCrate.set(membership.crate_id, trackIds);
   }
   const trackIds = [...new Set((memberships ?? []).map((membership) => membership.track_id))];
-  const { data: tracks, error: tracksError } = trackIds.length
-    ? await supabase.from("tracks").select("id, title, artist").eq("user_id", user.id).in("id", trackIds)
-    : { data: [], error: null };
-  if (tracksError) return { crates: [], message: "No se pudieron preparar las pistas de los crates." };
-  const tracksById = new Map((tracks ?? []).map((track) => [track.id, track]));
+  const tracks = [] as Array<{ artist: string | null; id: string; title: string }>;
+  for (let index = 0; index < trackIds.length; index += 500) {
+    const { data, error } = await supabase
+      .from("tracks")
+      .select("id, title, artist")
+      .eq("user_id", user.id)
+      .in("id", trackIds.slice(index, index + 500));
+    if (error) return { crates: [], message: "No se pudieron preparar las pistas de los crates." };
+    tracks.push(...(data ?? []));
+  }
+  const tracksById = new Map(tracks.map((track) => [track.id, track]));
   return {
     crates: rows.map((crate) => ({
       hierarchy: hierarchyFor(crate.id),
