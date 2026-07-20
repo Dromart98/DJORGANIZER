@@ -18,6 +18,11 @@ import {
   type ScannedAudioFile,
 } from "@/lib/desktop/scan-review";
 import { translate, translateKnown } from "@/lib/i18n/functional";
+import {
+  DESKTOP_EXPORT_REQUEST_KEY,
+  resolveLinkedScanIds,
+  type DesktopExportRequest,
+} from "@/lib/desktop/export-request";
 import type { Locale } from "@/lib/i18n/i18n";
 
 interface TauriCore {
@@ -298,6 +303,7 @@ export function DesktopFolderScanner() {
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [exportTrackOrder, setExportTrackOrder] = useState<string[] | null>(null);
   const filteredTracks = useMemo(
     () => filterScannedTracks(result?.tracks ?? [], query, filter),
     [filter, query, result],
@@ -306,13 +312,11 @@ export function DesktopFolderScanner() {
     () => paginateScannedTracks(filteredTracks, page),
     [filteredTracks, page],
   );
-  const selectedTracks = useMemo(
-    () =>
-      result?.tracks.filter((track) =>
-        selectedTrackIds.has(track.scanId),
-      ) ?? [],
-    [result, selectedTrackIds],
-  );
+  const selectedTracks = useMemo(() => {
+    const tracksByScanId = new Map((result?.tracks ?? []).map((track) => [track.scanId, track]));
+    if (exportTrackOrder) return exportTrackOrder.flatMap((scanId) => tracksByScanId.get(scanId) ?? []);
+    return (result?.tracks ?? []).filter((track) => selectedTrackIds.has(track.scanId));
+  }, [exportTrackOrder, result, selectedTrackIds]);
   const organizationPreview = useMemo(
     () => createOrganizationPreview(selectedTracks, organizationScheme),
     [organizationScheme, selectedTracks],
@@ -367,9 +371,25 @@ export function DesktopFolderScanner() {
             candidates: library.candidates,
           },
         );
-        setLinkedScanIds(
-          new Set(linkResult.links.map((link) => link.scanId)),
-        );
+        setLinkedScanIds(new Set(linkResult.links.map((link) => link.scanId)));
+        const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
+        if (rawRequest) {
+          sessionStorage.removeItem(DESKTOP_EXPORT_REQUEST_KEY);
+          try {
+            const request = JSON.parse(rawRequest) as DesktopExportRequest;
+            const resolved = resolveLinkedScanIds(request, linkResult.links);
+            setSelectedTrackIds(new Set(resolved.scanIds));
+            setExportTrackOrder(resolved.scanIds);
+            setVirtualDjListName(request.crateName || scanResult.rootName);
+            setVirtualDjMessage(
+              resolved.omitted
+                ? (locale === "en" ? `${resolved.omitted} tracks without a local link were omitted.` : `Se omitieron ${resolved.omitted} pistas sin vínculo local.`)
+                : (locale === "en" ? "Selected tracks are ready to export." : "Las pistas seleccionadas están listas para exportar."),
+            );
+          } catch {
+            setVirtualDjMessage(locale === "en" ? "The requested export could not be prepared." : "No se pudo preparar la exportación solicitada.");
+          }
+        }
         const failureMessage = linkResult.fingerprintFailures
           ? locale === "en"
             ? ` ${linkResult.fingerprintFailures.toLocaleString(locale)} local files could not be checked.`
@@ -425,6 +445,7 @@ export function DesktopFolderScanner() {
       setVirtualDjListName(nextResult.rootName);
       setVirtualDjMessage(null);
       setSelectedTrackIds(new Set());
+      setExportTrackOrder(null);
       setLinkedScanIds(new Set());
       setLastReorganizationRunId(null);
       setReorganizationHistory([]);
@@ -1502,7 +1523,9 @@ export function DesktopFolderScanner() {
                   <div className="organization-section-heading">
                     <div>
                       <p className="eyebrow">VirtualDJ</p>
-                      <h3 id="virtualdj-export-title">{t("Exportar lista")}</h3>
+                      <h3 id="virtualdj-export-title">
+                        {locale === "en" ? "Export selected tracks" : "Exportar pistas seleccionadas"}
+                      </h3>
                     </div>
                     <label>
                       {t("Nombre de la lista")}
@@ -1517,8 +1540,8 @@ export function DesktopFolderScanner() {
                   </div>
                   <p className="organization-muted">
                     {locale === "en"
-                      ? `Native XML is the recommended option for VirtualDJ 2024+. M3U8 maintains compatibility with legacy workflows. Both formats preserve the order of the ${selectedTracks.length.toLocaleString(locale)} tracks and never copy or modify audio.`
-                      : `El XML nativo es la opción recomendada para VirtualDJ 2024+. M3U8 mantiene compatibilidad con flujos heredados. Ambos formatos conservan el orden de las ${selectedTracks.length.toLocaleString(locale)} pistas y nunca copian ni modifican el audio.`}
+                      ? `Choose VirtualDJ XML or M3U8. Both preserve the order of ${selectedTracks.length.toLocaleString(locale)} tracks and do not modify audio.`
+                      : `Elige XML de VirtualDJ o M3U8. Ambos conservan el orden de ${selectedTracks.length.toLocaleString(locale)} pistas y no modifican el audio.`}
                   </p>
                   <div className="action-row">
                     <fieldset className="virtualdj-reconciliation">
@@ -1537,7 +1560,7 @@ export function DesktopFolderScanner() {
                     >
                       {exportingVirtualDj === "xml"
                         ? t("Preparando XML…")
-                        : t("Guardar XML nativo")}
+                        : locale === "en" ? "Export VirtualDJ XML" : "Exportar XML de VirtualDJ"}
                     </button>
                     <button
                       className="button button--secondary"
@@ -1549,7 +1572,7 @@ export function DesktopFolderScanner() {
                     >
                       {exportingVirtualDj === "m3u8"
                         ? t("Preparando M3U8…")
-                        : t("Guardar M3U8 compatible")}
+                        : locale === "en" ? "Export M3U8" : "Exportar M3U8"}
                     </button>
                     <button
                       className="button button--primary"

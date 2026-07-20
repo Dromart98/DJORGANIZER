@@ -21,7 +21,7 @@ export default async function ImportPage() {
       <PageHeader
         eyebrow={t("Colección")}
         title={t("Importar música")}
-        description={t("Selecciona archivos y DJOrganizer estimará automáticamente BPM y tonalidad en este dispositivo; después revisa y guarda solo los metadatos.")}
+        description={t("Selecciona archivos, revisa BPM y tonalidad, y guarda los metadatos.")}
       />
       <ImportGuidance locale={locale} />
       <div className="import-flow">

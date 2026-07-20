@@ -28,6 +28,7 @@ const english = {
   "Buscar actualizaciones": "Check for updates",
   "Buscar cambios ahora": "Check for changes now",
   "Buscar en biblioteca…": "Search library…",
+  "Busca, filtra y edita tus pistas.": "Search, filter and edit your tracks.",
   "Buscar en el escaneo": "Search scan",
   "Cambios pendientes de confirmación": "Changes awaiting confirmation",
   "Cancelar": "Cancel",
@@ -45,6 +46,7 @@ const english = {
     "Check automatically every 30 seconds",
   "Confianza": "Confidence",
   "Cuenta conectada": "Connected account",
+  "Cuenta protegida": "Protected account",
   "Cuenta y estado actual de DJOrganizer.": "DJOrganizer account and current status.",
   "Crear crate": "Create crate",
   "Crear cuenta": "Create account",
@@ -102,6 +104,8 @@ const english = {
   "Importación privada": "Private import",
   "Importar": "Import",
   "Importar música": "Import music",
+  "Selecciona archivos, revisa BPM y tonalidad, y guarda los metadatos.":
+    "Select files, review BPM and key, then save the metadata.",
   "Instalar": "Install",
   "La importación solo propone cambios. Las pistas sin vínculo y los movimientos conflictivos deben revisarse antes de aplicar cualquier actualización al crate.":
     "Import only proposes changes. Unlinked tracks and conflicting moves must be reviewed before applying any update to the crate.",
@@ -313,8 +317,6 @@ const english = {
   "Aplicar": "Apply",
   "Aplicar edición": "Apply edit",
   "Asignar": "Assign",
-  "Busca, filtra y edita tu colección privada guardada en Supabase.":
-    "Search, filter and edit your private collection stored in Supabase.",
   "BPM máximo": "Maximum BPM",
   "BPM mínimo": "Minimum BPM",
   "Camelot": "Camelot",
@@ -391,6 +393,7 @@ const english = {
   "No se pudo guardar la etiqueta.": "The tag could not be saved.",
   "Nuevo": "New",
   "Organización": "Organization",
+  "Ordena sesiones y reutiliza etiquetas.": "Order sets and reuse tags.",
   "otro crate": "another crate",
   "Prepara sesiones con orden propio y clasifica canciones con etiquetas reutilizables.":
     "Prepare sets in your own order and classify tracks with reusable tags.",
@@ -545,8 +548,8 @@ const english = {
   "Versión de la misma edición": "Version of the same release",
   "versión de la misma edición": "version of the same release",
   "versión o remix": "version or remix",
-  "DJOrganizer calcula una huella SHA-256 local para detectar archivos exactamente iguales y estima automáticamente BPM y tonalidad al seleccionarlos. El análisis ocurre en el navegador. Solo envía a Supabase la huella y los campos que revises; no sube audio ni portadas.":
-    "DJOrganizer calculates a local SHA-256 fingerprint to detect identical files and automatically estimates BPM and key when you select them. Analysis runs in the browser. It only sends the fingerprint and fields you review to Supabase; it does not upload audio or artwork.",
+  "DJOrganizer calcula una huella digital del archivo para detectar copias exactas y estima BPM y tonalidad al seleccionarlo. El análisis ocurre en el navegador. Solo guarda los datos que revises; no sube audio ni portadas.":
+    "DJOrganizer calculates a file fingerprint to detect exact copies and estimates BPM and key when you select it. Analysis runs in the browser. It only stores the data you review; it does not upload audio or artwork.",
   "guardados": "saved",
   "listos": "ready",
   "Agrupar por": "Group by",

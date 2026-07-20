@@ -1168,7 +1168,7 @@ export function AudioImporter() {
           <p className="eyebrow">{t("Importación privada")}</p>
           <h2>{t("El audio no sale de este dispositivo")}</h2>
           <p>
-            {t("DJOrganizer calcula una huella SHA-256 local para detectar archivos exactamente iguales y estima automáticamente BPM y tonalidad al seleccionarlos. El análisis ocurre en el navegador. Solo envía a Supabase la huella y los campos que revises; no sube audio ni portadas.")}
+            {t("DJOrganizer calcula una huella digital del archivo para detectar copias exactas y estima BPM y tonalidad al seleccionarlo. El análisis ocurre en el navegador. Solo guarda los datos que revises; no sube audio ni portadas.")}
           </p>
         </div>
         <input

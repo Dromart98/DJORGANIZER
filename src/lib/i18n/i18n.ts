@@ -46,12 +46,12 @@ export const messages = {
         "El navegador solo puede leer los archivos que selecciones expresamente; no obtiene acceso general a tus carpetas.",
       browserTitle: "Archivos desde el navegador",
       desktopDescription:
-        "En Tauri puedes autorizar una carpeta con el selector del sistema. Esta opción no está disponible en la versión web.",
+        "En la aplicación de escritorio puedes autorizar una carpeta con el selector del sistema. Esta opción no está disponible en la versión web.",
       desktopTitle: "Carpeta en la aplicación de escritorio",
       detailsSummary: "Cómo funciona y qué se guarda",
       eyebrow: "Antes de empezar",
       privacy: [
-        "El audio completo no se guarda en Supabase y las rutas absolutas no se publican.",
+        "El audio completo y las rutas absolutas permanecen privados en tu dispositivo.",
         "El análisis musical se realiza localmente por defecto.",
         "OpenAI solo recibe un fragmento cuando pulsas expresamente la sugerencia de género de esa pista.",
         "Guardar metadatos no mueve ni modifica el archivo de audio.",
@@ -79,7 +79,7 @@ export const messages = {
       eyebrow: "Primeros pasos",
       pending: "Pendiente",
       privacyDescription:
-        "El audio y las rutas completas permanecen en tu dispositivo. DJOrganizer guarda en Supabase únicamente los metadatos que revisas; importar no mueve ni modifica los archivos.",
+        "El audio y las rutas completas permanecen en tu dispositivo. DJOrganizer guarda únicamente los metadatos que revisas; importar no mueve ni modifica los archivos.",
       privacySummary: "Qué permanece en este dispositivo",
       progress: (completed: number, total: number) =>
         `${completed} de ${total} pasos completados`,
@@ -184,12 +184,12 @@ export const messages = {
         "The browser can only read files you explicitly select; it does not get general access to your folders.",
       browserTitle: "Files from the browser",
       desktopDescription:
-        "In Tauri you can authorize a folder with the system picker. This option is not available in the web version.",
+        "In the desktop app you can authorize a folder with the system picker. This option is not available in the web version.",
       desktopTitle: "Folder in the desktop app",
       detailsSummary: "How it works and what is saved",
       eyebrow: "Before you start",
       privacy: [
-        "Full audio is not stored in Supabase and absolute paths are not published.",
+        "Full audio and absolute paths stay private on your device.",
         "Music analysis runs locally by default.",
         "OpenAI only receives a clip when you explicitly request a genre suggestion for that track.",
         "Saving metadata does not move or modify the audio file.",
@@ -217,7 +217,7 @@ export const messages = {
       eyebrow: "Getting started",
       pending: "Pending",
       privacyDescription:
-        "Audio and full paths stay on your device. DJOrganizer only stores the metadata you review in Supabase; importing does not move or modify files.",
+        "Audio and full paths stay on your device. DJOrganizer only stores the metadata you review; importing does not move or modify files.",
       privacySummary: "What stays on this device",
       progress: (completed: number, total: number) =>
         `${completed} of ${total} steps completed`,
