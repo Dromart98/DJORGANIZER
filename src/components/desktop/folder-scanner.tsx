@@ -125,6 +125,21 @@ interface VirtualDjBatchExportResult {
   exportedTracks: number;
 }
 
+interface RekordboxExportPreview {
+  duplicateNames: string[];
+  excludedTracks: number;
+  linkedTracks: number;
+  playlists: number;
+  totalTracks: number;
+  unlinkedTrackIds: string[];
+}
+
+interface RekordboxExportResult {
+  cancelled: boolean;
+  exportedPlaylists: number;
+  exportedTracks: number;
+}
+
 interface VirtualDjImportPreview {
   cancelled: boolean;
   lists: Array<{
@@ -253,6 +268,9 @@ export function DesktopFolderScanner() {
     useState<VirtualDjExportFormat | null>(null);
   const [virtualDjMessage, setVirtualDjMessage] = useState<string | null>(null);
   const [desktopCrates, setDesktopCrates] = useState<DesktopCrateExport[]>([]);
+  const [selectedCrateIds, setSelectedCrateIds] = useState<Set<string>>(() => new Set());
+  const [rekordboxPreview, setRekordboxPreview] = useState<RekordboxExportPreview | null>(null);
+  const [rekordboxBusy, setRekordboxBusy] = useState(false);
   const [virtualDjImport, setVirtualDjImport] =
     useState<VirtualDjImportPreview | null>(null);
   const [reconcilingList, setReconcilingList] = useState<string | null>(null);
@@ -619,6 +637,38 @@ export function DesktopFolderScanner() {
         ),
       );
     }
+  }
+
+  function rekordboxCrates() {
+    return desktopCrates.filter((crate) => selectedCrateIds.has(crate.id)).map((crate) => ({
+      hierarchy: crate.hierarchy,
+      id: crate.id,
+      name: crate.name,
+      trackIds: crate.trackIds,
+    }));
+  }
+
+  async function previewRekordboxExport() {
+    const core = getTauriCore();
+    if (!core || !result || !selectedCrateIds.size) return;
+    setRekordboxBusy(true);
+    try {
+      setRekordboxPreview(await core.invoke<RekordboxExportPreview>("preview_rekordbox_export", { crates: rekordboxCrates(), sessionId: result.sessionId }));
+    } catch (error) {
+      setVirtualDjMessage(commandErrorMessage(error, locale === "en" ? "Rekordbox preview could not be prepared." : "No se pudo preparar la previsualización de Rekordbox."));
+    } finally { setRekordboxBusy(false); }
+  }
+
+  async function exportRekordboxXml() {
+    const core = getTauriCore();
+    if (!core || !result || !rekordboxPreview || rekordboxPreview.duplicateNames.length) return;
+    if (rekordboxPreview.excludedTracks && !window.confirm(locale === "en" ? `Exclude exactly ${rekordboxPreview.excludedTracks} unlinked tracks?` : `¿Excluir exactamente ${rekordboxPreview.excludedTracks} pistas sin vínculo?`)) return;
+    setRekordboxBusy(true);
+    try {
+      const exported = await core.invoke<RekordboxExportResult>("export_rekordbox_xml", { crates: rekordboxCrates(), excludedTrackIds: rekordboxPreview.unlinkedTrackIds, sessionId: result.sessionId, confirmed: true });
+      setVirtualDjMessage(exported.cancelled ? t("Exportación cancelada. No se ha escrito ninguna lista.") : locale === "en" ? `${exported.exportedPlaylists} Rekordbox playlists saved with ${exported.exportedTracks} tracks.` : `${exported.exportedPlaylists} playlists de Rekordbox guardadas con ${exported.exportedTracks} pistas.`);
+    } catch (error) { setVirtualDjMessage(commandErrorMessage(error, locale === "en" ? "Rekordbox XML could not be saved." : "No se pudo guardar el XML de Rekordbox.")); }
+    finally { setRekordboxBusy(false); }
   }
 
   async function importVirtualDjLists() {
@@ -1471,6 +1521,12 @@ export function DesktopFolderScanner() {
                       : `El XML nativo es la opción recomendada para VirtualDJ 2024+. M3U8 mantiene compatibilidad con flujos heredados. Ambos formatos conservan el orden de las ${selectedTracks.length.toLocaleString(locale)} pistas y nunca copian ni modifican el audio.`}
                   </p>
                   <div className="action-row">
+                    <fieldset className="virtualdj-reconciliation">
+                      <legend>{locale === "en" ? "Rekordbox crates" : "Crates de Rekordbox"}</legend>
+                      <button type="button" className="button button--secondary" onClick={() => setSelectedCrateIds(new Set(desktopCrates.map((crate) => crate.id)))}>{locale === "en" ? "Select all" : "Seleccionar todos"}</button>
+                      <button type="button" className="button button--secondary" onClick={() => setSelectedCrateIds(new Set())}>{locale === "en" ? "Clear" : "Limpiar"}</button>
+                      {desktopCrates.map((crate) => <label key={crate.id}><input type="checkbox" checked={selectedCrateIds.has(crate.id)} onChange={() => setSelectedCrateIds((current) => { const next = new Set(current); if (next.has(crate.id)) next.delete(crate.id); else next.add(crate.id); return next; })} /> {crate.name}</label>)}
+                    </fieldset>
                     <button
                       className="button button--secondary"
                       disabled={
@@ -1507,6 +1563,14 @@ export function DesktopFolderScanner() {
                     </button>
                     <button
                       className="button button--secondary"
+                      disabled={!selectedCrateIds.size || rekordboxBusy}
+                      onClick={() => void previewRekordboxExport()}
+                      type="button"
+                    >
+                      {locale === "en" ? "Preview Rekordbox XML" : "Previsualizar XML de Rekordbox"}
+                    </button>
+                    <button
+                      className="button button--secondary"
                       onClick={() => void importVirtualDjLists()}
                       type="button"
                     >
@@ -1517,6 +1581,15 @@ export function DesktopFolderScanner() {
                     <p className="organization-muted" role="status">
                       {virtualDjMessage}
                     </p>
+                  ) : null}
+                  {rekordboxPreview ? (
+                    <div className="virtualdj-reconciliation" role="status">
+                      <h4>Rekordbox XML</h4>
+                      <p>{locale === "en" ? `${rekordboxPreview.playlists} playlists, ${rekordboxPreview.totalTracks} tracks: ${rekordboxPreview.linkedTracks} linked and ${rekordboxPreview.excludedTracks} without a local link. Audio will not be copied.` : `${rekordboxPreview.playlists} playlists, ${rekordboxPreview.totalTracks} pistas: ${rekordboxPreview.linkedTracks} vinculadas y ${rekordboxPreview.excludedTracks} sin vínculo local. El audio no se copiará.`}</p>
+                      {rekordboxPreview.unlinkedTrackIds.length ? <ul>{desktopCrates.flatMap((crate) => crate.tracks.filter((track) => rekordboxPreview.unlinkedTrackIds.includes(track.id)).map((track) => <li key={`${crate.id}-${track.id}`}><strong>{track.title}</strong>{track.artist ? ` · ${track.artist}` : ""}<small>{` · ${crate.name}`}</small></li>))}</ul> : null}
+                      {rekordboxPreview.duplicateNames.length ? <p className="form-message form-message--error">{locale === "en" ? `Duplicate names block export: ${rekordboxPreview.duplicateNames.join(", ")}` : `Los nombres duplicados bloquean la exportación: ${rekordboxPreview.duplicateNames.join(", ")}`}</p> : <button className="button button--primary" disabled={rekordboxBusy} onClick={() => void exportRekordboxXml()} type="button">{locale === "en" ? "Choose XML destination and export" : "Elegir destino XML y exportar"}</button>}
+                      <p className="organization-muted">{locale === "en" ? "XML export is available. Import, OneLibrary, Device Library, cues and beatgrids remain unsupported." : "La exportación XML está disponible. La importación, OneLibrary, Device Library, cues y beatgrids siguen sin ser compatibles."}</p>
+                    </div>
                   ) : null}
                   {virtualDjImport?.lists.length ? (
                     <div className="virtualdj-reconciliation">

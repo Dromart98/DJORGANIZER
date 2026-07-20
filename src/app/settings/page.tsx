@@ -78,7 +78,7 @@ export default async function SettingsPage() {
             {DJ_LIBRARY_PROVIDERS.map(
               (provider) =>
                 `${provider.displayName}: ${
-                  provider.status === "available" ? t("disponible") : t("preparada")
+                  provider.status === "available" ? t("disponible") : provider.status === "partial" ? t("exportación XML disponible") : t("preparada")
                 }`,
             ).join(" · ")}
           </p>

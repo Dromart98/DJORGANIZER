@@ -192,6 +192,21 @@ los límites y los casos ambiguos se documentan en
 - Todas las operaciones verifican el usuario en el servidor además de las
   políticas RLS y las claves foráneas compuestas de PostgreSQL.
 
+### Exportación Rekordbox XML (Bridge)
+
+Con una sesión de escaneo de escritorio activa, la revisión de carpeta permite
+previsualizar los crates vinculados y guardar un XML UTF-8 para seleccionarlo
+desde Bridge en Rekordbox. El selector nativo elige el destino; el archivo se
+genera en memoria, se escribe temporalmente y nunca sobrescribe un XML ya
+existente. Las pistas sin vínculo local se muestran en el resumen y requieren
+confirmación explícita para excluirlas.
+
+La integración exporta playlists y metadatos disponibles sin copiar, mover,
+renombrar o subir audio. No escribe la base de datos de Rekordbox, OneLibrary
+ni Device Library, y no exporta importación, USB/CDJ, cues, loops, beatgrids o
+sincronización. Las rutas absolutas siguen exclusivamente en la sesión Tauri;
+React y Supabase solo manejan identificadores opacos.
+
 ## Tonalidades y Camelot
 
 - Normalización de notación con sostenidos, bemoles, mayor y menor.

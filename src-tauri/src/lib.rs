@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
@@ -25,6 +25,8 @@ const AUDIO_EXTENSIONS: &[&str] = &[
 const MAX_ENTRIES: usize = 100_000;
 const MAX_TRACKS: usize = 10_000;
 const MAX_METADATA_WRITE_TRACKS: usize = 25;
+const MAX_REKORDBOX_CRATES: usize = 200;
+const MAX_REKORDBOX_XML_BYTES: usize = 20_000_000;
 const METADATA_BACKUP_DIRECTORY: &str = ".djorganizer-backups";
 
 #[derive(Debug, Default, PartialEq)]
@@ -282,6 +284,34 @@ struct VirtualDjBatchExportResult {
     backed_up_files: usize,
     cancelled: bool,
     exported_lists: usize,
+    exported_tracks: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RekordboxCrateInput {
+    hierarchy: Vec<String>,
+    id: String,
+    name: String,
+    track_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RekordboxExportPreview {
+    duplicate_names: Vec<String>,
+    excluded_tracks: usize,
+    linked_tracks: usize,
+    playlists: usize,
+    total_tracks: usize,
+    unlinked_track_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RekordboxExportResult {
+    cancelled: bool,
+    exported_playlists: usize,
     exported_tracks: usize,
 }
 
@@ -866,6 +896,146 @@ fn build_virtualdj_list_xml(tracks: &[SessionTrack]) -> Result<String, String> {
     }
 
     xml.push_str("</VirtualFolder>\n");
+    Ok(xml)
+}
+
+/// Rekordbox XML requires a URI, not an OS path.  This deliberately accepts
+/// only absolute UTF-8 paths and percent-encodes bytes exactly once.
+fn rekordbox_file_uri(path: &Path) -> Result<String, String> {
+    let value = export_path_text(path)?;
+    let normalized = value.replace('\\', "/");
+    let path = if normalized.starts_with("//") {
+        normalized
+    } else if normalized.len() >= 3
+        && normalized.as_bytes()[1] == b':'
+        && normalized.as_bytes()[2] == b'/'
+        && normalized.as_bytes()[0].is_ascii_alphabetic()
+    {
+        format!("/{normalized}")
+    } else if normalized.starts_with('/') {
+        normalized
+    } else {
+        return Err("La ruta local no es absoluta y no puede exportarse a Rekordbox.".to_owned());
+    };
+    let mut encoded = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'.' | b'_' | b'~' | b':') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    Ok(format!("file://localhost{encoded}"))
+}
+
+fn rekordbox_rating(_rating: Option<u8>) -> Option<u8> {
+    _rating.map(|rating| match rating.min(5) {
+        0 => 0,
+        1 => 51,
+        2 => 102,
+        3 => 153,
+        4 => 204,
+        _ => 255,
+    })
+}
+
+fn build_rekordbox_xml(
+    crates: &[(RekordboxCrateInput, Vec<SessionTrack>)],
+) -> Result<String, String> {
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DJ_PLAYLISTS Version=\"1.0.0\">\n  <PRODUCT Name=\"DJOrganizer\" Version=\"1.0\" Company=\"DJOrganizer\" />\n");
+    let mut by_scan_id = BTreeMap::<String, (usize, SessionTrack)>::new();
+    for (_, tracks) in crates {
+        for track in tracks {
+            if !by_scan_id.contains_key(&track.track.scan_id) {
+                let next_id = by_scan_id.len() + 1;
+                by_scan_id.insert(track.track.scan_id.clone(), (next_id, track.clone()));
+            }
+        }
+    }
+    xml.push_str(&format!(
+        "  <COLLECTION Entries=\"{}\">\n",
+        by_scan_id.len()
+    ));
+    for (_, (id, session_track)) in &by_scan_id {
+        let track = &session_track.track;
+        xml.push_str("    <TRACK");
+        push_xml_attribute(&mut xml, "TrackID", &id.to_string());
+        push_xml_attribute(
+            &mut xml,
+            "Location",
+            &rekordbox_file_uri(&session_track.absolute_path)?,
+        );
+        for (key, value) in [
+            ("Name", track.title.as_deref()),
+            ("Artist", track.artist.as_deref()),
+            ("Album", track.album.as_deref()),
+            ("Genre", track.genre.as_deref()),
+            ("Tonality", track.musical_key.as_deref()),
+        ] {
+            if let Some(value) = value.filter(|value| !value.is_empty()) {
+                push_xml_attribute(&mut xml, key, value);
+            }
+        }
+        if let Some(seconds) = track.duration_seconds {
+            push_xml_attribute(&mut xml, "TotalTime", &(seconds.round() as u64).to_string());
+        }
+        if let Some(bpm) = track.bpm {
+            push_xml_attribute(&mut xml, "AverageBpm", &format!("{bpm:.2}"));
+        }
+        xml.push_str(" />\n");
+    }
+    #[derive(Default)]
+    struct Folder<'a> {
+        children: BTreeMap<String, Folder<'a>>,
+        playlists: Vec<(&'a RekordboxCrateInput, &'a Vec<SessionTrack>)>,
+    }
+    fn emit_folder(
+        xml: &mut String,
+        name: &str,
+        folder: &Folder<'_>,
+        ids: &BTreeMap<String, (usize, SessionTrack)>,
+        indent: usize,
+    ) {
+        let pad = " ".repeat(indent);
+        xml.push_str(&format!(
+            "{pad}<NODE Type=\"0\" Name=\"{}",
+            xml_escape_attribute(name)
+        ));
+        xml.push_str(&format!(
+            "\" Count=\"{}\">\n",
+            folder.children.len() + folder.playlists.len()
+        ));
+        for (child_name, child) in &folder.children {
+            emit_folder(xml, child_name, child, ids, indent + 2);
+        }
+        for (crate_input, tracks) in &folder.playlists {
+            xml.push_str(&format!("{}  <NODE Type=\"1\"", pad));
+            push_xml_attribute(xml, "Name", &crate_input.name);
+            push_xml_attribute(xml, "KeyType", "0");
+            push_xml_attribute(xml, "Entries", &tracks.len().to_string());
+            xml.push_str(">\n");
+            for track in *tracks {
+                let id = ids.get(&track.track.scan_id).expect("selected track ID").0;
+                xml.push_str(&format!("{}    <TRACK Key=\"{id}\" />\n", pad));
+            }
+            xml.push_str(&format!("{}  </NODE>\n", pad));
+        }
+        xml.push_str(&format!("{pad}</NODE>\n"));
+    }
+    let mut root = Folder::default();
+    for (crate_input, tracks) in crates {
+        let mut folder = &mut root;
+        for level in &crate_input.hierarchy {
+            folder = folder.children.entry(level.clone()).or_default();
+        }
+        folder.playlists.push((crate_input, tracks));
+    }
+    xml.push_str("  </COLLECTION>\n  <PLAYLISTS>\n");
+    emit_folder(&mut xml, "ROOT", &root, &by_scan_id, 4);
+    xml.push_str("  </PLAYLISTS>\n</DJ_PLAYLISTS>\n");
+    if xml.len() > MAX_REKORDBOX_XML_BYTES {
+        return Err("El XML estimado supera el límite de 20 MB.".to_owned());
+    }
     Ok(xml)
 }
 
@@ -2388,6 +2558,74 @@ fn write_with_backup(destination: &Path, contents: &str) -> Result<bool, String>
     Ok(backed_up)
 }
 
+/// Publishes an export without replacing a file created after the save dialog.
+///
+/// A hard link is an atomic, no-clobber directory entry creation operation: it
+/// succeeds only while `destination` does not exist. The temporary file lives
+/// in the destination directory, so both names are guaranteed to be on the
+/// same filesystem. Once linked, removing the temporary name leaves the
+/// published file intact.
+fn write_rekordbox_xml_no_clobber<F>(
+    destination: &Path,
+    contents: &[u8],
+    before_publish: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "El destino de exportación no es válido.".to_owned())?;
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("rekordbox.xml");
+    let temporary = parent.join(format!(
+        ".{file_name}.djorganizer-{}-{}.tmp",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "No se pudo crear el XML temporal.".to_owned())?
+            .as_nanos()
+    ));
+
+    let mut temporary_created = false;
+    let result = (|| -> Result<(), String> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| format!("No se pudo preparar el XML: {error}"))?;
+        temporary_created = true;
+        file.write_all(contents)
+            .map_err(|error| format!("No se pudo escribir el XML: {error}"))?;
+        file.flush()
+            .map_err(|error| format!("No se pudo vaciar el XML: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("No se pudo sincronizar el XML: {error}"))?;
+        drop(file);
+
+        before_publish(&temporary)?;
+        fs::hard_link(&temporary, destination).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                "destination_exists".to_owned()
+            } else {
+                format!("No se pudo publicar el XML: {error}")
+            }
+        })?;
+        fs::remove_file(&temporary)
+            .map_err(|error| format!("No se pudo finalizar el XML: {error}"))?;
+        Ok(())
+    })();
+
+    if result.is_err() && temporary_created {
+        // This function created the temporary file, so cleanup never touches
+        // the user-selected destination or a stale temporary from another run.
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn export_virtualdj_crates(
     app: AppHandle,
@@ -2478,6 +2716,145 @@ async fn export_virtualdj_crates(
         cancelled: false,
         exported_lists: prepared.len(),
         exported_tracks,
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn preview_rekordbox_export(
+    state: State<'_, DesktopState>,
+    crates: Vec<RekordboxCrateInput>,
+    session_id: String,
+) -> Result<RekordboxExportPreview, String> {
+    if crates.is_empty() || crates.len() > MAX_REKORDBOX_CRATES {
+        return Err("Selecciona entre 1 y 200 crates.".to_owned());
+    }
+    let session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    let session = session
+        .as_ref()
+        .filter(|session| session.id == session_id)
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+        })?;
+    let mut names = HashSet::new();
+    let mut duplicate_names = Vec::new();
+    let mut linked_tracks = 0;
+    let mut excluded_tracks = 0;
+    let mut unlinked_track_ids = Vec::new();
+    for crate_input in &crates {
+        if crate_input.hierarchy.len() > 8
+            || crate_input.name.trim().is_empty()
+            || crate_input.name.chars().count() > 120
+        {
+            return Err("El nombre o la jerarquía del crate no son válidos.".to_owned());
+        }
+        let key = format!("{}/{}", crate_input.hierarchy.join("/"), crate_input.name);
+        if !names.insert(key.clone()) {
+            duplicate_names.push(key);
+        }
+        for track_id in &crate_input.track_ids {
+            if session.library_links.contains_key(track_id) {
+                linked_tracks += 1
+            } else {
+                excluded_tracks += 1;
+                unlinked_track_ids.push(track_id.clone());
+            }
+        }
+    }
+    Ok(RekordboxExportPreview {
+        duplicate_names,
+        excluded_tracks,
+        linked_tracks,
+        playlists: crates.len(),
+        total_tracks: linked_tracks + excluded_tracks,
+        unlinked_track_ids,
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn export_rekordbox_xml(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    crates: Vec<RekordboxCrateInput>,
+    excluded_track_ids: Vec<String>,
+    session_id: String,
+    confirmed: bool,
+) -> Result<RekordboxExportResult, String> {
+    if !confirmed {
+        return Err("Confirma explícitamente la exportación de Rekordbox.".to_owned());
+    }
+    let preview =
+        preview_rekordbox_export(state.clone(), crates.clone(), session_id.clone()).await?;
+    if !preview.duplicate_names.is_empty() {
+        return Err("Hay nombres de crates duplicados en el mismo nivel.".to_owned());
+    }
+    let excluded = excluded_track_ids.into_iter().collect::<HashSet<_>>();
+    let prepared = {
+        let guard = state
+            .scan_session
+            .lock()
+            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+        let session = guard
+            .as_ref()
+            .filter(|session| session.id == session_id)
+            .ok_or_else(|| {
+                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+            })?;
+        let expected_exclusions = crates
+            .iter()
+            .flat_map(|crate_input| crate_input.track_ids.iter())
+            .filter(|id| !session.library_links.contains_key(*id))
+            .cloned()
+            .collect::<HashSet<_>>();
+        if excluded != expected_exclusions {
+            return Err("Las exclusiones confirmadas no coinciden exactamente con la previsualización actual. Vuelve a revisar las pistas sin vínculo.".to_owned());
+        }
+        crates.into_iter().map(|crate_input| {
+            let mut tracks = Vec::new();
+            for id in &crate_input.track_ids {
+                match session.library_links.get(id).and_then(|scan_id| session.tracks.get(scan_id)).cloned() {
+                    Some(track) => {
+                        let metadata = fs::metadata(&track.absolute_path).map_err(|_| "Un archivo vinculado ya no existe. Vuelve a escanear antes de exportar.".to_owned())?;
+                        if !metadata.is_file() || metadata.len() != track.track.size_bytes || !track.absolute_path.is_absolute() || export_path_text(&track.absolute_path).is_err() {
+                            return Err("Un archivo vinculado cambió desde el escaneo. Vuelve a escanear antes de exportar.".to_owned());
+                        }
+                        tracks.push(track)
+                    }
+                    None if excluded.contains(id) => (),
+                    None => return Err("Hay pistas sin vínculo local. Confirma sus exclusiones antes de exportar.".to_owned()),
+                }
+            }
+            Ok((crate_input, tracks))
+        }).collect::<Result<Vec<_>, String>>()?
+    };
+    let xml = build_rekordbox_xml(&prepared)?;
+    let destination = app
+        .dialog()
+        .file()
+        .set_title("Guardar XML para Rekordbox")
+        .set_file_name("DJOrganizer-Rekordbox.xml")
+        .add_filter("Rekordbox XML", &["xml"])
+        .blocking_save_file();
+    let Some(destination) = destination else {
+        return Ok(RekordboxExportResult {
+            cancelled: true,
+            exported_playlists: 0,
+            exported_tracks: 0,
+        });
+    };
+    let destination = destination
+        .into_path()
+        .map_err(|error| format!("El destino elegido no es una ruta local válida: {error}"))?;
+    if destination.exists() {
+        return Err("destination_exists".to_owned());
+    }
+    write_rekordbox_xml_no_clobber(&destination, xml.as_bytes(), |_| Ok(()))?;
+    Ok(RekordboxExportResult {
+        cancelled: false,
+        exported_playlists: prepared.len(),
+        exported_tracks: prepared.iter().map(|(_, tracks)| tracks.len()).sum(),
     })
 }
 
@@ -2747,6 +3124,8 @@ pub fn run() {
             export_virtualdj_list,
             export_virtualdj_m3u8,
             export_virtualdj_crates,
+            preview_rekordbox_export,
+            export_rekordbox_xml,
             import_virtualdj_my_lists,
             check_for_updates,
             install_available_update
@@ -2761,12 +3140,14 @@ mod tests {
     use super::export_path_text;
     use super::{
         apply_metadata_write_batch, audio_extension, build_metadata_write_preview,
-        build_reorganization_plan, build_virtualdj_list_xml, build_virtualdj_m3u8,
-        count_incremental_changes, create_track_path_id, link_library_candidates, parse_bpm,
-        parse_mp4_bpm_value, parse_virtualdj_paths, read_audio_metadata, restore_metadata_backups,
-        safe_export_file_name, safe_path_segment, scan_music_folder,
-        scan_music_folder_with_previous, LibraryLinkCandidate, MetadataEditInput,
-        MetadataWriteRequest, OrganizationScheme, ScanSession, ScannedAudioFile, SessionTrack,
+        build_rekordbox_xml, build_reorganization_plan, build_virtualdj_list_xml,
+        build_virtualdj_m3u8, count_incremental_changes, create_track_path_id,
+        link_library_candidates, parse_bpm, parse_mp4_bpm_value, parse_virtualdj_paths,
+        read_audio_metadata, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
+        safe_path_segment, scan_music_folder, scan_music_folder_with_previous,
+        write_rekordbox_xml_no_clobber, LibraryLinkCandidate, MetadataEditInput,
+        MetadataWriteRequest, OrganizationScheme, RekordboxCrateInput, ScanSession,
+        ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use sha2::{Digest, Sha256};
@@ -3178,6 +3559,111 @@ mod tests {
         assert!(build_virtualdj_m3u8(&[incompatible])
             .expect_err("line breaks in paths must be rejected")
             .contains("XML"));
+    }
+
+    #[test]
+    fn builds_rekordbox_xml_with_escaped_file_uris_and_stable_track_ids() {
+        assert_eq!(
+            rekordbox_file_uri(Path::new(r"C:\Music\Café #1%.mp3")).expect("URI"),
+            "file://localhost/C:/Music/Caf%C3%A9%20%231%25.mp3"
+        );
+        assert!(rekordbox_file_uri(Path::new("relative.mp3")).is_err());
+        let track = SessionTrack {
+            absolute_path: "/music/A&B.mp3".into(),
+            track: ScannedAudioFile {
+                scan_id: "scan-a".to_owned(),
+                name: "A&B.mp3".to_owned(),
+                relative_path: "A&B.mp3".to_owned(),
+                extension: "mp3".to_owned(),
+                size_bytes: 1,
+                metadata_read: true,
+                title: Some("A & B".to_owned()),
+                artist: None,
+                album: None,
+                genre: None,
+                duration_seconds: None,
+                bpm: None,
+                musical_key: None,
+                duplicate_group: None,
+            },
+        };
+        let xml = build_rekordbox_xml(&[(
+            RekordboxCrateInput {
+                hierarchy: vec![],
+                id: "crate".to_owned(),
+                name: "Warm up".to_owned(),
+                track_ids: vec!["library".to_owned()],
+            },
+            vec![track],
+        )])
+        .expect("XML");
+        assert!(xml.starts_with(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DJ_PLAYLISTS Version=\"1.0.0\">"
+        ));
+        assert!(xml.contains("Location=\"file://localhost/music/A%26B.mp3\""));
+        assert!(xml.contains("Name=\"A &amp; B\""));
+        assert!(xml.contains("<TRACK Key=\"1\" />"));
+    }
+
+    #[test]
+    fn publishes_rekordbox_xml_to_a_new_destination() {
+        let root = test_directory();
+        let destination = root.join("export.xml");
+
+        write_rekordbox_xml_no_clobber(&destination, b"<DJ_PLAYLISTS />", |_| Ok(()))
+            .expect("a new destination should be published");
+
+        assert_eq!(
+            fs::read(&destination).expect("export should exist"),
+            b"<DJ_PLAYLISTS />"
+        );
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn refuses_to_replace_an_existing_rekordbox_xml() {
+        let root = test_directory();
+        let destination = root.join("export.xml");
+        fs::write(&destination, b"existing XML").expect("fixture should be written");
+
+        let error = write_rekordbox_xml_no_clobber(&destination, b"new XML", |_| Ok(()))
+            .expect_err("an existing destination must not be replaced");
+
+        assert_eq!(error, "destination_exists");
+        assert_eq!(
+            fs::read(&destination).expect("existing export should remain"),
+            b"existing XML"
+        );
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn refuses_a_destination_created_between_validation_and_publication() {
+        let root = test_directory();
+        let destination = root.join("export.xml");
+
+        let error = write_rekordbox_xml_no_clobber(&destination, b"new XML", |_| {
+            fs::write(&destination, b"concurrent XML")
+                .map_err(|error| format!("could not create concurrent fixture: {error}"))
+        })
+        .expect_err("a concurrently-created destination must not be replaced");
+
+        assert_eq!(error, "destination_exists");
+        assert_eq!(
+            fs::read(&destination).expect("concurrent export should remain"),
+            b"concurrent XML"
+        );
+        assert!(
+            fs::read_dir(&root)
+                .expect("test directory should be readable")
+                .all(|entry| !entry
+                    .expect("entry should be readable")
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".djorganizer-")),
+            "the failed export temporary should be cleaned up"
+        );
+        fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
     #[cfg(unix)]

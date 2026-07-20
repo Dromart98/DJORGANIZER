@@ -83,6 +83,7 @@ const english = {
   "Etiquetas locales reversibles": "Reversible local tags",
   "Ejecutar simulación final": "Run final simulation",
   "Exportar": "Export",
+  "exportación XML disponible": "XML export available",
   "Exportar diagnóstico": "Export diagnostics",
   "Exportar lista": "Export list",
   "Formatos habituales: MP3, M4A, FLAC, WAV, AIFF, AAC, OGG y Opus.":

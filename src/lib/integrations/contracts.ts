@@ -15,7 +15,7 @@ export type DjLibraryProvider = {
   capabilities: readonly IntegrationCapability[];
   displayName: string;
   id: DjLibraryProviderId;
-  status: "available" | "planned";
+  status: "available" | "partial" | "planned";
 };
 
 export const DJ_LIBRARY_PROVIDERS: readonly DjLibraryProvider[] = [
@@ -26,10 +26,10 @@ export const DJ_LIBRARY_PROVIDERS: readonly DjLibraryProvider[] = [
     status: "available",
   },
   {
-    capabilities: ["ordered-playlists", "crate-hierarchy", "cue-points"],
+    capabilities: ["ordered-playlists", "crate-hierarchy", "metadata"],
     displayName: "Rekordbox",
     id: "rekordbox",
-    status: "planned",
+    status: "partial",
   },
   {
     capabilities: ["ordered-playlists", "crate-hierarchy"],
