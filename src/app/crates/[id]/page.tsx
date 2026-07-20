@@ -32,6 +32,7 @@ type CrateMembership = Pick<
 >;
 
 const CRATE_TRACKS_PER_PAGE = 100;
+const CRATE_EXPORT_TRACKS_PER_PAGE = 500;
 
 const errorMessages: Record<string, string> = {
   "add-track": "No se pudo añadir la pista.",
@@ -128,15 +129,19 @@ export default async function CrateDetailPage({
   }
 
   const membershipRows: CrateMembership[] = memberships ?? [];
-  const { data: allMemberships, error: allMembershipsError } = await supabase
-    .from("crate_tracks")
-    .select("track_id")
-    .eq("crate_id", crate.id)
-    .eq("user_id", user.id)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (allMembershipsError) throw new Error("No se pudo preparar la exportación del crate.");
-  const exportTrackIds = (allMemberships ?? []).map((membership) => membership.track_id);
+  const exportTrackIds: string[] = [];
+  for (let from = 0; from < totalMemberships; from += CRATE_EXPORT_TRACKS_PER_PAGE) {
+    const { data, error: allMembershipsError } = await supabase
+      .from("crate_tracks")
+      .select("track_id")
+      .eq("crate_id", crate.id)
+      .eq("user_id", user.id)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .range(from, from + CRATE_EXPORT_TRACKS_PER_PAGE - 1);
+    if (allMembershipsError) throw new Error("No se pudo preparar la exportación del crate.");
+    exportTrackIds.push(...(data ?? []).map((membership) => membership.track_id));
+  }
   const memberIds = membershipRows.map((membership) => membership.track_id);
   const { data: memberTracks, error: tracksError } = memberIds.length
     ? await supabase
