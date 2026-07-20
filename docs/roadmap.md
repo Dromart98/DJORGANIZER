@@ -70,6 +70,15 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   corrección manual. El clip WAV mono de hasta 45 segundos se genera localmente,
   no se almacena y existe un límite por usuario.
   Referencia: [gpt-audio](https://developers.openai.com/api/docs/models/gpt-audio).
+- [ ] Evaluar e implementar `laion/larger_clap_music` para clasificación
+  zero-shot de géneros musicales. Priorizar inferencia local mediante Tauri
+  cuando el rendimiento y el tamaño del modelo lo permitan; comparar precisión,
+  latencia, memoria y consumo con `gpt-audio`; usar una taxonomía controlada,
+  confianza visible y sugerencias que siempre requieran aceptación manual. No
+  subir audio completo a Supabase, no ejecutar clasificación en segundo plano y
+  mantener una alternativa segura cuando el dispositivo no pueda cargar el
+  modelo.
+  Referencia: [laion/larger_clap_music](https://huggingface.co/laion/larger_clap_music).
 - [x] Calcular energía real con una escala documentada y editable.
 - [x] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
