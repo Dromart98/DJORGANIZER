@@ -14,10 +14,10 @@
       {
         "label": "main",
         "title": "DJOrganizer",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 1024,
-        "minHeight": 700,
+        "width": 1280,
+        "height": 760,
+        "minWidth": 960,
+        "minHeight": 640,
         "center": true,
         "resizable": true,
         "fullscreen": false
