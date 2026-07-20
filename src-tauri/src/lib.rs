@@ -2558,6 +2558,74 @@ fn write_with_backup(destination: &Path, contents: &str) -> Result<bool, String>
     Ok(backed_up)
 }
 
+/// Publishes an export without replacing a file created after the save dialog.
+///
+/// A hard link is an atomic, no-clobber directory entry creation operation: it
+/// succeeds only while `destination` does not exist. The temporary file lives
+/// in the destination directory, so both names are guaranteed to be on the
+/// same filesystem. Once linked, removing the temporary name leaves the
+/// published file intact.
+fn write_rekordbox_xml_no_clobber<F>(
+    destination: &Path,
+    contents: &[u8],
+    before_publish: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "El destino de exportación no es válido.".to_owned())?;
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("rekordbox.xml");
+    let temporary = parent.join(format!(
+        ".{file_name}.djorganizer-{}-{}.tmp",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "No se pudo crear el XML temporal.".to_owned())?
+            .as_nanos()
+    ));
+
+    let mut temporary_created = false;
+    let result = (|| -> Result<(), String> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| format!("No se pudo preparar el XML: {error}"))?;
+        temporary_created = true;
+        file.write_all(contents)
+            .map_err(|error| format!("No se pudo escribir el XML: {error}"))?;
+        file.flush()
+            .map_err(|error| format!("No se pudo vaciar el XML: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("No se pudo sincronizar el XML: {error}"))?;
+        drop(file);
+
+        before_publish(&temporary)?;
+        fs::hard_link(&temporary, destination).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                "destination_exists".to_owned()
+            } else {
+                format!("No se pudo publicar el XML: {error}")
+            }
+        })?;
+        fs::remove_file(&temporary)
+            .map_err(|error| format!("No se pudo finalizar el XML: {error}"))?;
+        Ok(())
+    })();
+
+    if result.is_err() && temporary_created {
+        // This function created the temporary file, so cleanup never touches
+        // the user-selected destination or a stale temporary from another run.
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn export_virtualdj_crates(
     app: AppHandle,
@@ -2782,34 +2850,7 @@ async fn export_rekordbox_xml(
     if destination.exists() {
         return Err("destination_exists".to_owned());
     }
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "El destino de exportación no es válido.".to_owned())?;
-    let temporary = parent.join(format!(
-        ".{}.djorganizer.tmp",
-        destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("rekordbox.xml")
-    ));
-    let write_result = (|| -> Result<(), String> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .map_err(|error| format!("No se pudo preparar el XML: {error}"))?;
-        file.write_all(xml.as_bytes())
-            .map_err(|error| format!("No se pudo escribir el XML: {error}"))?;
-        file.flush()
-            .map_err(|error| format!("No se pudo cerrar el XML: {error}"))?;
-        fs::rename(&temporary, &destination)
-            .map_err(|error| format!("No se pudo guardar el XML: {error}"))?;
-        Ok(())
-    })();
-    if write_result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    write_result?;
+    write_rekordbox_xml_no_clobber(&destination, xml.as_bytes(), |_| Ok(()))?;
     Ok(RekordboxExportResult {
         cancelled: false,
         exported_playlists: prepared.len(),
@@ -3104,8 +3145,9 @@ mod tests {
         link_library_candidates, parse_bpm, parse_mp4_bpm_value, parse_virtualdj_paths,
         read_audio_metadata, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
         safe_path_segment, scan_music_folder, scan_music_folder_with_previous,
-        LibraryLinkCandidate, MetadataEditInput, MetadataWriteRequest, OrganizationScheme,
-        RekordboxCrateInput, ScanSession, ScannedAudioFile, SessionTrack,
+        write_rekordbox_xml_no_clobber, LibraryLinkCandidate, MetadataEditInput,
+        MetadataWriteRequest, OrganizationScheme, RekordboxCrateInput, ScanSession,
+        ScannedAudioFile, SessionTrack,
     };
     use lofty::mp4::AtomData;
     use sha2::{Digest, Sha256};
@@ -3561,6 +3603,67 @@ mod tests {
         assert!(xml.contains("Location=\"file://localhost/music/A%26B.mp3\""));
         assert!(xml.contains("Name=\"A &amp; B\""));
         assert!(xml.contains("<TRACK Key=\"1\" />"));
+    }
+
+    #[test]
+    fn publishes_rekordbox_xml_to_a_new_destination() {
+        let root = test_directory();
+        let destination = root.join("export.xml");
+
+        write_rekordbox_xml_no_clobber(&destination, b"<DJ_PLAYLISTS />", |_| Ok(()))
+            .expect("a new destination should be published");
+
+        assert_eq!(
+            fs::read(&destination).expect("export should exist"),
+            b"<DJ_PLAYLISTS />"
+        );
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn refuses_to_replace_an_existing_rekordbox_xml() {
+        let root = test_directory();
+        let destination = root.join("export.xml");
+        fs::write(&destination, b"existing XML").expect("fixture should be written");
+
+        let error = write_rekordbox_xml_no_clobber(&destination, b"new XML", |_| Ok(()))
+            .expect_err("an existing destination must not be replaced");
+
+        assert_eq!(error, "destination_exists");
+        assert_eq!(
+            fs::read(&destination).expect("existing export should remain"),
+            b"existing XML"
+        );
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    #[test]
+    fn refuses_a_destination_created_between_validation_and_publication() {
+        let root = test_directory();
+        let destination = root.join("export.xml");
+
+        let error = write_rekordbox_xml_no_clobber(&destination, b"new XML", |_| {
+            fs::write(&destination, b"concurrent XML")
+                .map_err(|error| format!("could not create concurrent fixture: {error}"))
+        })
+        .expect_err("a concurrently-created destination must not be replaced");
+
+        assert_eq!(error, "destination_exists");
+        assert_eq!(
+            fs::read(&destination).expect("concurrent export should remain"),
+            b"concurrent XML"
+        );
+        assert!(
+            fs::read_dir(&root)
+                .expect("test directory should be readable")
+                .all(|entry| !entry
+                    .expect("entry should be readable")
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".djorganizer-")),
+            "the failed export temporary should be cleaned up"
+        );
+        fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
     #[cfg(unix)]
