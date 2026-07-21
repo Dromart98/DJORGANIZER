@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-07-20.
+Actualizado: 2026-07-21.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -70,24 +70,54 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   corrección manual. El clip WAV mono de hasta 45 segundos se genera localmente,
   no se almacena y existe un límite por usuario.
   Referencia: [gpt-audio](https://developers.openai.com/api/docs/models/gpt-audio).
-- [ ] Evaluar e implementar `laion/larger_clap_music` para clasificación
-  zero-shot de géneros musicales. Priorizar inferencia local mediante Tauri
-  cuando el rendimiento y el tamaño del modelo lo permitan; comparar precisión,
-  latencia, memoria y consumo con `gpt-audio`; usar una taxonomía controlada,
-  confianza visible y sugerencias que siempre requieran aceptación manual. No
-  subir audio completo a Supabase, no ejecutar clasificación en segundo plano y
-  mantener una alternativa segura cuando el dispositivo no pueda cargar el
-  modelo.
+- [ ] Crear primero un banco de validación común para clasificación de género,
+  con una colección etiquetada manualmente, taxonomía interna estable, métricas
+  multi-etiqueta, tiempos, memoria y consumo. El contrato debe admitir varios
+  proveedores sin cambiar los géneros persistidos ni sobrescribir correcciones
+  manuales.
+- [ ] Implementar una prueba de concepto web local con
+  `discogs-effnet-bsdynamic` y `genre_discogs400-discogs-effnet`. Los pesos
+  oficiales incluyen un extractor ONNX de unos 18 MB y una taxonomía de 400
+  estilos. Ejecutar mediante ONNX Runtime Web, preferir WebGPU cuando esté
+  disponible y usar WASM como alternativa. Detectar compatibilidad y memoria
+  antes de descargar el modelo, exigir una acción explícita, procesar solo
+  archivos seleccionados y mantener OpenAI como alternativa cuando el
+  navegador no sea apto. No declarar soporte general hasta superar pruebas en
+  Chrome, Edge, Firefox y Safari de escritorio y móvil.
+  Referencias: [Discogs-EffNet](https://essentia.upf.edu/models.html#discogs-effnet)
+  y [ONNX Runtime Web](https://onnxruntime.ai/docs/get-started/with-javascript/web.html).
+- [ ] Implementar la clasificación local de escritorio con
+  `discogs-maest-30s-pw-519l` y `genre_discogs519`. Los pesos oficiales están
+  disponibles en ONNX, el extractor ocupa aproximadamente 348 MB y el modelo
+  cubre 519 estilos de Discogs. Ejecutar desde Tauri mediante un runtime nativo,
+  descargar el paquete solo con confirmación, verificar integridad y versión,
+  limitar memoria, permitir cancelación y conservar el audio y las rutas
+  exclusivamente en el dispositivo. Comparar CPU y aceleración disponible antes
+  de habilitar análisis masivo.
+  Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
+- [ ] Verificar y documentar antes de distribuir cualquier peso de MTG la
+  licencia exacta incluida con cada archivo. La documentación oficial confirma
+  uso no comercial, pero muestra referencias distintas a CC BY-NC-SA 4.0 y
+  CC BY-NC-ND 4.0; prevalece el `LICENSE` del artefacto descargado. No convertir,
+  cuantizar, redistribuir ni incluir modelos en instaladores o cachés públicas
+  hasta determinar si la licencia concreta permite esa adaptación y
+  distribución. Mantener esta vía limitada a DJOrganizer no comercial o
+  sustituirla por una licencia propietaria.
+- [ ] Evaluar `laion/larger_clap_music` como alternativa local de licencia
+  Apache 2.0 y como proveedor de reserva para escritorio. Comparar precisión,
+  latencia, memoria y consumo con MAEST, Discogs-EffNet y OpenAI usando el mismo
+  banco de validación. Su clasificación zero-shot debe usar la taxonomía
+  controlada de DJOrganizer, confianza visible y aceptación manual. No subir
+  audio completo a Supabase, no analizar en segundo plano y ofrecer una salida
+  segura cuando el equipo no pueda cargar el modelo.
   Referencia: [laion/larger_clap_music](https://huggingface.co/laion/larger_clap_music).
-- [ ] Añadir un botón para analizar el género de múltiples pistas o de toda la
-  biblioteca mediante procesamiento por lotes. Debe mostrar una previsualización
-  con proveedor, confianza, coste estimado cuando use API, progreso, cancelación,
-  errores parciales y canciones omitidas. No debe cargar toda la biblioteca en
-  memoria, reenviar pistas ya clasificadas sin autorización ni aplicar géneros
-  automáticamente: las sugerencias deben revisarse y aceptarse individualmente
-  o mediante una confirmación masiva explícita. Cuando se use
-  `laion/larger_clap_music`, priorizar ejecución local; cuando se use una API,
-  exigir consentimiento y límites por usuario antes de enviar cada fragmento.
+- [ ] Añadir después el análisis de género por lotes para varias pistas o toda
+  la biblioteca. Debe usar el proveedor local compatible con el dispositivo,
+  procesar por ventanas acotadas, mostrar modelo, licencia, confianza, coste
+  estimado cuando use API, progreso, cancelación, errores parciales y canciones
+  omitidas. No reenviar pistas ya clasificadas sin autorización ni aplicar
+  géneros automáticamente: las sugerencias se revisan individualmente o
+  mediante una confirmación masiva explícita.
 - [x] Calcular energía real con una escala documentada y editable.
 - [x] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
