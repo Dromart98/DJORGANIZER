@@ -177,6 +177,25 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   metadatos visibles y nombres accesibles. La paridad se protege con tipos y
   una prueba recursiva; el contenido del usuario y los contratos persistidos no
   se traducen.
+
+### Simplificación UX/UI antes del cierre del producto
+
+- [ ] Ejecutar una fase específica de auditoría, simplificación y rediseño UX/UI
+  cuando las funcionalidades prioritarias estén implementadas y estabilizadas.
+  Debe simplificar recorridos reales antes del pulido visual y conservar todos
+  los contratos de seguridad, privacidad, archivos e integraciones ya validados.
+- [ ] Auditar registro, importación, revisión musical, biblioteca, crates,
+  preparación de sesiones, organización local, backups e integraciones mediante
+  pruebas de uso sin instrucciones externas.
+- [ ] Corregir primero arquitectura de información, navegación, lenguaje,
+  jerarquía de acciones, estados, confirmaciones y recuperación; aplicar después
+  el rediseño visual, responsive y de densidad.
+- [ ] Validar tiempo, errores, dudas, abandonos y pasos innecesarios con teclado,
+  NVDA, móvil, escritorio, conexión lenta y bibliotecas grandes.
+
+El alcance, principios, flujos y definición de terminado de esta fase están
+recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
+
 - [x] Contratos de capacidades para Rekordbox, Serato y Traktor.
 - [x] Exportación XML de playlists de Rekordbox mediante Bridge desde una sesión
   local de Tauri, sin escribir OneLibrary, Device Library ni audio.
