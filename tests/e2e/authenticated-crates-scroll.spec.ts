@@ -53,18 +53,43 @@ test("@authenticated keeps a long Crates page reachable with document scrolling"
       fixture.textContent = `Scroll regression fixture ${index + 1}`;
       grid.appendChild(fixture);
     }
+
+    const tagsPanel = document.querySelector(".organization-form--tags");
+    if (!tagsPanel) throw new Error("Crates tags panel was not found");
+    const tagList = document.createElement("ul");
+    tagList.className = "tag-list";
+    for (let index = 0; index < 18; index += 1) {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `Sidebar control fixture ${index + 1}`;
+      item.appendChild(button);
+      tagList.appendChild(item);
+    }
+    tagsPanel.appendChild(tagList);
   });
 
   const metrics = await page.evaluate(() => {
     const scrollingElement = document.scrollingElement;
     const main = document.querySelector("main");
     const layout = document.querySelector(".organization-layout");
-    if (!scrollingElement || !main || !layout) throw new Error("Expected layout elements are missing");
+    const sidebar = document.querySelector(".organization-sidebar");
+    if (!scrollingElement || !main || !layout || !sidebar) throw new Error("Expected layout elements are missing");
     return {
       documentScrollable: scrollingElement.scrollHeight > scrollingElement.clientHeight,
       horizontalOverflow: scrollingElement.scrollWidth > scrollingElement.clientWidth,
       layoutHasCompetingScroll: layout.scrollHeight > layout.clientHeight && ["auto", "scroll"].includes(getComputedStyle(layout).overflowY),
       mainHasCompetingScroll: main.scrollHeight > main.clientHeight && ["auto", "scroll"].includes(getComputedStyle(main).overflowY),
+      sidebarHasCompetingScroll:
+        sidebar.scrollHeight > sidebar.clientHeight &&
+        ["auto", "scroll"].includes(getComputedStyle(sidebar).overflowY),
+      tagListHasCompetingScroll: Array.from(document.querySelectorAll(".organization-form--tags .tag-list")).some(
+        (tagList) =>
+          tagList.scrollHeight > tagList.clientHeight &&
+          ["auto", "scroll"].includes(getComputedStyle(tagList).overflowY),
+      ),
+      sidebarUsesLayoutHeight:
+        Math.abs(sidebar.getBoundingClientRect().height - layout.getBoundingClientRect().height) < 1,
     };
   });
 
@@ -72,8 +97,13 @@ test("@authenticated keeps a long Crates page reachable with document scrolling"
   expect(metrics.horizontalOverflow).toBe(false);
   expect(metrics.layoutHasCompetingScroll).toBe(false);
   expect(metrics.mainHasCompetingScroll).toBe(false);
+  expect(metrics.sidebarHasCompetingScroll).toBe(false);
+  expect(metrics.tagListHasCompetingScroll).toBe(false);
+  if (!isMobile) expect(metrics.sidebarUsesLayoutHeight).toBe(true);
 
-  const lastControl = organizationSidebar.getByRole("button").last();
+  const lastControl = organizationSidebar.getByRole("button", {
+    name: "Sidebar control fixture 18",
+  });
   await lastControl.scrollIntoViewIfNeeded();
   await expect(lastControl).toBeVisible();
 

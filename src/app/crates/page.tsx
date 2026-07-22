@@ -261,7 +261,7 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
             </Card>
           )}
 
-          <div className="card organization-form">
+          <div className="card organization-form organization-form--tags">
             <div>
               <p className="eyebrow">{t("Clasificación")}</p>
               <h2>{t("Etiquetas")}</h2>
