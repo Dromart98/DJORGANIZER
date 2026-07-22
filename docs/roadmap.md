@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-07-21.
+Actualizado: 2026-07-22.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -177,6 +177,41 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   metadatos visibles y nombres accesibles. La paridad se protege con tipos y
   una prueba recursiva; el contenido del usuario y los contratos persistidos no
   se traducen.
+
+### Correcciones UX/UI priorizadas — 2026-07-22
+
+#### P0 — bloqueo visual y datos de sesión
+
+- [ ] Corregir el estado contraído de la barra lateral para que la información de
+  sesión no desborde ni quede fuera del contenedor. Sustituir la presentación
+  principal del correo electrónico por el nombre de usuario solicitado durante
+  el registro, con una alternativa segura cuando el perfil todavía no disponga
+  de nombre. Mantener accesible el cierre de sesión y no debilitar autenticación,
+  RLS ni aislamiento entre usuarios.
+
+#### P1 — navegación y uso de Crates
+
+- [ ] Restaurar la barra de desplazamiento en la página **Crates** cuando el
+  contenido supere la altura disponible. Validar escritorio, móvil, zoom,
+  navegación por teclado y listas largas sin introducir dobles scrolls.
+- [ ] Rediseñar la columna vertical de creación de crates para que ocupe toda la
+  altura útil de la página y mantenga alineados el formulario, la jerarquía y la
+  lista de pistas. Conservar creación, selección, orden y responsive actuales.
+- [ ] Mantener el logo de DJOrganizer visible en todo el shell autenticado,
+  incluidos los estados contraídos y las vistas móviles aplicables. Al activarlo
+  debe navegar a **Biblioteca**, con nombre accesible y foco visible.
+
+#### P2 — simplificación de Ajustes
+
+- [ ] Simplificar **Ajustes** eliminando de la interfaz las secciones de
+  diagnóstico privado y actualizaciones de escritorio cuando no deban exponerse
+  al usuario final. No borrar sus implementaciones, pruebas ni contratos sin una
+  decisión técnica independiente.
+- [ ] Ocultar únicamente integraciones DJ que sean marcadores, contratos futuros
+  o funciones todavía no operativas. Mantener visibles las integraciones reales
+  ya disponibles, actualmente VirtualDJ y la exportación Bridge de Rekordbox, y
+  no presentar Serato, Traktor, CDJ ni importación avanzada de Rekordbox como si
+  estuvieran implementadas.
 
 ### Simplificación UX/UI antes del cierre del producto
 
