@@ -250,6 +250,9 @@ React y Supabase solo manejan identificadores opacos.
   local y qué metadatos se guardan sin mover ni subir el audio.
 - Las rutas autenticadas conservan el shell ante fallos de carga y ofrecen
   reintento y navegación segura sin mostrar detalles privados.
+- El logo de DJOrganizer permanece visible en el shell autenticado, incluso al
+  contraer la barra lateral o en móvil, y enlaza de forma accesible a
+  **Biblioteca**.
 - En móvil, la tabla se transforma en filas táctiles y mantiene acciones,
   selección, filtros y navegación inferior sin desbordamiento horizontal.
 - Los estados de foco y movimiento respetan accesibilidad y
