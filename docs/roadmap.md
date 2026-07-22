@@ -75,17 +75,15 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   multi-etiqueta, tiempos, memoria y consumo. El contrato debe admitir varios
   proveedores sin cambiar los géneros persistidos ni sobrescribir correcciones
   manuales.
-- [ ] Implementar una prueba de concepto web local con
-  `discogs-effnet-bsdynamic` y `genre_discogs400-discogs-effnet`. Los pesos
-  oficiales incluyen un extractor ONNX de unos 18 MB y una taxonomía de 400
-  estilos. Ejecutar mediante ONNX Runtime Web, preferir WebGPU cuando esté
-  disponible y usar WASM como alternativa. Detectar compatibilidad y memoria
-  antes de descargar el modelo, exigir una acción explícita, procesar solo
-  archivos seleccionados y mantener OpenAI como alternativa cuando el
-  navegador no sea apto. No declarar soporte general hasta superar pruebas en
-  Chrome, Edge, Firefox y Safari de escritorio y móvil.
-  Referencias: [Discogs-EffNet](https://essentia.upf.edu/models.html#discogs-effnet)
-  y [ONNX Runtime Web](https://onnxruntime.ai/docs/get-started/with-javascript/web.html).
+- [x] Completar la prueba de concepto web local con el modelo oficial
+  `discogs-effnet-bs64-1`, convertido sin cuantización a TensorFlow.js. La
+  conversión y equivalencia ya están demostradas; Importar prepara el modelo en
+  segundo plano, ejecuta Mel/inferencia en un Worker, verifica SHA-256, reutiliza
+  una caché offline versionada y exige aceptación manual por pista. OpenAI sigue
+  como alternativa independiente. La inferencia real, la caché y el fallback
+  WASM están registrados en Chrome y Edge de escritorio; Firefox, Safari y
+  móvil quedan fuera del alcance de esta prueba de concepto.
+  Referencia: [`docs/local-web-genre-classification.md`](local-web-genre-classification.md).
 - [ ] Implementar la clasificación local de escritorio con
   `discogs-maest-30s-pw-519l` y `genre_discogs519`. Los pesos oficiales están
   disponibles en ONNX, el extractor ocupa aproximadamente 348 MB y el modelo
@@ -95,14 +93,11 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   exclusivamente en el dispositivo. Comparar CPU y aceleración disponible antes
   de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
-- [ ] Verificar y documentar antes de distribuir cualquier peso de MTG la
-  licencia exacta incluida con cada archivo. La documentación oficial confirma
-  uso no comercial, pero muestra referencias distintas a CC BY-NC-SA 4.0 y
-  CC BY-NC-ND 4.0; prevalece el `LICENSE` del artefacto descargado. No convertir,
-  cuantizar, redistribuir ni incluir modelos en instaladores o cachés públicas
-  hasta determinar si la licencia concreta permite esa adaptación y
-  distribución. Mantener esta vía limitada a DJOrganizer no comercial o
-  sustituirla por una licencia propietaria.
+- [x] Verificar y documentar la licencia de `discogs-effnet-bs64-1`: modelo y
+  derivados bajo CC BY-NC-SA 4.0, con atribución separada, ShareAlike y uso
+  previsto no comercial. Repetir esta verificación antes de incorporar
+  cualquier otro peso de MTG; no asumir que MAEST u otros artefactos comparten
+  la misma licencia.
 - [ ] Evaluar `laion/larger_clap_music` como alternativa local de licencia
   Apache 2.0 y como proveedor de reserva para escritorio. Comparar precisión,
   latencia, memoria y consumo con MAEST, Discogs-EffNet y OpenAI usando el mismo

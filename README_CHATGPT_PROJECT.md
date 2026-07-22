@@ -107,6 +107,20 @@ biblioteca musical.
 - Si falta la clave, el servidor responde que la función no está configurada;
   nunca debe trasladarse la clave al cliente para resolverlo.
 
+### Clasificación local de género en la web
+
+- Usa `discogs-effnet-bs64-1` convertido sin cuantización a TensorFlow.js.
+- Se prepara al entrar en Importar, pero solo analiza por acción explícita.
+- Mel, inferencia y agregación pesada se ejecutan en un Web Worker.
+- Prueba WebGPU, WebGL, WASM y CPU en orden mediante inferencia real.
+- Muestra una sugerencia y hasta cuatro alternativas; aceptar solo actualiza el
+  formulario temporal y no guarda automáticamente.
+- CacheStorage contiene solo archivos versionados del modelo, verificados por
+  tamaño y SHA-256; el audio no se cachea ni se sube.
+- OpenAI conserva consentimiento, límites, API y revisión manual independientes.
+- La inferencia, la caché y el fallback WASM se validaron en Chrome y Edge
+  reales; consulta `docs/local-web-genre-classification.md`.
+
 ### BPM, tonalidad y mezcla
 
 - BPM editable y utilizable en filtros y orden.

@@ -42,6 +42,80 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    class LocalGenreWorkerStub extends EventTarget {
+      postMessage(message: unknown) {
+        const request = message as { id: string; type: string };
+        const mode = window.localStorage.getItem("e2e-local-genre-mode") ?? "ready";
+        if (request.type === "prepare") {
+          window.setTimeout(() => {
+            this.dispatchEvent(
+              new MessageEvent("message", {
+                data:
+                  mode === "prepare-error"
+                    ? {
+                        error: "No compatible backend.",
+                        id: request.id,
+                        type: "error",
+                      }
+                    : {
+                        backend: "wasm",
+                        id: request.id,
+                        status: "ready",
+                        type: "status",
+                      },
+              }),
+            );
+          }, 750);
+          return;
+        }
+        if (mode === "hang") return;
+        queueMicrotask(() => {
+          this.dispatchEvent(
+            new MessageEvent("message", {
+              data:
+                mode === "error"
+                  ? {
+                      error: "Local analysis failed for test.",
+                      id: request.id,
+                      type: "error",
+                    }
+                  : {
+                      id: request.id,
+                      suggestion: {
+                        alternatives: [
+                          { label: "Electronic · House", score: 0.64 },
+                          { label: "Electronic · Tech House", score: 0.53 },
+                        ],
+                        backend: "wasm",
+                        label: "Electronic · Techno",
+                        score: 0.82,
+                      },
+                      type: "result",
+                    },
+            }),
+          );
+        });
+      }
+
+      terminate() {}
+    }
+    const WorkerProxy = function (
+      this: Worker,
+      url: string | URL,
+      options?: WorkerOptions,
+    ) {
+      return options?.name === "djorganizer-local-genre" ||
+        String(url).includes("local-genre.worker")
+        ? (new LocalGenreWorkerStub() as unknown as Worker)
+        : new NativeWorker(url, options);
+    } as unknown as typeof Worker;
+    Object.defineProperty(window, "Worker", {
+      configurable: true,
+      value: WorkerProxy,
+    });
+  });
   const runId = `${Date.now()}-${testInfo.workerIndex}`;
   const email = `e2e-${runId}@djorganizer.test`;
   const password = `DjOrganizer-${runId}!`;
@@ -66,6 +140,36 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     page.getByRole("heading", { name: "Import music" }),
   ).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Preparing local analysis…")).toBeVisible();
+  await expect(page.getByText(/Local analysis ready · WASM/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /download/i })).toHaveCount(0);
+
+  await page.evaluate(() =>
+    window.localStorage.setItem("e2e-local-genre-mode", "prepare-error"),
+  );
+  await page.reload();
+  await expect(
+    page.getByText(/Local analysis unavailable.*Local analysis could not be prepared/),
+  ).toBeVisible();
+  await page.evaluate(() =>
+    window.localStorage.setItem("e2e-local-genre-mode", "ready"),
+  );
+  await page.context().addCookies([
+    {
+      name: "djorganizer-locale",
+      url: "http://127.0.0.1:3100",
+      value: "es",
+    },
+  ]);
+  await page.reload();
+  await expect(page.getByText(/Análisis local preparado · WASM/)).toBeVisible();
+  await page.context().addCookies([
+    {
+      name: "djorganizer-locale",
+      url: "http://127.0.0.1:3100",
+      value: "en",
+    },
+  ]);
 
   await page.goto("/");
   const gettingStarted = page.locator(".getting-started");
@@ -154,6 +258,40 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     page.getByRole("button", { name: "Suggest genre with OpenAI" }),
   ).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: "Suggest genre locally" }),
+  ).toHaveCount(2);
+
+  await firstItem.getByRole("button", { name: "Suggest genre locally" }).click();
+  await expect(firstItem.getByText("Electronic · Techno")).toBeVisible();
+  await expect(firstItem.getByText("Local analysis", { exact: true })).toBeVisible();
+  await expect(firstItem.getByText(/Alternatives: Electronic · House/)).toBeVisible();
+  await firstItem.getByRole("button", { name: "Reject" }).click();
+  await expect(firstItem.getByText("Electronic · Techno")).toHaveCount(0);
+
+  await firstItem.getByRole("button", { name: "Suggest genre locally" }).click();
+  await firstItem.getByRole("button", { name: "Accept suggestion" }).click();
+  await expect(firstItem.getByLabel("Genre")).toHaveValue("Electronic · Techno");
+
+  await page.evaluate(() =>
+    window.localStorage.setItem("e2e-local-genre-mode", "hang"),
+  );
+  await secondItem.getByRole("button", { name: "Suggest genre locally" }).click();
+  await secondItem.getByRole("button", { name: "Cancel" }).click();
+  await expect(secondItem.getByText("Local analysis cancelled.")).toBeVisible();
+
+  await expect(page.getByText(/Local analysis ready · WASM/)).toBeVisible();
+  await page.evaluate(() =>
+    window.localStorage.setItem("e2e-local-genre-mode", "error"),
+  );
+  await secondItem.getByRole("button", { name: "Suggest genre locally" }).click();
+  await expect(secondItem.getByRole("alert")).toContainText(
+    "A local genre suggestion could not be produced.",
+  );
+  await expect(
+    secondItem.getByRole("button", { name: "Suggest genre with OpenAI" }),
+  ).toBeEnabled();
+  await expect(secondItem.getByLabel("Genre")).toBeEnabled();
 
   const fillReviewedAnalysis = async (
     item: ReturnType<typeof page.locator>,

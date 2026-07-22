@@ -9,11 +9,17 @@ const english = {
   "Anterior": "Previous",
   "Análisis explicable": "Explainable analysis",
   "Análisis local": "Local analysis",
+  "Análisis local cancelado.": "Local analysis cancelled.",
+  "Análisis local no disponible.": "Local analysis unavailable.",
+  "Análisis local preparado": "Local analysis ready",
+  "Analizando género localmente…": "Analyzing genre locally…",
   "Analizando armonía local…": "Analyzing local harmony…",
   "Analizando el audio local…": "Analyzing local audio…",
   "Aplicación de escritorio": "Desktop app",
   "Aplicar plan con historial": "Apply plan with history",
   "Aplicar sugerencia": "Apply suggestion",
+  "Aceptar sugerencia": "Accept suggestion",
+  "Alternativas": "Alternatives",
   "archivos": "files",
   "Artista": "Artist",
   "Artista (opcional)": "Artist (optional)",
@@ -69,6 +75,8 @@ const english = {
   "Editar": "Edit",
   "Editar crate": "Edit crate",
   "El audio no sale de este dispositivo": "Audio stays on this device",
+  "El navegador no pudo remuestrear el audio a 16 kHz.":
+    "The browser could not resample the audio to 16 kHz.",
   "Eliminar": "Delete",
   "Eliminar canción": "Delete track",
   "Eliminar crate": "Delete crate",
@@ -140,7 +148,10 @@ const english = {
   "pistas por lote": "tracks per batch",
   "Previsualizar cambios": "Preview changes",
   "Previsualizar cambios de My Lists": "Preview My Lists changes",
+  "Preparando análisis local…": "Preparing local analysis…",
   "Preparando M3U8…": "Preparing M3U8…",
+  "Puntuación orientativa; revisa antes de aceptar.":
+    "Indicative score; review it before accepting.",
   "Preparando XML…": "Preparing XML…",
   "Procedencia anterior": "Previous source",
   "Procedencia y confianza": "Source and confidence",
@@ -152,6 +163,7 @@ const english = {
   "Reemplazar crate": "Replace crate",
   "Reintentar": "Retry",
   "Reintentar detección": "Retry detection",
+  "Rechazar": "Reject",
   "Reorganización reversible": "Reversible reorganization",
   "Requiere revisión": "Needs review",
   "Restaurar copia": "Restore backup",
@@ -172,6 +184,7 @@ const english = {
   "Sincronizando…": "Syncing…",
   "Solo duplicados": "Duplicates only",
   "Sugerir género con OpenAI": "Suggest genre with OpenAI",
+  "Sugerir género localmente": "Suggest genre locally",
   "Todas las pistas": "All tracks",
   "Tonalidad": "Key",
   "Tonalidad / BPM": "Key / BPM",
@@ -516,6 +529,10 @@ const english = {
   "No se pudo clasificar el género.": "The genre could not be classified.",
   "No se pudo comprobar la biblioteca. Se volverá a comprobar al guardar.":
     "The library could not be checked. It will be checked again when saving.",
+  "No se pudo preparar el análisis local.":
+    "Local analysis could not be prepared.",
+  "No se pudo sugerir un género localmente.":
+    "A local genre suggestion could not be produced.",
   "No se pudo completar la comparación acústica; la importación continúa con la comprobación de huellas exactas.":
     "Acoustic comparison could not be completed; import continues with exact fingerprint checking.",
   "No se pudo decodificar el audio para estimar el BPM.":

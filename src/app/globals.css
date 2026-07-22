@@ -701,6 +701,56 @@ td strong { color: #f0f3f4; font-weight: 650; }
   line-height: 1.45;
 }
 
+.local-genre-model-status {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  font-size: 0.78rem;
+}
+
+.local-genre-model-status--ready {
+  color: var(--accent);
+}
+
+.local-genre-model-status--error {
+  color: #ffb4b4;
+}
+
+.genre-suggestion {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.genre-suggestion small {
+  line-height: 1.45;
+}
+
+.genre-suggestion--local {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.local-analysis-badge {
+  width: fit-content;
+  color: var(--accent);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.genre-suggestion__actions {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
 .analysis-provenance {
   display: grid;
   gap: 1rem;

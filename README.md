@@ -175,6 +175,15 @@ fragmento concreto, generado localmente como WAV mono de hasta 45 segundos.
 Aplica límites de uso y solo ofrece una sugerencia que el usuario debe aceptar
 manualmente; nunca analiza ni aplica géneros en segundo plano.
 
+Importar incluye además una prueba de concepto con el modelo oficial
+Discogs-EffNet convertido a TensorFlow.js. Se prepara en segundo plano, pero
+solo analiza al pulsar “Sugerir género localmente”. Audio y características
+permanecen en el dispositivo; la sugerencia y hasta cuatro alternativas exigen
+aceptación manual. Los artefactos se verifican por SHA-256 y se cachean para
+reutilización offline. Licencia, conversión, preprocesamiento, equivalencia y
+validaciones reales y limitaciones están en
+[`docs/local-web-genre-classification.md`](docs/local-web-genre-classification.md).
+
 La confianza de BPM y tonalidad no expresa certeza musical absoluta: es una
 medida local de concordancia del detector, entre 0 y 1. No se asigna confianza
 artificial a etiquetas, ediciones manuales ni valores heredados. El contrato,
