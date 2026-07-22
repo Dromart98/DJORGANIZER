@@ -14,7 +14,9 @@ export const messages = {
       signedOut: "Sin sesión",
     },
     navigation: {
+      collapseSidebar: "Plegar barra lateral",
       crates: "Crates",
+      expandSidebar: "Desplegar barra lateral",
       home: "Inicio",
       import: "Importar",
       library: "Biblioteca",
@@ -152,7 +154,9 @@ export const messages = {
       signedOut: "Signed out",
     },
     navigation: {
+      collapseSidebar: "Collapse sidebar",
       crates: "Crates",
+      expandSidebar: "Expand sidebar",
       home: "Home",
       import: "Import",
       library: "Library",

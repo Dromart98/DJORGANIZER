@@ -3,20 +3,38 @@ import { hasSupabaseConfig } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
 export type AuthenticatedUser = {
+  displayName: string | null;
   email: string | null;
   id: string;
 };
 
-function userFromClaims(claims: Record<string, unknown> | undefined) {
+export function userFromClaims(claims: Record<string, unknown> | undefined) {
   const id = claims?.sub;
   if (typeof id !== "string") {
     return null;
   }
 
+  const metadata = claims?.user_metadata;
+  const displayName =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>).display_name
+      : null;
+
   return {
+    displayName:
+      typeof displayName === "string" && displayName.trim() !== ""
+        ? displayName.trim()
+        : null,
     email: typeof claims?.email === "string" ? claims.email : null,
     id,
   } satisfies AuthenticatedUser;
+}
+
+export function getUserDisplayName(
+  user: AuthenticatedUser,
+  fallback: string,
+) {
+  return user.displayName ?? fallback;
 }
 
 export async function getOptionalUser() {

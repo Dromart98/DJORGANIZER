@@ -135,6 +135,12 @@ aside nav a.active svg { color: var(--accent); }
   color: var(--muted-strong);
 }
 .sidebar-status p { color: #74808a; }
+.sidebar-status__identity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .status-dot, .sidebar-status span { box-shadow: 0 0 0 3px rgba(126, 230, 181, .08); }
 
 .mobile-topbar { display: none; }

@@ -100,8 +100,8 @@ export function AppShell({
         <nav aria-label={copy.main}>
           <NavLinks collapsed={collapsed} navigation={navigation} pathname={pathname} />
         </nav>
-        <button aria-expanded={!collapsed} aria-label={collapsed ? "Desplegar barra lateral" : "Plegar barra lateral"} className="sidebar-toggle" onClick={toggleSidebar} type="button" title={collapsed ? "Desplegar barra lateral" : "Plegar barra lateral"}>{collapsed ? "›" : "‹"}</button>
-        {authStatus}
+        <button aria-expanded={!collapsed} aria-label={collapsed ? copy.expandSidebar : copy.collapseSidebar} className="sidebar-toggle" onClick={toggleSidebar} type="button" title={collapsed ? copy.expandSidebar : copy.collapseSidebar}>{collapsed ? "›" : "‹"}</button>
+        {!collapsed ? authStatus : null}
       </aside>
       <header className="mobile-topbar">
         <Brand homeLabel={copy.home} />
