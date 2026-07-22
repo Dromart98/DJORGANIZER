@@ -2,9 +2,7 @@ import { logoutAction } from "@/app/auth/actions";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackupManager } from "@/components/settings/backup-manager";
-import { DesktopUpdateManager } from "@/components/settings/desktop-update-manager";
 import { LocaleSwitcher } from "@/components/settings/locale-switcher";
-import { PrivacyDiagnostics } from "@/components/settings/privacy-diagnostics";
 import { requireUser } from "@/lib/auth/user";
 import { DJ_LIBRARY_PROVIDERS } from "@/lib/integrations/contracts";
 import { translate } from "@/lib/i18n/functional";
@@ -19,7 +17,6 @@ export default async function SettingsPage() {
   const [user, locale] = await Promise.all([requireUser(), getCurrentLocale()]);
   const t = (message: Parameters<typeof translate>[1]) =>
     translate(locale, message);
-  const desktopUpdatesAvailable = process.env.NODE_ENV === "production";
 
   return (
     <>
@@ -42,24 +39,6 @@ export default async function SettingsPage() {
         </div>
         <span className="badge muted-badge">Local-first</span>
       </Card>
-      <Card className="settings-card">
-        <div>
-          <h2>{t("Diagnóstico privado")}</h2>
-          <p>{t("Registra localmente hasta 100 errores técnicos saneados. No envía telemetría ni incluye música, rutas, cuenta o credenciales.")}</p>
-          <PrivacyDiagnostics />
-        </div>
-        <span className="badge muted-badge">{t("Solo local")}</span>
-      </Card>
-      {desktopUpdatesAvailable ? (
-        <Card className="settings-card">
-          <div>
-            <h2>{t("Actualizaciones de escritorio")}</h2>
-            <p>{t("Los instaladores comprueban versiones firmadas publicadas en GitHub.")}</p>
-            <DesktopUpdateManager />
-          </div>
-          <span className="badge muted-badge">{t("Firmadas")}</span>
-        </Card>
-      ) : null}
       <Card className="settings-card">
         <div>
           <h2>{t("Idioma / Language")}</h2>
