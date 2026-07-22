@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -18,12 +18,34 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+
+      - name: Correct duplicated scoped selector
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("src/app/globals.css")
+          content = path.read_text().replace(".app-shell > .app-shell > aside", ".app-shell > aside")
+          path.write_text(content)
+          PY
+          if git diff --quiet -- src/app/globals.css; then
+            echo "Selector is already correct."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/globals.css
+          git commit -m "fix: correct scoped sidebar selectors"
+          git push origin "HEAD:${{ github.head_ref }}"
 
       - name: Install dependencies
         run: npm ci
