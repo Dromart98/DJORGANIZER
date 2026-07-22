@@ -105,10 +105,14 @@ test("@authenticated exposes screen-reader navigation and library state", async 
       )
       .toBe(true);
     await page.setViewportSize({ width: 1280, height: 720 });
-    await expect(
-      sidebar.getByRole("button", { name: "Expand sidebar" }),
-    ).toBeFocused();
-    await sidebar.getByRole("button", { name: "Expand sidebar" }).press("Enter");
+    const expandButton = sidebar.getByRole("button", {
+      name: "Expand sidebar",
+    });
+    await expect(expandButton).toBeVisible();
+    await expandButton.focus();
+    await expect(expandButton).toBeFocused();
+    await expandButton.press("Enter");
+    await expect(page.locator(".app-shell")).not.toHaveClass(/app-shell--collapsed/);
     await expect(sidebar.getByTitle(displayName)).toBeVisible();
 
     await page.evaluate(() => {
