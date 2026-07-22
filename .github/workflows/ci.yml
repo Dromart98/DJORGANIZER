@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -18,60 +18,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-
-      - name: Scope shell sidebar selectors
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/app/globals.css")
-          content = path.read_text()
-          replacements = {
-              "aside { position:fixed;": ".app-shell > aside { position:fixed;",
-              "aside nav { display:grid;": ".app-shell > aside nav { display:grid;",
-              "aside nav a,.mobile-nav a": ".app-shell > aside nav a,.mobile-nav a",
-              "aside nav a:hover,aside nav a.active": ".app-shell > aside nav a:hover,.app-shell > aside nav a.active",
-              "aside nav a.active svg": ".app-shell > aside nav a.active svg",
-              "@media (max-width:760px) { aside { display:none }": "@media (max-width:760px) { .app-shell > aside { display:none }",
-              "aside {\n  width: 222px;": ".app-shell > aside {\n  width: 222px;",
-              "aside nav { gap: 7px; }": ".app-shell > aside nav { gap: 7px; }",
-              "aside nav a,\n.mobile-nav a": ".app-shell > aside nav a,\n.mobile-nav a",
-              "aside nav a svg": ".app-shell > aside nav a svg",
-              "aside nav a:hover": ".app-shell > aside nav a:hover",
-              "aside nav a.active {": ".app-shell > aside nav a.active {",
-              "aside nav a.active::before": ".app-shell > aside nav a.active::before",
-              "aside nav a.active svg": ".app-shell > aside nav a.active svg",
-              ".app-shell--collapsed aside {": ".app-shell--collapsed > aside {",
-              ".app-shell--collapsed aside nav a": ".app-shell--collapsed > aside nav a",
-              "  aside { display: none; }": "  .app-shell > aside { display: none; }",
-          }
-          for old, new in replacements.items():
-              content = content.replace(old, new)
-          path.write_text(content)
-          PY
-
-      - name: Commit scoped sidebar selectors
-        shell: bash
-        run: |
-          if git diff --quiet -- src/app/globals.css; then
-            echo "Scoped sidebar selectors are already committed."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app/globals.css
-          git commit -m "fix: restore Crates document scrolling"
-          git push origin "HEAD:${{ github.head_ref }}"
 
       - name: Install dependencies
         run: npm ci
