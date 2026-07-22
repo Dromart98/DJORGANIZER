@@ -74,7 +74,8 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   con una colección etiquetada manualmente, taxonomía interna estable, métricas
   multi-etiqueta, tiempos, memoria y consumo. El contrato debe admitir varios
   proveedores sin cambiar los géneros persistidos ni sobrescribir correcciones
-  manuales.
+  manuales. La infraestructura de contratos, fixtures sintéticos y evaluación ya está
+  implementada; la casilla sigue pendiente hasta poblar y revisar una colección real.
 - [ ] Implementar una prueba de concepto web local con
   `discogs-effnet-bsdynamic` y `genre_discogs400-discogs-effnet`. Los pesos
   oficiales incluyen un extractor ONNX de unos 18 MB y una taxonomía de 400

@@ -1,19 +1,4 @@
-export const DEFAULT_GENRE_TAXONOMY = [
-  "Ambient",
-  "Bass",
-  "Breaks",
-  "Deep House",
-  "Disco",
-  "Drum & Bass",
-  "Electro",
-  "House",
-  "Melodic House & Techno",
-  "Organic House",
-  "Progressive House",
-  "Tech House",
-  "Techno",
-  "Trance",
-] as const;
+export { DEFAULT_GENRE_TAXONOMY } from "@/lib/music/genre-taxonomy";
 
 export type GenreSuggestion = {
   confidence: number;

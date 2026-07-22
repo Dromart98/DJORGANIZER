@@ -154,3 +154,7 @@ src-tauri/gen/
 playwright-report/
 test-results/
 .next-server.*.log
+
+# Local genre-validation bank artifacts (never commit audio or provider outputs)
+genre-validation-data/
+genre-validation-results/

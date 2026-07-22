@@ -181,6 +181,9 @@ artificial a etiquetas, ediciones manuales ni valores heredados. El contrato,
 los límites y los casos ambiguos se documentan en
 [`docs/audio-analysis-confidence.md`](docs/audio-analysis-confidence.md).
 
+La infraestructura local y neutral para comparar futuros clasificadores se documenta en
+[`docs/genre-validation-bank.md`](docs/genre-validation-bank.md); aún no contiene una colección musical real.
+
 ## Crates y etiquetas
 
 - Creación, edición y eliminación de crates privados.
