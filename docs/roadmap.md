@@ -191,7 +191,7 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 
 #### P1 — navegación y uso de Crates
 
-- [ ] Restaurar la barra de desplazamiento en la página **Crates** cuando el
+- [ ] P1.1 — Restaurar la barra de desplazamiento en la página **Crates** cuando el
   contenido supere la altura disponible. Validar escritorio, móvil, zoom,
   navegación por teclado y listas largas sin introducir dobles scrolls.
 - [ ] Rediseñar la columna vertical de creación de crates para que ocupe toda la
