@@ -80,11 +80,31 @@ test("@authenticated exposes screen-reader navigation and library state", async 
     await expect(sidebar.locator(".brand")).toBeVisible();
     await expect(sidebar.locator(".brand")).toHaveAccessibleName("Go to Library");
     await expect(sidebar.locator(".brand")).toHaveAttribute("href", "/library");
+    await expect(page.locator(".app-shell")).toHaveClass(/app-shell--collapsed/);
     await expect
       .poll(() =>
         sidebar.evaluate((element) => element.scrollWidth <= element.clientWidth),
       )
       .toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileTopbar = page.locator(".mobile-topbar");
+    const mobileBrand = mobileTopbar.locator(".brand");
+    await expect(mobileBrand).toBeVisible();
+    await expect(mobileBrand).toHaveAttribute("href", "/library");
+    await expect(page.locator(".mobile-topbar > span")).toHaveText("Library");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        mobileTopbar.evaluate((element) => element.scrollWidth <= element.clientWidth),
+      )
+      .toBe(true);
+    await page.setViewportSize({ width: 1280, height: 720 });
     await expect(
       sidebar.getByRole("button", { name: "Expand sidebar" }),
     ).toBeFocused();
