@@ -28,8 +28,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit dependencies
-        run: npm audit --audit-level=high
+      - name: Capture dependency audit
+        id: dependency-audit
+        continue-on-error: true
+        run: npm audit --audit-level=high --json > npm-audit.json
+
+      - name: Upload dependency audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce dependency audit
+        if: steps.dependency-audit.outcome == 'failure'
+        run: exit 1
 
       - name: Typecheck
         run: npm run typecheck
