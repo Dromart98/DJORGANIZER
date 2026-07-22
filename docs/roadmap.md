@@ -203,7 +203,7 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 
 #### P2 — simplificación de Ajustes
 
-- [ ] Simplificar **Ajustes** eliminando de la interfaz las secciones de
+- [x] Simplificar **Ajustes** eliminando de la interfaz las secciones de
   diagnóstico privado y actualizaciones de escritorio cuando no deban exponerse
   al usuario final. No borrar sus implementaciones, pruebas ni contratos sin una
   decisión técnica independiente.
