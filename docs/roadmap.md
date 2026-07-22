@@ -182,7 +182,7 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 
 #### P0 — bloqueo visual y datos de sesión
 
-- [ ] Corregir el estado contraído de la barra lateral para que la información de
+- [x] Corregir el estado contraído de la barra lateral para que la información de
   sesión no desborde ni quede fuera del contenedor. Sustituir la presentación
   principal del correo electrónico por el nombre de usuario solicitado durante
   el registro, con una alternativa segura cuando el perfil todavía no disponga
@@ -191,10 +191,10 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 
 #### P1 — navegación y uso de Crates
 
-- [ ] Restaurar la barra de desplazamiento en la página **Crates** cuando el
+- [x] Restaurar la barra de desplazamiento en la página **Crates** cuando el
   contenido supere la altura disponible. Validar escritorio, móvil, zoom,
   navegación por teclado y listas largas sin introducir dobles scrolls.
-- [ ] Rediseñar la columna vertical de creación de crates para que ocupe toda la
+- [x] Rediseñar la columna vertical de creación de crates para que ocupe toda la
   altura útil de la página y mantenga alineados el formulario, la jerarquía y la
   lista de pistas. Conservar creación, selección, orden y responsive actuales.
 - [ ] Mantener el logo de DJOrganizer visible en todo el shell autenticado,

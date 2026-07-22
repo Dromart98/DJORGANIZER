@@ -1227,3 +1227,30 @@ td strong { color: #f0f3f4; font-weight: 650; }
 .reorganization-history strong { color:var(--text) }
 .virtualdj-reconciliation li { align-items:center;gap:16px }
 .virtualdj-reconciliation li>div:first-child { display:grid;gap:3px;min-width:0 }
+
+/* Keep Crates controls in the document flow while letting the secondary panel
+   use the vertical space made available by the crate navigation. */
+.organization-layout {
+  align-items: stretch;
+}
+
+.organization-sidebar {
+  align-self: stretch;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.organization-form--tags {
+  align-content: start;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.organization-form--tags .tag-list {
+  max-height: none;
+  overflow: visible;
+}
+
+@media (max-width: 1100px) {
+  .organization-sidebar {
+    grid-template-rows: none;
+  }
+}
