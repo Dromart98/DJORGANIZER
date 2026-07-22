@@ -114,6 +114,9 @@ jobs:
       - name: Test authenticated import, library and crates
         run: npm run test:e2e -- --project=chromium --grep @authenticated
 
+      - name: Test Crates scrolling on mobile
+        run: npm run test:e2e -- tests/e2e/authenticated-crates-scroll.spec.ts --project=mobile
+
       - name: Upload authenticated Playwright failure
         if: failure()
         uses: actions/upload-artifact@v4
