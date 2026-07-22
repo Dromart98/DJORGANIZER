@@ -64,7 +64,9 @@ test("switches the navigation language from the locale cookie", async ({
           : "Main navigation",
     }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Library" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Library", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Your music, ready to mix" }),
   ).toBeVisible();

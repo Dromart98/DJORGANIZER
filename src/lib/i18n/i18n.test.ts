@@ -49,6 +49,7 @@ describe("i18n", () => {
     const locale = resolveLocale("en");
     expect(locale).toBe("en");
     expect(getMessages(locale).navigation.library).toBe("Library");
+    expect(getMessages(locale).navigation.goToLibrary).toBe("Go to Library");
   });
 
   it("keeps onboarding, help and recovery copy available in both locales", () => {

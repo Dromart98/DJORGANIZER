@@ -39,6 +39,34 @@ test("@authenticated exposes screen-reader navigation and library state", async 
       .getByRole("link", { name: "Library", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 
+  for (const route of ["/library", "/import", "/crates", "/settings"]) {
+    await page.goto(route);
+    await expect(page.locator(".brand:visible")).toHaveCount(1);
+    await expect(page.locator(".brand:visible")).toHaveAttribute(
+      "href",
+      "/library",
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      )
+      .toBe(true);
+  }
+
+  await page.goto("/import");
+  const skipLink = page.getByRole("link", { name: "Skip to content" });
+  const libraryBrand = page.locator(".brand:visible");
+  await expect(libraryBrand).toHaveCount(1);
+  await expect(libraryBrand).toHaveAccessibleName("Go to Library");
+  await expect(libraryBrand).toHaveAttribute("href", "/library");
+  await skipLink.focus();
+  await page.keyboard.press("Tab");
+  await expect(libraryBrand).toBeFocused();
+  await libraryBrand.press("Enter");
+  await expect(page).toHaveURL(/\/library$/, { timeout: 20_000 });
+
   if (!isMobile) {
     const sidebar = page.locator("aside");
     const collapseButton = sidebar.getByRole("button", {
@@ -49,15 +77,42 @@ test("@authenticated exposes screen-reader navigation and library state", async 
     await expect(page.getByText(email, { exact: true })).toHaveCount(0);
     await collapseButton.click();
     await expect(sidebar.locator(".sidebar-status")).toHaveCount(0);
+    await expect(sidebar.locator(".brand")).toBeVisible();
+    await expect(sidebar.locator(".brand")).toHaveAccessibleName("Go to Library");
+    await expect(sidebar.locator(".brand")).toHaveAttribute("href", "/library");
+    await expect(page.locator(".app-shell")).toHaveClass(/app-shell--collapsed/);
     await expect
       .poll(() =>
         sidebar.evaluate((element) => element.scrollWidth <= element.clientWidth),
       )
       .toBe(true);
-    await expect(
-      sidebar.getByRole("button", { name: "Expand sidebar" }),
-    ).toBeFocused();
-    await sidebar.getByRole("button", { name: "Expand sidebar" }).press("Enter");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileTopbar = page.locator(".mobile-topbar");
+    const mobileBrand = mobileTopbar.locator(".brand");
+    await expect(mobileBrand).toBeVisible();
+    await expect(mobileBrand).toHaveAttribute("href", "/library");
+    await expect(page.locator(".mobile-topbar > span")).toHaveText("Library");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        mobileTopbar.evaluate((element) => element.scrollWidth <= element.clientWidth),
+      )
+      .toBe(true);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const expandButton = sidebar.getByRole("button", {
+      name: "Expand sidebar",
+    });
+    await expect(expandButton).toBeVisible();
+    await expandButton.focus();
+    await expect(expandButton).toBeFocused();
+    await expandButton.press("Enter");
+    await expect(page.locator(".app-shell")).not.toHaveClass(/app-shell--collapsed/);
     await expect(sidebar.getByTitle(displayName)).toBeVisible();
 
     await page.evaluate(() => {
@@ -107,6 +162,19 @@ test("@authenticated exposes screen-reader navigation and library state", async 
     await expect(
       page.getByRole("link", { name: `Edit: ${title}` }),
     ).toBeVisible();
+    await page.context().addCookies([
+      {
+        name: "djorganizer-locale",
+        url: "http://127.0.0.1:3100",
+        value: "es",
+      },
+    ]);
+    await page.reload();
+    await expect(page.locator(".brand:visible")).toHaveCount(1);
+    await expect(page.locator(".brand:visible")).toHaveAccessibleName(
+      "Ir a Biblioteca",
+    );
+    await expect(page.locator(".brand:visible")).toHaveAttribute("href", "/library");
     return;
   }
 
@@ -126,4 +194,18 @@ test("@authenticated exposes screen-reader navigation and library state", async 
   await expect(
     page.getByRole("columnheader", { name: "Title" }),
   ).toHaveAttribute("aria-sort", "ascending");
+
+  await page.context().addCookies([
+    {
+      name: "djorganizer-locale",
+      url: "http://127.0.0.1:3100",
+      value: "es",
+    },
+  ]);
+  await page.reload();
+  await expect(page.locator(".brand:visible")).toHaveCount(1);
+  await expect(page.locator(".brand:visible")).toHaveAccessibleName(
+    "Ir a Biblioteca",
+  );
+  await expect(page.locator(".brand:visible")).toHaveAttribute("href", "/library");
 });

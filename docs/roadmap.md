@@ -197,7 +197,7 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 - [x] Rediseñar la columna vertical de creación de crates para que ocupe toda la
   altura útil de la página y mantenga alineados el formulario, la jerarquía y la
   lista de pistas. Conservar creación, selección, orden y responsive actuales.
-- [ ] Mantener el logo de DJOrganizer visible en todo el shell autenticado,
+- [x] Mantener el logo de DJOrganizer visible en todo el shell autenticado,
   incluidos los estados contraídos y las vistas móviles aplicables. Al activarlo
   debe navegar a **Biblioteca**, con nombre accesible y foco visible.
 

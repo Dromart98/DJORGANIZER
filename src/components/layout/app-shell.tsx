@@ -10,9 +10,9 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function Brand({ homeLabel }: { homeLabel: string }) {
+function Brand({ libraryLabel }: { libraryLabel: string }) {
   return (
-    <Link aria-label={`DJOrganizer, ${homeLabel}`} className="brand" href="/">
+    <Link aria-label={libraryLabel} className="brand" href="/library">
       <span>DJ</span>Organizer
     </Link>
   );
@@ -96,7 +96,7 @@ export function AppShell({
         {copy.skip}
       </a>
       <aside>
-        <Brand homeLabel={copy.home} />
+        <Brand libraryLabel={copy.goToLibrary} />
         <nav aria-label={copy.main}>
           <NavLinks collapsed={collapsed} navigation={navigation} pathname={pathname} />
         </nav>
@@ -104,7 +104,7 @@ export function AppShell({
         {!collapsed ? authStatus : null}
       </aside>
       <header className="mobile-topbar">
-        <Brand homeLabel={copy.home} />
+        <Brand libraryLabel={copy.goToLibrary} />
         <span>{currentSection}</span>
       </header>
       <main id="main-content" tabIndex={-1}>
