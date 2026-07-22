@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getOptionalUser } from "@/lib/auth/user";
+import { getOptionalUser, getUserDisplayName } from "@/lib/auth/user";
 import { getMessages, type Locale } from "@/lib/i18n/i18n";
 
 export async function AuthStatus({ locale }: { locale: Locale }) {
@@ -22,8 +22,9 @@ export async function AuthStatus({ locale }: { locale: Locale }) {
     <div className="sidebar-status">
       <span className="status-dot" />
       {copy.active}
-      <p title={user.email ?? undefined}>{user.email ?? copy.connectedUser}</p>
+      <p className="sidebar-status__identity" title={getUserDisplayName(user, copy.connectedUser)}>
+        {getUserDisplayName(user, copy.connectedUser)}
+      </p>
     </div>
   );
 }
-

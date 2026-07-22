@@ -13,6 +13,7 @@ test("@authenticated exposes screen-reader navigation and library state", async 
   const email = `a11y-${runId}@djorganizer.test`;
   const password = `DjOrganizer-${runId}!`;
   const title = `Accessible track ${runId}`;
+  const displayName = "DJ Áurea 東京 — Sesión nocturna con un nombre muy largo";
   const isMobile = testInfo.project.name === "mobile";
   const navigationName = isMobile ? "Mobile navigation" : "Main navigation";
 
@@ -25,7 +26,7 @@ test("@authenticated exposes screen-reader navigation and library state", async 
   ]);
 
   await page.goto("/signup?next=/library/new");
-  await page.getByLabel("Name").fill("DJ Accessibility");
+  await page.getByLabel("Name").fill(displayName);
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create account" }).click();
@@ -37,6 +38,47 @@ test("@authenticated exposes screen-reader navigation and library state", async 
       .getByRole("navigation", { name: navigationName })
       .getByRole("link", { name: "Library", exact: true }),
   ).toHaveAttribute("aria-current", "page");
+
+  if (!isMobile) {
+    const sidebar = page.locator("aside");
+    const collapseButton = sidebar.getByRole("button", {
+      name: "Collapse sidebar",
+    });
+
+    await expect(sidebar.getByTitle(displayName)).toHaveText(displayName);
+    await expect(page.getByText(email, { exact: true })).toHaveCount(0);
+    await collapseButton.click();
+    await expect(sidebar.locator(".sidebar-status")).toHaveCount(0);
+    await expect
+      .poll(() =>
+        sidebar.evaluate((element) => element.scrollWidth <= element.clientWidth),
+      )
+      .toBe(true);
+    await expect(
+      sidebar.getByRole("button", { name: "Expand sidebar" }),
+    ).toBeFocused();
+    await sidebar.getByRole("button", { name: "Expand sidebar" }).press("Enter");
+    await expect(sidebar.getByTitle(displayName)).toBeVisible();
+
+    await page.evaluate(() => {
+      document.body.style.zoom = "200%";
+    });
+    await expect
+      .poll(() =>
+        sidebar.evaluate((element) => element.scrollWidth <= element.clientWidth),
+      )
+      .toBe(true);
+    await page.evaluate(() => {
+      document.body.style.zoom = "";
+    });
+
+    const settingsLink = sidebar.getByRole("link", { name: "Settings" });
+    await settingsLink.focus();
+    await expect(settingsLink).toBeFocused();
+    await settingsLink.press("Enter");
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await page.goto("/library/new");
+  }
 
   await page.getByLabel("Title *").fill(title);
   await page.getByRole("button", { name: "Add track" }).click();
