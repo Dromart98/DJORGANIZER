@@ -4,7 +4,6 @@ import { PageHeader } from "@/components/ui/page-header";
 import { BackupManager } from "@/components/settings/backup-manager";
 import { LocaleSwitcher } from "@/components/settings/locale-switcher";
 import { requireUser } from "@/lib/auth/user";
-import { DJ_LIBRARY_PROVIDERS } from "@/lib/integrations/contracts";
 import { translate } from "@/lib/i18n/functional";
 import { getCurrentLocale } from "@/lib/i18n/server";
 
@@ -53,20 +52,6 @@ export default async function SettingsPage() {
           <BackupManager />
         </div>
         <span className="badge">Backup v1</span>
-      </Card>
-      <Card className="settings-card">
-        <div>
-          <h2>{t("Integraciones DJ")}</h2>
-          <p>
-            {DJ_LIBRARY_PROVIDERS.map(
-              (provider) =>
-                `${provider.displayName}: ${
-                  provider.status === "available" ? t("disponible") : provider.status === "partial" ? t("exportación XML disponible") : t("preparada")
-                }`,
-            ).join(" · ")}
-          </p>
-        </div>
-        <span className="badge muted-badge">{t("Contratos estables")}</span>
       </Card>
       <form action={logoutAction}>
         <button className="button button--secondary" type="submit">

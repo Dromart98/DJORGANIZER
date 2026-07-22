@@ -207,11 +207,10 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   diagnóstico privado y actualizaciones de escritorio cuando no deban exponerse
   al usuario final. No borrar sus implementaciones, pruebas ni contratos sin una
   decisión técnica independiente.
-- [ ] Ocultar únicamente integraciones DJ que sean marcadores, contratos futuros
-  o funciones todavía no operativas. Mantener visibles las integraciones reales
-  ya disponibles, actualmente VirtualDJ y la exportación Bridge de Rekordbox, y
-  no presentar Serato, Traktor, CDJ ni importación avanzada de Rekordbox como si
-  estuvieran implementadas.
+- [x] Eliminar de **Ajustes** el resumen informativo de integraciones DJ, que no
+  ofrece acciones ni configuración al usuario. Conservar las implementaciones
+  reales de VirtualDJ y Rekordbox Bridge, además de los contratos internos de
+  VirtualDJ, Rekordbox, Serato y Traktor para sus flujos presentes y futuros.
 
 ### Simplificación UX/UI antes del cierre del producto
 

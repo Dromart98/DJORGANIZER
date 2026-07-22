@@ -298,11 +298,18 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(page.getByRole("heading", { name: "Desktop updates" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Export diagnostics" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Check for updates" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Connected account" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Library mode" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Language / Idioma" })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Backups" }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "DJ integrations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DJ integrations" })).toHaveCount(0);
+  await expect(page.getByText("Stable contracts", { exact: true })).toHaveCount(0);
+  for (const provider of ["VirtualDJ", "Rekordbox", "Serato", "Traktor"]) {
+    await expect(page.getByText(provider, { exact: true })).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await page.getByLabel("Language", { exact: false }).selectOption("es");
   await expect(page).toHaveURL(/\/settings\?source=e2e$/);
   await expect(page.getByRole("heading", { name: "Ajustes" })).toBeVisible();
@@ -310,8 +317,16 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(page.getByRole("heading", { name: "Actualizaciones de escritorio" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Exportar diagnóstico" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Buscar actualizaciones" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Cuenta conectada" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Modo de biblioteca" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Idioma / Language" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Integraciones DJ" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Copias de seguridad" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Integraciones DJ" })).toHaveCount(0);
+  await expect(page.getByText("Contratos estables", { exact: true })).toHaveCount(0);
+  for (const provider of ["VirtualDJ", "Rekordbox", "Serato", "Traktor"]) {
+    await expect(page.getByText(provider, { exact: true })).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
   await page.getByLabel("Idioma", { exact: false }).selectOption("en");
   await expect(page).toHaveURL(/\/settings\?source=e2e$/);
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
