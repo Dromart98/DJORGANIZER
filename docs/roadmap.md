@@ -102,6 +102,58 @@ confirmación explícita, validación de pertenencia, procesamiento por lotes,
 protección contra sobrescrituras, rollback y deshacer cuando el archivo no haya
 cambiado externamente.
 
+### Gestión avanzada de biblioteca y crates
+
+Orden de implementación recomendado para mejorar la preparación y el mantenimiento
+de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
+
+1. - [ ] Crear crates inteligentes con reglas persistentes sobre género,
+   subgénero, BPM, rango de BPM, tonalidad, Camelot, energía, valoración, año,
+   etiquetas y demás campos compatibles. Deben admitir grupos `Y` y `O`, mostrar
+   una previsualización del resultado y actualizarse al cambiar la biblioteca sin
+   duplicar pistas ni modificar archivos.
+2. - [ ] Añadir un centro de salud de la biblioteca que detecte archivos no
+   encontrados, ilegibles o corruptos, rutas modificadas, archivos presentes en
+   carpetas confirmadas pero aún no importados, posibles duplicados y metadatos
+   ausentes o inválidos. La detección de campos incompletos se integra aquí, no
+   tendrá una pantalla independiente y nunca buscará ni rellenará datos externos
+   automáticamente. Las pistas sin BPM o tonalidad podrán enviarse al análisis
+   local existente mediante una acción explícita.
+3. - [ ] Incorporar una limpieza guiada de metadatos con propuestas revisables para
+   normalizar mayúsculas, espacios, separadores, nombres de género, artistas y
+   textos residuales como URLs o prefijos numéricos. Debe mostrar valor actual y
+   propuesto, permitir selección individual o masiva y no sobrescribir
+   correcciones manuales sin confirmación. Escribir cambios en audio seguirá
+   requiriendo Tauri, copia de seguridad, relectura y validación.
+4. - [ ] Reparar referencias a pistas perdidas mediante coincidencias verificables
+   por huella, hash cuando exista, tamaño, duración y metadatos. Mostrar las
+   alternativas y su confianza, exigir confirmación por pista o lote y no inventar
+   coincidencias. Las rutas absolutas permanecerán dentro de la sesión nativa.
+5. - [ ] Permitir archivar pistas inactivas sin borrar ni mover el archivo. Las
+   pistas archivadas quedarán fuera de la biblioteca principal, recomendaciones y
+   crates inteligentes salvo filtro explícito, y podrán restaurarse conservando
+   sus metadatos, etiquetas y relaciones.
+6. - [ ] Añadir herramientas avanzadas para crates: fusionar, comparar, encontrar
+   pistas comunes o exclusivas, mostrar en qué crates aparece una pista, ordenar
+   por BPM, Camelot, energía o valoración y retirar duplicados internos sin borrar
+   canciones de la biblioteca. Todas las operaciones deben conservar el orden o
+   mostrar una previsualización cuando lo alteren.
+7. - [ ] Extender el historial y deshacer a edición individual y masiva,
+   normalización, etiquetas, valoración, archivado, cambios de crates y aceptación
+   masiva de sugerencias. Guardar el estado anterior necesario, aislarlo por
+   usuario y permitir la reversión solo cuando el estado actual siga siendo
+   compatible. Si hubo cambios posteriores o externos, bloquear el deshacer y
+   explicar el conflicto sin forzar una restauración.
+8. - [ ] Añadir una preescucha ligera para revisar pistas desde la biblioteca,
+   resultados de análisis y crates: reproducir, pausar, buscar dentro de la pista,
+   controlar volumen y mantener una cola temporal. No añadir decks, mezcla,
+   sincronización, efectos, stems ni otras funciones propias de VirtualDJ. El
+   acceso a audio local y rutas arbitrarias seguirá aislado en Tauri y limitado a
+   archivos seleccionados o pertenecientes a una sesión confirmada.
+
+Quedan fuera de esta fase el emparejamiento de listas de clientes, la búsqueda
+automática de metadatos en Internet y cualquier almacenamiento remoto del audio.
+
 ### Inteligencia y calidad musical
 
 - [x] Analizar automáticamente BPM y tonalidad en cuanto se seleccionen archivos
