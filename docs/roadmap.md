@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-07-22.
+Actualizado: 2026-07-23.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -134,8 +134,16 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 - [x] Mantener ventanas acotadas en servidor y cliente: biblioteca en páginas de
   25, crates en páginas de 100 y escaneo local paginado. La suite incluye una
   biblioteca sintética de 50.000 pistas.
-- [x] Pipeline de instaladores firmados para Windows, macOS y Linux.
-- [x] Actualizaciones verificadas para la aplicación de escritorio.
+- [x] Pipeline de instaladores para Windows, macOS y Linux mediante Tauri y
+  GitHub Actions.
+- [x] Actualizaciones verificadas criptográficamente con las claves gratuitas de
+  Tauri, separadas de la firma comercial del instalador por el sistema operativo.
+- [x] Política de distribución sin costes: no contratar Apple Developer Program,
+  certificados de firma de Windows ni servicios de firma de pago. Los instaladores
+  de Windows y macOS se publicarán sin firma comercial, con sus posibles avisos o
+  bloqueos iniciales claramente documentados y con instrucciones seguras para el
+  usuario. Reconsiderar certificados de pago solo mediante una decisión futura
+  independiente.
 - [x] Copias de seguridad, exportación general de datos y restauración.
 - [x] Diagnóstico local opt-in para exportación manual: conserva como máximo 100
   eventos técnicos saneados y nunca envía biblioteca, audio, rutas, cookies,
