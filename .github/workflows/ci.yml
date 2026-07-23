@@ -1,22 +1,23 @@
-name: Regenerate lockfile
+name: Validate
 
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  regenerate-lockfile:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_validation_key
+
     steps:
-      - name: Checkout pull request branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v4
@@ -24,18 +25,133 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Regenerate package lock
-        run: npm install --package-lock-only --ignore-scripts
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Commit regenerated lock
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ""
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ""
+        run: npm run test:e2e -- --project=chromium
+
+      - name: Build
+        run: npm run build
+
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Start local database
+        run: supabase db start
+
+      - name: Lint database
+        run: supabase db lint --local --level error
+
+      - name: Test RLS and user separation
+        run: supabase test db
+
+  authenticated-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_AUTHENTICATED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Configure Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.101.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start ephemeral Supabase
+        run: supabase start
+
+      - name: Export local Supabase variables
         shell: bash
         run: |
-          if git diff --quiet -- package-lock.json; then
-            echo "package-lock.json already matches package.json"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          git commit -m "chore: regenerate package lock"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
+          eval "$(supabase status -o env)"
+          echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${PUBLISHABLE_KEY:-$ANON_KEY}" >> "$GITHUB_ENV"
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Test authenticated import, library and crates
+        run: npm run test:e2e -- --project=chromium --grep @authenticated
+
+      - name: Test Crates scrolling on mobile
+        run: npm run test:e2e -- tests/e2e/authenticated-crates-scroll.spec.ts --project=mobile
+
+      - name: Upload authenticated Playwright failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-playwright-failure
+          path: test-results
+          if-no-files-found: warn
+          retention-days: 1
+
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check formatting
+        working-directory: src-tauri
+        run: cargo fmt -- --check
+
+      - name: Check desktop
+        working-directory: src-tauri
+        run: cargo check --locked
+
+      - name: Test desktop
+        working-directory: src-tauri
+        run: cargo test --locked
