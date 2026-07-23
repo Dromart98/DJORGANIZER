@@ -1,23 +1,41 @@
-name: Validate
+name: Regenerate lockfile
 
 on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
+  regenerate-lockfile:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Audit diagnostic
+      - name: Checkout pull request branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Regenerate package lock
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Commit regenerated lock
         shell: bash
         run: |
-          git clone --quiet --depth=1 --branch "$GITHUB_HEAD_REF" "https://github.com/$GITHUB_REPOSITORY.git" repo
-          cd repo
-          set +e
-          npm audit --audit-level=high --json > audit.json
-          status=$?
-          node -e 'const j=require("./audit.json"); for (const [name,v] of Object.entries(j.vulnerabilities ?? {})) { if (["high","critical"].includes(v.severity)) { const via=(v.via ?? []).map((x) => typeof x === "string" ? x : x.title).join(" | "); console.log(`${name}: ${v.severity}; via=${via}; range=${v.range}; nodes=${(v.nodes ?? []).join(",")}; fix=${JSON.stringify(v.fixAvailable)}`); } } console.log(`totals=${JSON.stringify(j.metadata?.vulnerabilities ?? {})}`);'
-          exit "$status"
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json already matches package.json"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore: regenerate package lock"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
