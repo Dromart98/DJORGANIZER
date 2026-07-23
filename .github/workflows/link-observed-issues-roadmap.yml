@@ -1,22 +1,22 @@
 name: Link observed issues roadmap
 
 on:
-  push:
-    branches:
-      - agent/add-observed-app-issues-roadmap
+  pull_request:
+    types: [opened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   patch-roadmap:
+    if: github.event.pull_request.head.ref == 'agent/add-observed-app-issues-roadmap'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout branch
+      - name: Checkout pull request branch
         uses: actions/checkout@v4
         with:
-          ref: agent/add-observed-app-issues-roadmap
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
 
       - name: Insert roadmap link and remove temporary workflow
@@ -56,4 +56,4 @@ El diagnóstico, alcance, restricciones y criterios de validación están en
             exit 0
           fi
           git commit -m "Link observed issues roadmap"
-          git push origin HEAD:agent/add-observed-app-issues-roadmap
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
