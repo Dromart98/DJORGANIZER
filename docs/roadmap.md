@@ -57,6 +57,48 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
   relee solo archivos nuevos o modificados, retira los desaparecidos y bloquea
   la vigilancia cuando el resultado está truncado.
 
+### Flujo posterior al análisis y organización configurable
+
+Orden de implementación recomendado para convertir el análisis musical en un
+resultado directamente utilizable:
+
+1. - [ ] Añadir un cierre guiado del análisis que muestre el resumen de pistas
+   correctas, ambiguas, duplicadas y fallidas, y ofrezca acciones directas para
+   revisar resultados, crear un crate, organizar archivos, escribir metadatos o
+   exportar. No ejecutar ninguna acción destructiva automáticamente.
+2. - [ ] Permitir crear un crate directamente desde la tanda analizada, la
+   selección actual o los filtros activos. Debe conservar el orden visible,
+   excluir únicamente las pistas que el usuario confirme y mostrar errores
+   parciales sin perder las incorporaciones correctas.
+3. - [ ] Añadir una plantilla de organización física de un solo nivel por género,
+   además de las plantillas existentes. Debe previsualizar destinos, sanear
+   nombres, resolver colisiones, confirmar el lote y conservar deshacer.
+4. - [ ] Añadir organización física por rangos de BPM configurables. Debe admitir
+   una estructura exclusiva por rango y combinaciones como género/rango de BPM,
+   energía/rango de BPM o tonalidad/rango de BPM. Los límites se revisan antes de
+   aplicar y nunca se crea una carpeta por valor exacto salvo elección expresa.
+5. - [ ] Sustituir la dependencia exclusiva de plantillas fijas por un constructor
+   de reglas de organización de uno a tres niveles. Los niveles disponibles serán
+   género, subgénero cuando exista, artista, álbum, tonalidad, Camelot, BPM,
+   rango de BPM, energía y año. Debe impedir combinaciones vacías o duplicadas y
+   mostrar el árbol resultante antes de mover archivos.
+6. - [ ] Incorporar un campo persistente e independiente de subgénero. Añadirlo a
+   migraciones, tipos, importación, edición individual y masiva, búsqueda,
+   filtros, ordenación y sugerencias revisables. Mantener género y subgénero como
+   datos separados, no sobrescribir correcciones manuales y exportarlo solo donde
+   el formato de destino tenga un contrato compatible.
+7. - [ ] Añadir la organización física género/subgénero después de estabilizar el
+   nuevo campo. Las pistas sin subgénero deben permanecer visibles en la
+   previsualización y usar una carpeta neutral configurable o quedar excluidas
+   mediante confirmación; nunca se inventarán coincidencias.
+
+Todas estas fases pertenecen a Tauri cuando afectan a archivos locales. React y
+Supabase solo manejarán metadatos e identificadores opacos; las rutas absolutas
+seguirán dentro de la sesión nativa. Cada movimiento conservará previsualización,
+confirmación explícita, validación de pertenencia, procesamiento por lotes,
+protección contra sobrescrituras, rollback y deshacer cuando el archivo no haya
+cambiado externamente.
+
 ### Inteligencia y calidad musical
 
 - [x] Analizar automáticamente BPM y tonalidad en cuanto se seleccionen archivos
