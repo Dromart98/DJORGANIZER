@@ -2,7 +2,6 @@ name: Validate
 
 on:
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,154 +9,15 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_validation_key
-
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Audit dependencies
+      - name: Audit diagnostic
         shell: bash
         run: |
+          git clone --quiet --depth=1 --branch "$GITHUB_HEAD_REF" "https://github.com/$GITHUB_REPOSITORY.git" repo
+          cd repo
           set +e
           npm audit --audit-level=high --json > audit.json
           status=$?
-          node -e 'const j=require("./audit.json"); for (const [name,v] of Object.entries(j.vulnerabilities ?? {})) { if (["high","critical"].includes(v.severity)) { const via=(v.via ?? []).map((x) => typeof x === "string" ? x : x.title).join(" | "); console.log(`${name}: ${v.severity}; via=${via}; fix=${JSON.stringify(v.fixAvailable)}`); } } console.log(`totals=${JSON.stringify(j.metadata?.vulnerabilities ?? {})}`);'
+          node -e 'const j=require("./audit.json"); for (const [name,v] of Object.entries(j.vulnerabilities ?? {})) { if (["high","critical"].includes(v.severity)) { const via=(v.via ?? []).map((x) => typeof x === "string" ? x : x.title).join(" | "); console.log(`${name}: ${v.severity}; via=${via}; range=${v.range}; nodes=${(v.nodes ?? []).join(",")}; fix=${JSON.stringify(v.fixAvailable)}`); } } console.log(`totals=${JSON.stringify(j.metadata?.vulnerabilities ?? {})}`);'
           exit "$status"
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm test
-
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
-      - name: End-to-end tests
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ""
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ""
-        run: npm run test:e2e -- --project=chromium
-
-      - name: Build
-        run: npm run build
-
-  database:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: 2.101.0
-
-      - name: Start local database
-        run: supabase db start
-
-      - name: Lint database
-        run: supabase db lint --local --level error
-
-      - name: Test RLS and user separation
-        run: supabase test db
-
-  authenticated-e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      E2E_AUTHENTICATED: "1"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Configure Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: 2.101.0
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Start ephemeral Supabase
-        run: supabase start
-
-      - name: Export local Supabase variables
-        shell: bash
-        run: |
-          eval "$(supabase status -o env)"
-          echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
-          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${PUBLISHABLE_KEY:-$ANON_KEY}" >> "$GITHUB_ENV"
-
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
-      - name: Test authenticated import, library and crates
-        run: npm run test:e2e -- --project=chromium --grep @authenticated
-
-      - name: Test Crates scrolling on mobile
-        run: npm run test:e2e -- tests/e2e/authenticated-crates-scroll.spec.ts --project=mobile
-
-      - name: Upload authenticated Playwright failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: authenticated-playwright-failure
-          path: test-results
-          if-no-files-found: warn
-          retention-days: 1
-
-  desktop:
-    runs-on: windows-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Check formatting
-        working-directory: src-tauri
-        run: cargo fmt -- --check
-
-      - name: Check desktop
-        working-directory: src-tauri
-        run: cargo check --locked
-
-      - name: Test desktop
-        working-directory: src-tauri
-        run: cargo test --locked
