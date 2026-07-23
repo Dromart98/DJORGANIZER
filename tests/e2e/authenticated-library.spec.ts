@@ -285,9 +285,11 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     window.localStorage.setItem("e2e-local-genre-mode", "error"),
   );
   await secondItem.getByRole("button", { name: "Suggest genre locally" }).click();
-  await expect(secondItem.getByRole("alert")).toContainText(
-    "A local genre suggestion could not be produced.",
-  );
+  await expect(
+    secondItem.getByRole("alert").filter({
+      hasText: "A local genre suggestion could not be produced.",
+    }),
+  ).toBeVisible();
   await expect(
     secondItem.getByRole("button", { name: "Suggest genre with OpenAI" }),
   ).toBeEnabled();
