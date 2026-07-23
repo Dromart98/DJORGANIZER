@@ -29,7 +29,13 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        shell: bash
+        run: |
+          set +e
+          npm audit --audit-level=high --json > audit.json
+          status=$?
+          node -e 'const j=require("./audit.json"); for (const [name,v] of Object.entries(j.vulnerabilities ?? {})) { if (["high","critical"].includes(v.severity)) { const via=(v.via ?? []).map((x) => typeof x === "string" ? x : x.title).join(" | "); console.log(`${name}: ${v.severity}; via=${via}; fix=${JSON.stringify(v.fixAvailable)}`); } } console.log(`totals=${JSON.stringify(j.metadata?.vulnerabilities ?? {})}`);'
+          exit "$status"
 
       - name: Typecheck
         run: npm run typecheck
