@@ -21,7 +21,7 @@ No llamar «duplicado» a una coincidencia sin indicar cuál de estos casos es y
 | Caso | Evidencia principal | Comportamiento seguro |
 | --- | --- | --- |
 | **Archivo duplicado** | Misma huella de archivo estable, por ejemplo SHA-256; tamaño como comprobación auxiliar. | No insertar otra pista. Informar de la pista existente y, si se detecta una nueva ubicación, proponer vincular o actualizar la asociación local sin cambiar el `id`. |
-| **Grabación duplicada** | Firma acústica, duración, BPM y título sugieren la misma interpretación; puede ser una edición, remix o remaster. | Mostrar la relación y confianza para revisión humana. Conservar ambas pistas salvo decisión explícita; no fusionar por heurística. |
+| **Grabación duplicada** | Firma acústica, duración, BPM y título sugieren la misma interpretación; puede ser una edición, remix o remaster. | Mostrar la posible relación y los datos comparables para revisión humana, sin porcentajes ni etiquetas de confianza. Conservar ambas pistas salvo decisión explícita; no fusionar por heurística. |
 | **Metadatos coincidentes** | Título, artista, álbum o campos normalizados similares. | Marcar como posible coincidencia para revisar. Nunca deduplicar ni sobrescribir solo por texto. |
 
 Separar siempre la detección de la decisión. Explicar falsos positivos posibles (reencodes, metadatos incorrectos, remixes y títulos repetidos) y ofrecer una acción reversible.
@@ -42,7 +42,7 @@ Separar siempre la detección de la decisión. Explicar falsos positivos posible
 - Conservar el orden manual de cada crate mediante posiciones explícitas. Al añadir, retirar, reconciliar o reordenar, definir un orden determinista y no usar orden alfabético, de creación o de consulta como sustituto del orden del DJ.
 - Considerar las playlists como crates hasta que un contrato separado defina otra entidad; no inventar una representación ni perder posiciones al convertir formatos.
 - No mover, renombrar, sobrescribir ni eliminar archivos originales sin una confirmación explícita, informada y específica de los elementos afectados. Registrar o mostrar una vía de recuperación cuando aplique.
-- Mantener metadatos manuales y procedencia/confianza de análisis. Una importación o análisis automático debe proponer cambios, no reemplazar silenciosamente correcciones del usuario.
+- Mantener metadatos manuales y la prioridad de las correcciones del usuario. Una importación o análisis automático puede actualizar campos no protegidos, pero no debe reemplazar silenciosamente correcciones manuales ni mostrar confianza técnica en la interfaz.
 - Tratar un archivo desaparecido como un estado de vinculación local que requiere diagnóstico y recuperación; no borrar automáticamente la pista ni sus relaciones.
 
 ## Importación y ubicaciones locales
