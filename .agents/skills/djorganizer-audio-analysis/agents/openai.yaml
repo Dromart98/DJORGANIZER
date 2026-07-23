@@ -1,0 +1,4 @@
+interface:
+  display_name: "Análisis de audio DJOrganizer"
+  short_description: "Análisis de audio fiable para bibliotecas DJ"
+  default_prompt: "Usa $djorganizer-audio-analysis para implementar un cambio de análisis de audio en DJOrganizer."
