@@ -12,8 +12,9 @@ variables globales, no mediante una configuración `tailwind.config` separada.
 ## Estructura, navegación y jerarquía
 
 - Las rutas autenticadas se sitúan en `AppShell`. En escritorio hay una barra
-  lateral fija de 232 px a la izquierda y el contenido principal se desplaza a
-  partir de ella, con ancho máximo de 1500 px y padding fluido.
+  lateral fija de **222 px** a la izquierda y el contenido principal se desplaza
+  **222 px** a partir de ella. Su ancho máximo efectivo es `none`: el límite
+  inicial de 1500 px queda sobrescrito por una regla posterior.
 - La marca enlaza de forma accesible a **Biblioteca** y muestra `DJ` en el color
   de acento. La navegación persistente contiene Inicio, Biblioteca, Importar,
   Crates y Ajustes, con icono lineal, etiqueta y `aria-current` para la ruta
@@ -32,11 +33,11 @@ variables globales, no mediante una configuración `tailwind.config` separada.
 
 ## Tokens, color, tipografía y superficies
 
-- El documento global comienza con una paleta oscura y después declara los tokens
-  vigentes usados por las extensiones del stylesheet: fondo `#080d12`, superficie
-  `#0f151b`, superficies elevadas `#151d24`/`#1a242c`, borde `#26323b`, borde
-  fuerte `#35434e`, texto `#f4f7f6`, texto secundario `#8f9ba6` y acento verde
-  menta `#7ee6b5` (acento fuerte `#9af0c7`).
+- Los tokens efectivos se declaran en el segundo bloque `:root`, posterior al
+  bloque histórico inicial: fondo `#080d12`, superficie `#0f151b`, superficies
+  elevadas `#151d24`/`#1a242c`, borde `#26323b`, borde fuerte `#35434e`, texto
+  `#f4f7f6`, texto secundario `#8f9ba6` y acento verde menta `#7ee6b5` (acento
+  fuerte `#9af0c7`).
 - Los tokens también incluyen acento oscuro `#102b22`, peligro `#ffb0b5`, peligro
   oscuro `#32191d`, sombra `0 18px 50px rgba(0, 0, 0, .24)` y radios de 7, 10 y
   14 px. Hay algunos valores hexadecimales históricos directamente en reglas;
@@ -44,10 +45,13 @@ variables globales, no mediante una configuración `tailwind.config` separada.
 - El documento declara `color-scheme: dark`; no se ha encontrado un selector de
   tema claro ni un conmutador de tema. Por tanto, el único tema confirmado es el
   oscuro.
-- La tipografía de cuerpo es Arial/Helvetica/sans-serif a 14 px, con suavizado de
-  fuente. Los títulos usan tracking negativo; el `h1` de página es 32 px (27 px
-  en móvil). Los eyebrows y cabeceras de tabla son mayúsculas pequeñas con
-  espaciado entre letras.
+- La tipografía efectiva del cuerpo es `"Segoe UI Variable", "Segoe UI", Inter,
+  ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif` a
+  13 px y `letter-spacing: -.006em`; el suavizado de fuente procede de la regla
+  histórica inicial y no queda sobrescrito. En escritorio, el `h1` de página usa
+  `clamp(28px, 2.3vw, 36px)`, peso 720 y `letter-spacing: -.045em`; hasta 760 px
+  se sobrescribe a 29 px. Los eyebrows y cabeceras de tabla son mayúsculas
+  pequeñas con espaciado entre letras.
 
 ## Componentes y patrones reutilizables
 
@@ -73,10 +77,10 @@ variables globales, no mediante una configuración `tailwind.config` separada.
   tabla densa. Los filtros principales son un grid con búsqueda amplia y tres
   controles; las opciones avanzadas se pliegan en `details`, separadas por borde,
   y contienen rangos en grid. Las acciones se alinean al final.
-- La tabla se envuelve en un contenedor con desplazamiento horizontal, tiene un
-  mínimo de 900 px, cabecera fija visualmente diferenciada, columnas ordenables,
-  filas de 15×16 px, hover de superficie y números tabulares. La tonalidad
-  Camelot se muestra como una pastilla menta sobre verde oscuro.
+- La tabla se envuelve en un contenedor con desplazamiento, tiene un mínimo de
+  1120 px, `thead` pegajoso, cabecera de 42 px y filas de 46 px, columnas
+  ordenables, hover de superficie y números tabulares. La tonalidad Camelot se
+  muestra como una pastilla menta sobre verde oscuro.
 - Por debajo de 760 px la tabla de escritorio se oculta y se usa una lista de
   filas táctiles: checkbox, metadatos truncados y enlace de acción. La toolbar de
   selección también se adapta. Esta es una sustitución de patrón, no solo una
@@ -104,8 +108,10 @@ variables globales, no mediante una configuración `tailwind.config` separada.
 
 - Los grids usan principalmente separaciones de 8–24 px: estadísticas 14 px,
   tarjetas de crate 12 px, formularios 16–18 px y paneles principales 24 px.
-  Los cards suelen tener 18–26 px de padding; el contenido principal usa
-  `clamp(28px, 5vw, 72px)` en escritorio y 18 px en móvil.
+  Los cards suelen tener 18–26 px de padding. El contenido principal efectivo
+  usa `38px clamp(22px, 3vw, 42px) 72px` en escritorio; hasta 760 px pasa a
+  `24px 14px calc(104px + env(safe-area-inset-bottom))`, y hasta 430 px sus
+  paddings laterales pasan a 10 px.
 - Las superficies se separan con bordes de 1 px y radios de 7–14 px. La sombra
   declarada se usa para elevación; la pantalla de autenticación incorpora además
   una tarjeta con sombra fuerte y gradiente radial de fondo.
@@ -113,23 +119,35 @@ variables globales, no mediante una configuración `tailwind.config` separada.
   navegación, checkbox y botones tienen etiquetas o nombres accesibles en los
   componentes inspeccionados. Existe un skip link, foco programático para la
   recuperación de ruta y `aria-live`/roles en estados operativos.
-- Los breakpoints observados son 1100 px (importación y paneles de organización),
-  1000 px (filtros/formularios), 760 px (navegación y móvil), 520 px
-  (autenticación) y 420 px (estadísticas/bienvenida). No se documenta un diseño
-  de tablet independiente más allá de estas reglas.
+- Los breakpoints que siguen afectando patrones observables son 1180 px (altura
+  de tabla y acciones), 1100 px (paneles de organización e importación), 1000 px
+  (grids históricos de filtros/formularios), 760 px (navegación y composición
+  móvil), 520 px (autenticación), 430 px (contenido y filtros) y 420 px
+  (estadísticas/bienvenida). No se documenta un diseño de tablet independiente
+  más allá de estas reglas.
 
 ## Inconsistencias observadas (sin corregir)
 
-1. `globals.css` contiene una paleta inicial compacta y una segunda declaración
-   posterior de varios tokens con valores distintos. La segunda gana en la
-   cascada para las reglas posteriores, mientras que algunas reglas iniciales
-   conservan hexadecimales directos; las futuras tareas deben comprobar el orden
-   de cascada antes de cambiar un token.
-2. El CSS incluye reglas históricas muy condensadas y bloques posteriores más
+1. `globals.css` conserva un bloque histórico inicial. Sus tokens de `:root`
+   (`--bg`, `--surface`, `--border`, `--text`, `--muted`, `--accent` y
+   `--accent-dark`) quedan sobrescritos por el segundo `:root`; sus valores
+   efectivos son los documentados arriba. Algunas reglas históricas sin una
+   regla posterior equivalente —por ejemplo, el suavizado de fuente del `body`—
+   siguen aplicándose.
+2. Varias medidas históricas también están sobrescritas: lateral expandido
+   `232 px` → **222 px**, margen de contenido `232 px` → **222 px**, máximo de
+   contenido `1500 px` → **ninguno**, padding principal
+   `54px clamp(28px, 5vw, 72px) 80px` →
+   **`38px clamp(22px, 3vw, 42px) 72px`**, fuente de cuerpo Arial/14 px →
+   **Segoe UI Variable y fallback/13 px**, y `h1` 32 px →
+   **`clamp(28px, 2.3vw, 36px)`**. En móvil, el `h1` histórico de 27 px queda
+   sobrescrito por **29 px**; el lateral se oculta y el contenido no conserva
+   margen izquierdo.
+3. El CSS incluye reglas históricas muy condensadas y bloques posteriores más
    tokenizados. El resultado visual es deliberadamente oscuro y coherente en lo
    esencial, pero el origen de algunos colores, radios y estados no está
    centralizado por completo.
-3. La aplicación confirma navegación lateral plegable, pero en móvil sustituye
+4. La aplicación confirma navegación lateral plegable, pero en móvil sustituye
    ese patrón por topbar y navegación inferior; no se debe describir como una
    misma barra lateral responsive.
 
