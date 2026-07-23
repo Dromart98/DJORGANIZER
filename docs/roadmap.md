@@ -62,10 +62,13 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 Orden de implementación recomendado para convertir el análisis musical en un
 resultado directamente utilizable:
 
-1. - [ ] Añadir un cierre guiado del análisis que muestre el resumen de pistas
-   correctas, ambiguas, duplicadas y fallidas, y ofrezca acciones directas para
-   revisar resultados, crear un crate, organizar archivos, escribir metadatos o
-   exportar. No ejecutar ninguna acción destructiva automáticamente.
+1. - [ ] Añadir una pantalla de acciones al terminar el análisis que muestre el
+   resumen de pistas correctas, ambiguas, duplicadas y fallidas. Debe permitir
+   revisar resultados, crear un crate directamente, previsualizar la
+   organización, mover archivos con reglas configurables, escribir metadatos,
+   exportar desde el mismo recorrido o terminar sin modificar nada. La
+   previsualización será obligatoria antes de cualquier movimiento y ninguna
+   acción destructiva se ejecutará automáticamente.
 2. - [ ] Permitir crear un crate directamente desde la tanda analizada, la
    selección actual o los filtros activos. Debe conservar el orden visible,
    excluir únicamente las pistas que el usuario confirme y mostrar errores
