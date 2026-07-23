@@ -1,0 +1,4 @@
+interface:
+  display_name: "DJOrganizer Tauri Windows"
+  short_description: "Protege operaciones Tauri y Windows."
+  default_prompt: "Use $djorganizer-tauri-windows to implement a safe DJOrganizer desktop change."
