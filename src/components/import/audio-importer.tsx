@@ -17,6 +17,15 @@ import {
 } from "@/lib/audio/acoustic-similarity";
 import { analyzeEnergyFromAudioBuffer } from "@/lib/audio/energy-analysis";
 import { createWavClipFromAudioBuffer } from "@/lib/audio/wav-clip";
+import {
+  LocalGenreCancelledError,
+  LocalGenreClient,
+} from "@/lib/audio/local-genre/client";
+import type {
+  LocalGenreModelStatus,
+  LocalGenreSuggestion,
+} from "@/lib/audio/local-genre/types";
+import { applyLocalGenreSuggestion } from "@/lib/audio/local-genre/suggestion";
 import { isAutomaticAnalysisEligibleStatus } from "@/lib/import/automatic-analysis";
 import {
   detectBpmFromAudioBuffer,
@@ -33,7 +42,11 @@ import {
   detectKeyFromFile,
 } from "@/lib/import/key-detector";
 import { metadataToImportTrack } from "@/lib/import/metadata";
-import { translate, translateKnown } from "@/lib/i18n/functional";
+import {
+  translate,
+  translateKnown,
+  type FunctionalMessage,
+} from "@/lib/i18n/functional";
 import type { Locale } from "@/lib/i18n/i18n";
 import {
   loadOfflineMutations,
@@ -75,6 +88,14 @@ type ImportItem = {
   id: string;
   keyError?: string;
   keyStatus?: "idle" | "analyzing" | "detected" | "error";
+  localGenreError?: string;
+  localGenreStatus?:
+    | "idle"
+    | "analyzing"
+    | "suggested"
+    | "cancelled"
+    | "error";
+  localGenreSuggestion?: LocalGenreSuggestion;
   name: string;
   progress?: number;
   status: ImportStatus;
@@ -148,11 +169,25 @@ function statusLabel(locale: Locale, status: ImportStatus) {
   return translate(locale, labels[status] as Parameters<typeof translate>[1]);
 }
 
+function localGenreErrorMessage(
+  locale: Locale,
+  error: unknown,
+  fallback: FunctionalMessage,
+) {
+  if (!(error instanceof Error)) return translate(locale, fallback);
+  const localized = translateKnown(locale, error.message);
+  return locale === "en" && localized === error.message
+    ? translate(locale, fallback)
+    : localized;
+}
+
 export function AudioImporter() {
   const { format, locale, t } = useTranslator();
   const inputRef = useRef<HTMLInputElement>(null);
   const automaticAnalysisRunRef = useRef(0);
   const automaticAudioContextRef = useRef<AudioContext | null>(null);
+  const localGenreAudioContextRef = useRef<AudioContext | null>(null);
+  const localGenreClientRef = useRef<LocalGenreClient | null>(null);
   const [automaticAnalysisProgress, setAutomaticAnalysisProgress] =
     useState<AutomaticAnalysisProgress | null>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
@@ -161,12 +196,53 @@ export function AudioImporter() {
   const [isAnalyzingBpm, setIsAnalyzingBpm] = useState(false);
   const [isReading, setIsReading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [localGenreBackend, setLocalGenreBackend] = useState<string | null>(null);
+  const [localGenreModelError, setLocalGenreModelError] = useState<string | null>(null);
+  const [localGenreModelStatus, setLocalGenreModelStatus] =
+    useState<LocalGenreModelStatus>("preparing");
 
   const readyCount = items.filter((item) => item.status === "ready").length;
   const savedCount = items.filter((item) => item.status === "saved").length;
   const duplicateCount = items.filter(
     (item) => item.status === "duplicate",
   ).length;
+  const isLocalGenreAnalyzing = items.some(
+    (item) => item.localGenreStatus === "analyzing",
+  );
+
+  useEffect(() => {
+    const client = new LocalGenreClient();
+    localGenreClientRef.current = client;
+    setLocalGenreModelStatus("preparing");
+    setLocalGenreModelError(null);
+    void client
+      .prepare()
+      .then((selectedBackend) => {
+        if (localGenreClientRef.current !== client) return;
+        setLocalGenreBackend(selectedBackend);
+        setLocalGenreModelStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (localGenreClientRef.current !== client) return;
+        setLocalGenreModelError(
+          localGenreErrorMessage(
+            locale,
+            error,
+            "No se pudo preparar el análisis local.",
+          ),
+        );
+        setLocalGenreModelStatus("error");
+      });
+    return () => {
+      localGenreClientRef.current = null;
+      client.dispose();
+      const audioContext = localGenreAudioContextRef.current;
+      localGenreAudioContextRef.current = null;
+      if (audioContext && audioContext.state !== "closed") {
+        void audioContext.close().catch(() => undefined);
+      }
+    };
+  }, [locale]);
 
   useEffect(() => {
     async function synchronizeQueuedImports() {
@@ -266,6 +342,7 @@ export function AudioImporter() {
         genreStatus: "idle",
         id,
         keyStatus: "idle",
+        localGenreStatus: "idle",
         name: file.name,
         progress: 100,
         status: error ? "invalid" : "ready",
@@ -460,6 +537,13 @@ export function AudioImporter() {
             key_source: value === null ? null : "manual",
           };
         }
+        if (field === "genre") {
+          data = {
+            ...data,
+            genre_confidence: null,
+            genre_source: value === null ? null : "manual",
+          };
+        }
         const error = importValidationMessage(data);
         return {
           ...item,
@@ -470,6 +554,10 @@ export function AudioImporter() {
           keyError: field === "musical_key" ? undefined : item.keyError,
           keyStatus:
             field === "musical_key" ? "idle" : item.keyStatus,
+          localGenreStatus:
+            field === "genre" ? "idle" : item.localGenreStatus,
+          localGenreSuggestion:
+            field === "genre" ? undefined : item.localGenreSuggestion,
           status: error ? "invalid" : "ready",
         };
       }),
@@ -1131,6 +1219,126 @@ export function AudioImporter() {
     }
   }
 
+  async function suggestGenreLocally(item: ImportItem) {
+    const client = localGenreClientRef.current;
+    if (
+      !client ||
+      localGenreModelStatus !== "ready" ||
+      !item.file ||
+      !item.data ||
+      !isAutomaticAnalysisEligibleStatus(item.status)
+    ) {
+      return;
+    }
+    updateItem(item.id, {
+      localGenreError: undefined,
+      localGenreStatus: "analyzing",
+      localGenreSuggestion: undefined,
+    });
+    let audioContext: AudioContext | null = null;
+    try {
+      audioContext = new AudioContext({ sampleRate: 16_000 });
+      localGenreAudioContextRef.current = audioContext;
+      const decoded = await audioContext.decodeAudioData(
+        await item.file.arrayBuffer(),
+      );
+      if (decoded.sampleRate !== 16_000) {
+        throw new Error(t("El navegador no pudo remuestrear el audio a 16 kHz."));
+      }
+      const mono = new Float32Array(decoded.length);
+      for (let channelIndex = 0; channelIndex < decoded.numberOfChannels; channelIndex += 1) {
+        const channel = decoded.getChannelData(channelIndex);
+        for (let sampleIndex = 0; sampleIndex < mono.length; sampleIndex += 1) {
+          mono[sampleIndex] += channel[sampleIndex] / decoded.numberOfChannels;
+        }
+      }
+      const suggestion = await client.analyze(mono);
+      updateItem(item.id, {
+        localGenreStatus: "suggested",
+        localGenreSuggestion: suggestion,
+      });
+    } catch (error) {
+      if (error instanceof LocalGenreCancelledError) return;
+      updateItem(item.id, {
+        localGenreError: localGenreErrorMessage(
+          locale,
+          error,
+          "No se pudo sugerir un género localmente.",
+        ),
+        localGenreStatus: "error",
+      });
+    } finally {
+      if (localGenreAudioContextRef.current === audioContext) {
+        localGenreAudioContextRef.current = null;
+      }
+      if (audioContext && audioContext.state !== "closed") {
+        await audioContext.close().catch(() => undefined);
+      }
+    }
+  }
+
+  function cancelLocalGenre(item: ImportItem) {
+    const audioContext = localGenreAudioContextRef.current;
+    localGenreAudioContextRef.current = null;
+    if (audioContext && audioContext.state !== "closed") {
+      void audioContext.close().catch(() => undefined);
+    }
+    const client = localGenreClientRef.current;
+    client?.cancel();
+    updateItem(item.id, {
+      localGenreError: undefined,
+      localGenreStatus: "cancelled",
+      localGenreSuggestion: undefined,
+    });
+    if (!client) return;
+    setLocalGenreModelStatus("preparing");
+    setLocalGenreBackend(null);
+    void client
+      .prepare()
+      .then((selectedBackend) => {
+        if (localGenreClientRef.current !== client) return;
+        setLocalGenreBackend(selectedBackend);
+        setLocalGenreModelStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (localGenreClientRef.current !== client) return;
+        setLocalGenreModelError(
+          localGenreErrorMessage(
+            locale,
+            error,
+            "No se pudo preparar el análisis local.",
+          ),
+        );
+        setLocalGenreModelStatus("error");
+      });
+  }
+
+  function acceptLocalGenreSuggestion(item: ImportItem) {
+    const suggestion = item.localGenreSuggestion;
+    if (!suggestion) return;
+    setItems((current) =>
+      current.map((currentItem) => {
+        if (currentItem.id !== item.id || !currentItem.data) return currentItem;
+        return {
+          ...currentItem,
+          data: applyLocalGenreSuggestion(
+            currentItem.data,
+            suggestion,
+          ),
+          localGenreStatus: "idle",
+          localGenreSuggestion: undefined,
+        };
+      }),
+    );
+  }
+
+  function rejectLocalGenreSuggestion(item: ImportItem) {
+    updateItem(item.id, {
+      localGenreStatus: "idle",
+      localGenreSuggestion: undefined,
+    });
+  }
+
   function acceptGenreSuggestion(item: ImportItem) {
     if (!item.genreSuggestion) return;
     setItems((current) =>
@@ -1160,7 +1368,11 @@ export function AudioImporter() {
     <section
       className="import-flow"
       aria-busy={
-        isReading || isSaving || isAnalyzingBpm || isAnalyzingKey
+        isReading ||
+        isSaving ||
+        isAnalyzingBpm ||
+        isAnalyzingKey ||
+        isLocalGenreAnalyzing
       }
     >
       <div className="card import-dropzone">
@@ -1187,6 +1399,18 @@ export function AudioImporter() {
           {isReading ? t("Leyendo archivos…") : t("Seleccionar archivos")}
         </label>
       </div>
+
+      <p
+        className={`local-genre-model-status local-genre-model-status--${localGenreModelStatus}`}
+        role="status"
+        aria-live="polite"
+      >
+        {localGenreModelStatus === "preparing"
+          ? t("Preparando análisis local…")
+          : localGenreModelStatus === "ready"
+            ? `${t("Análisis local preparado")} · ${localGenreBackend?.toUpperCase() ?? ""}`
+            : `${t("Análisis local no disponible.")} ${localGenreModelError ?? ""}`}
+      </p>
 
       {notice ? (
         <p className="form-message form-message--success" role="status">
@@ -1339,6 +1563,80 @@ export function AudioImporter() {
                         }
                         value={item.data.genre ?? ""}
                       />
+                      {item.file &&
+                      isAutomaticAnalysisEligibleStatus(item.status) ? (
+                        <button
+                          className="import-analyze-link"
+                          disabled={
+                            localGenreModelStatus !== "ready" ||
+                            isLocalGenreAnalyzing ||
+                            isSaving
+                          }
+                          onClick={() => void suggestGenreLocally(item)}
+                          type="button"
+                        >
+                          {localGenreModelStatus === "preparing"
+                            ? t("Preparando análisis local…")
+                            : item.localGenreStatus === "analyzing"
+                              ? t("Analizando género localmente…")
+                              : t("Sugerir género localmente")}
+                        </button>
+                      ) : null}
+                      {item.localGenreStatus === "analyzing" ? (
+                        <button
+                          className="import-analyze-link"
+                          onClick={() => cancelLocalGenre(item)}
+                          type="button"
+                        >
+                          {t("Cancelar")}
+                        </button>
+                      ) : null}
+                      {item.localGenreStatus === "cancelled" ? (
+                        <small role="status">{t("Análisis local cancelado.")}</small>
+                      ) : null}
+                      {item.localGenreSuggestion ? (
+                        <span className="genre-suggestion genre-suggestion--local" role="status">
+                          <small className="local-analysis-badge">
+                            {t("Análisis local")}
+                          </small>
+                          <strong>
+                            {item.localGenreSuggestion.label} ·{" "}
+                            {Math.round(item.localGenreSuggestion.score * 100)}%
+                          </strong>
+                          {item.localGenreSuggestion.alternatives.length ? (
+                            <small>
+                              {t("Alternativas")}: {item.localGenreSuggestion.alternatives
+                                .map(
+                                  (alternative) =>
+                                    `${alternative.label} (${Math.round(alternative.score * 100)}%)`,
+                                )
+                                .join(", ")}
+                            </small>
+                          ) : null}
+                          <small>{t("Puntuación orientativa; revisa antes de aceptar.")}</small>
+                          <span className="genre-suggestion__actions">
+                            <button
+                              className="import-analyze-link"
+                              onClick={() => acceptLocalGenreSuggestion(item)}
+                              type="button"
+                            >
+                              {t("Aceptar sugerencia")}
+                            </button>
+                            <button
+                              className="import-analyze-link"
+                              onClick={() => rejectLocalGenreSuggestion(item)}
+                              type="button"
+                            >
+                              {t("Rechazar")}
+                            </button>
+                          </span>
+                        </span>
+                      ) : null}
+                      {item.localGenreError ? (
+                        <small className="field-error" role="alert">
+                          {item.localGenreError}
+                        </small>
+                      ) : null}
                       {item.file &&
                       isAutomaticAnalysisEligibleStatus(item.status) ? (
                         <button

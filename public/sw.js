@@ -1,6 +1,7 @@
 /* global self, caches */
 
 const CACHE_PREFIX = "djorganizer-";
+const MODEL_CACHE_PREFIX = "djorganizer-model-";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-v1`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-v1`;
 const OFFLINE_URL = "/offline.html";
@@ -25,6 +26,7 @@ self.addEventListener("activate", (event) => {
             .filter(
               (key) =>
                 key.startsWith(CACHE_PREFIX) &&
+                !key.startsWith(MODEL_CACHE_PREFIX) &&
                 key !== SHELL_CACHE &&
                 key !== STATIC_CACHE,
             )
