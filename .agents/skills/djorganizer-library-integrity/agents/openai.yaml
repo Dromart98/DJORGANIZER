@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integridad de biblioteca DJ"
+  short_description: "Protege identidad, orden y exportaciones DJ"
+  default_prompt: "Use $djorganizer-library-integrity to implementar un cambio seguro en la biblioteca DJ."
