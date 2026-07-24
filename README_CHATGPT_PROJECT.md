@@ -160,7 +160,9 @@ biblioteca musical.
 - Reintento, compactación y contrato de conflictos.
 - Backup JSON versionado, limitado y restauración confirmada.
 - Diagnóstico local opt-in, saneado y exportado manualmente.
-- Base de instaladores firmados y actualizaciones verificadas para Tauri.
+- Pipeline de instaladores Tauri para Windows, macOS y Linux. Los instaladores
+  se distribuyen sin firma comercial de pago según la política vigente; las
+  actualizaciones sí se verifican criptográficamente con las claves de Tauri.
 
 ## Arquitectura vigente
 
@@ -256,8 +258,10 @@ Las asociaciones con rutas absolutas viven exclusivamente en el dispositivo.
   recuperación.
 - No depender solo de color, iconos o drag-and-drop.
 - Mantener filtros, orden, búsqueda y paginación en URL o estado persistente.
-- Español e inglés son los idiomas base, aunque aún queda contenido funcional
-  por traducir completamente.
+- Onboarding autenticado no bloqueante, ayuda contextual y recuperación accesible
+  ante errores de carga ya implementados.
+- Interfaz funcional completa en español e inglés, protegida por paridad de tipos
+  y pruebas; el contenido introducido por el usuario no se traduce.
 
 ## Integraciones y límites conocidos
 
@@ -265,8 +269,11 @@ Las asociaciones con rutas absolutas viven exclusivamente en el dispositivo.
 - M3U8 se conserva como compatibilidad heredada.
 - Cues, colores e historial no se escriben mientras My Lists no publique un
   contrato oficial estable para esos campos.
-- Rekordbox, Serato y Traktor tienen contratos de capacidad, no integraciones
-  completas.
+- Rekordbox dispone de exportación XML de playlists mediante Bridge desde Tauri,
+  con previsualización y confirmación; la importación, cues, loops y beatgrids
+  siguen pendientes.
+- Serato y Traktor mantienen contratos de capacidad, pero sus integraciones reales
+  siguen pendientes.
 - CDJ y clientes móviles son trabajo futuro.
 - La confianza de BPM o tonalidad orienta la revisión; no certifica una verdad
   musical absoluta.
@@ -310,6 +317,8 @@ escritorio. La base E2E genera WAV sintéticos en memoria; no usa música real.
 - `AGENTS.md`: reglas duraderas de producto y repositorio.
 - `README.md`: instalación, arquitectura y detalle de funciones.
 - `docs/roadmap.md`: implementado, pendiente y decisiones bloqueadas.
+- `docs/roadmap-incidencias-observadas.md`: errores y ajustes detectados durante
+  el uso real, ordenados por prioridad y causa raíz.
 - `docs/audio-analysis-confidence.md`: significado y límites de la confianza.
 - `docs/desktop-folder-scanning.md`: privacidad y seguridad del escaneo.
 - `docs/distribution.md`: instaladores, firmas y actualizaciones.
@@ -321,27 +330,42 @@ especificaciones externas.
 
 ## Forma de trabajo solicitada
 
-- Trabajar únicamente en función del prompt más reciente del usuario.
-- No iniciar automáticamente otra fase del roadmap.
+- Trabajar sobre una fase o cambio concreto y no mezclar trabajos independientes
+  en una misma PR.
 - Hacer supuestos razonables solo cuando no cambien materialmente el alcance.
 - Incluir todo el worktree cuando el usuario confirme ese alcance.
-- Crear una PR por fase o cambio solicitado y no pasar a otra fase hasta que la
-  PR actual esté validada y fusionada.
-- Usar el conector de GitHub para crear, leer y actualizar PRs; usar Git local
-  para commits y push.
-- Mantener `README.md` y `docs/roadmap.md` actualizados cuando cambie el estado
-  funcional.
-- Informar con claridad qué está implementado, qué es solo un contrato y qué
-  depende de servicios o credenciales externas.
+- No pasar a una fase nueva mientras exista un error base o la PR actual no esté
+  validada y fusionada.
+- Tras validar y fusionar una PR, revisar `main`, las PR pendientes y el roadmap y
+  pasar automáticamente a la siguiente fase prevista, salvo bloqueo, decisión
+  pendiente o indicación expresa del usuario de detenerse.
+- Usar el conector de GitHub para revisar PR, ramas, SHA, commits, diffs, checks,
+  comentarios y merges; reservar Codex principalmente para modificaciones de código.
+- Verificar el estado real antes de afirmar que algo está creado, probado, publicado,
+  fusionado o desplegado.
+- Mantener `README.md`, `docs/roadmap.md` y la documentación de contexto sincronizados
+  cuando cambie el estado funcional.
+- Informar con claridad qué está implementado, qué es solo un contrato y qué depende
+  de servicios, credenciales o validaciones externas.
 
 ## Prioridades pendientes
 
 Según el roadmap actual, los bloques principales todavía abiertos son:
 
-- auditoría manual con lector de pantalla en flujos autenticados;
-- onboarding, ayuda contextual y recuperación más completa;
-- traducción total del contenido funcional al inglés;
-- integraciones reales posteriores con Rekordbox, Serato, Traktor y CDJ.
+- corregir primero las incidencias observadas: error intermitente de Inicio,
+  visibilidad de etiquetas, análisis musical unificado, género/subgénero automático
+  y simplificaciones de navegación y lenguaje;
+- completar el flujo posterior al análisis y la organización configurable de
+  archivos, incluido el campo persistente de subgénero;
+- añadir gestión avanzada de biblioteca y crates: crates inteligentes, salud de
+  biblioteca, limpieza de metadatos, reparación de pistas, archivado, historial y
+  preescucha ligera;
+- completar la evaluación de clasificación de género, proveedores de escritorio y
+  análisis por lotes;
+- completar la auditoría manual con NVDA en español e inglés;
+- ejecutar la fase final específica de simplificación y revisión premium de UX/UI;
+- completar la importación y capacidades pendientes de Rekordbox y, después,
+  las integraciones reales con Serato, Traktor y ecosistemas CDJ.
 
-Estas prioridades son contexto, no autorización para iniciarlas. Cada trabajo
-debe comenzar solo cuando el usuario lo pida mediante un prompt.
+Tras cada PR validada y fusionada se continuará con la siguiente fase prevista salvo
+bloqueo, decisión pendiente o indicación expresa del usuario de detenerse.
