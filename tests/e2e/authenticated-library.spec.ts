@@ -362,7 +362,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   ).toBeVisible();
   const createTagForm = page.locator("form.tag-create-form");
   await createTagForm.getByLabel("Name").fill(tagName);
-  await createTagForm.getByRole("button", { name: "Create tag" }).click();
+  await createTagForm.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page).toHaveURL(/tagCreated=1$/, { timeout: 20_000 });
   await expect(page.locator(".tag-list").getByText(tagName, { exact: true })).toBeVisible();
 
