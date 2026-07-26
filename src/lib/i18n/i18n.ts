@@ -41,6 +41,13 @@ export const messages = {
         tagsHelp: "Clasificación personal",
         tracks: "Pistas",
         tracksHelp: "En tu biblioteca",
+        unavailable: "No disponible",
+      },
+      summaryError: {
+        description:
+          "Parte del resumen no se pudo cargar. Tu sesión y las secciones disponibles siguen activas.",
+        retry: "Reintentar resumen",
+        retrying: "Reintentando…",
       },
       title: "Tu música, lista para mezclar",
     },
@@ -182,6 +189,13 @@ export const messages = {
         tagsHelp: "Personal classification",
         tracks: "Tracks",
         tracksHelp: "In your library",
+        unavailable: "Unavailable",
+      },
+      summaryError: {
+        description:
+          "Part of the summary could not be loaded. Your session and the available sections remain active.",
+        retry: "Retry summary",
+        retrying: "Retrying…",
       },
       title: "Your music, ready to mix",
     },
