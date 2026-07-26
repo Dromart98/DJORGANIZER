@@ -38,7 +38,9 @@ async function expectPartialFailure(
     await expect(
       gettingStarted.getByRole("heading", { name: "Prepare your first set" }),
     ).toBeVisible();
-    await expect(gettingStarted.getByText("0 of 3 steps completed")).toBeVisible();
+    await expect(
+      gettingStarted.getByText("0 of 3 steps completed"),
+    ).toBeVisible();
   } else {
     await expect(gettingStarted).toHaveCount(0);
   }
@@ -94,7 +96,9 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
   const restoredPage = await context.newPage();
   await restoredPage.goto("/");
   await expectHealthyEmptySummary(restoredPage);
-  await expect(restoredPage.getByRole("link", { name: "Library", exact: true })).toBeVisible();
+  await expect(
+    restoredPage.getByRole("link", { name: "Library", exact: true }),
+  ).toBeVisible();
   await restoredPage.close();
 
   for (const [injection, failedLabel, expectOnboarding] of [
@@ -111,20 +115,40 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
   const retry = page.getByRole("button", { name: "Retry summary" });
   await retry.focus();
   await expect(retry).toBeFocused();
+
   let recoveryRequests = 0;
-  const countRecovery = (request: { url(): string }) => {
-    const url = new URL(request.url());
-    if (url.origin === "http://127.0.0.1:3100" && url.pathname === "/" && !url.searchParams.has("__e2eSummary")) {
+  let releaseRecovery!: () => void;
+  let markRecoveryRequest!: () => void;
+  const recoveryRelease = new Promise<void>((resolve) => {
+    releaseRecovery = resolve;
+  });
+  const recoveryRequestSeen = new Promise<void>((resolve) => {
+    markRecoveryRequest = resolve;
+  });
+
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (
+      url.origin === "http://127.0.0.1:3100" &&
+      url.pathname === "/" &&
+      !url.searchParams.has("__e2eSummary")
+    ) {
       recoveryRequests += 1;
+      markRecoveryRequest();
+      await recoveryRelease;
     }
-  };
-  page.on("request", countRecovery);
+    await route.continue();
+  });
+
   await retry.press("Enter");
+  await recoveryRequestSeen;
   await expect(retry).toBeDisabled();
   await retry.click({ force: true });
+  expect(recoveryRequests).toBe(1);
+  releaseRecovery();
   await expectHealthyEmptySummary(page);
   await expect.poll(() => recoveryRequests).toBe(1);
-  page.off("request", countRecovery);
+  await page.unroute("**/*");
 
   await page.getByRole("link", { name: "Library", exact: true }).click();
   await expect(page).toHaveURL(/\/library$/);
@@ -154,7 +178,9 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
   ]);
   await page.goto("/?__e2eSummary=tags-query");
   await expect(page.getByText("No disponible", { exact: true })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Reintentar resumen" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Reintentar resumen" }),
+  ).toBeVisible();
   await page.goto("/library");
   await expect(page).toHaveURL(/\/library$/);
 });
