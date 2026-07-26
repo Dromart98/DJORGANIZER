@@ -19,6 +19,7 @@ async function expectHealthyEmptySummary(page: Page) {
 async function expectPartialFailure(
   page: Page,
   failedLabel: "Tracks" | "Crates" | "Tags",
+  expectOnboarding: boolean,
 ) {
   await expect(
     page.getByRole("heading", { name: "Your music, ready to mix" }),
@@ -32,7 +33,15 @@ async function expectPartialFailure(
       await expect(statistic(page, label).locator("strong")).toHaveText("0");
     }
   }
-  await expect(page.locator(".getting-started")).toHaveCount(0);
+  const gettingStarted = page.locator(".getting-started");
+  if (expectOnboarding) {
+    await expect(
+      gettingStarted.getByRole("heading", { name: "Prepare your first set" }),
+    ).toBeVisible();
+    await expect(gettingStarted.getByText("0 of 3 steps completed")).toBeVisible();
+  } else {
+    await expect(gettingStarted).toHaveCount(0);
+  }
   await expect(
     page.getByText(
       "Part of the summary could not be loaded. Your session and the available sections remain active.",
@@ -88,17 +97,17 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
   await expect(restoredPage.getByRole("link", { name: "Library", exact: true })).toBeVisible();
   await restoredPage.close();
 
-  for (const [injection, failedLabel] of [
-    ["tags-query", "Tags"],
-    ["crates-network", "Crates"],
-    ["tracks-query", "Tracks"],
+  for (const [injection, failedLabel, expectOnboarding] of [
+    ["tags-query", "Tags", true],
+    ["crates-network", "Crates", false],
+    ["tracks-query", "Tracks", false],
   ] as const) {
     await page.goto(`/?__e2eSummary=${injection}`);
-    await expectPartialFailure(page, failedLabel);
+    await expectPartialFailure(page, failedLabel, expectOnboarding);
   }
 
   await page.goto("/?__e2eSummary=tags-query");
-  await expectPartialFailure(page, "Tags");
+  await expectPartialFailure(page, "Tags", true);
   const retry = page.getByRole("button", { name: "Retry summary" });
   await retry.focus();
   await expect(retry).toBeFocused();
