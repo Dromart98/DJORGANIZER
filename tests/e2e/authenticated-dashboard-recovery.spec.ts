@@ -142,8 +142,11 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
 
   await retry.press("Enter");
   await recoveryRequestSeen;
-  await expect(retry).toBeDisabled();
-  await retry.click({ force: true });
+  const pendingRetry = page.getByRole("button", { name: "Retrying…" });
+  await expect(pendingRetry).toBeDisabled();
+  await pendingRetry.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+  });
   expect(recoveryRequests).toBe(1);
   releaseRecovery();
   await expectHealthyEmptySummary(page);
