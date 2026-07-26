@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DashboardSummaryRecovery } from "@/components/dashboard/dashboard-summary-recovery";
 import { GettingStartedGuide } from "@/components/onboarding/getting-started-guide";
 import { Icon } from "@/components/layout/icon";
 import { Card } from "@/components/ui/card";
@@ -8,6 +9,10 @@ import { translate } from "@/lib/i18n/functional";
 import { getMessages } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
 import { getOnboardingProgress } from "@/lib/onboarding/progress";
+import {
+  DASHBOARD_COUNT_OPERATIONS,
+  loadDashboardSummary,
+} from "@/lib/dashboard/summary";
 import { createClient } from "@/lib/supabase/server";
 
 type DashboardPageProps = {
@@ -65,28 +70,30 @@ export default async function DashboardPage({
   }
 
   const supabase = await createClient();
-  const [tracks, crates, tags] = await Promise.all([
-    supabase
-      .from("tracks")
+  const summary = await loadDashboardSummary(async (operation) =>
+    await supabase
+      .from(operation)
       .select("id", { count: "exact", head: true })
       .eq("user_id", user.id),
-    supabase
-      .from("crates")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id),
-    supabase
-      .from("tags")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id),
-  ]);
-  if (tracks.error || crates.error || tags.error) {
-    throw new Error("No se pudo cargar el resumen de tu biblioteca.");
+  );
+  const failedOperations = DASHBOARD_COUNT_OPERATIONS.filter(
+    (operation) => summary[operation].failure !== null,
+  );
+  if (failedOperations.length > 0) {
+    console.error("Dashboard summary query failed", {
+      operations: failedOperations.map((operation) => ({
+        category: summary[operation].failure,
+        operation,
+      })),
+    });
   }
   const counts = {
-    crateCount: crates.count ?? 0,
-    trackCount: tracks.count ?? 0,
+    crateCount: summary.crates.count ?? 0,
+    trackCount: summary.tracks.count ?? 0,
   };
-  const onboarding = getOnboardingProgress(counts);
+  const canShowOnboarding =
+    summary.tracks.failure === null && summary.crates.failure === null;
+  const onboarding = canShowOnboarding ? getOnboardingProgress(counts) : null;
   const copy = getMessages(locale).dashboard;
 
   return (
@@ -96,27 +103,30 @@ export default async function DashboardPage({
         eyebrow={copy.eyebrow}
         title={copy.title}
       />
-      {!onboarding.isComplete ? (
+      {failedOperations.length > 0 ? (
+        <DashboardSummaryRecovery locale={locale} />
+      ) : null}
+      {onboarding && !onboarding.isComplete ? (
         <GettingStartedGuide counts={counts} locale={locale} />
       ) : null}
       <div className="stats">
         <Card>
           <span>{copy.stats.tracks}</span>
-          <strong>{tracks.count ?? 0}</strong>
+          <strong>{summary.tracks.count ?? copy.stats.unavailable}</strong>
           <small>{copy.stats.tracksHelp}</small>
         </Card>
         <Card>
           <span>{copy.stats.crates}</span>
-          <strong>{crates.count ?? 0}</strong>
+          <strong>{summary.crates.count ?? copy.stats.unavailable}</strong>
           <small>{copy.stats.cratesHelp}</small>
         </Card>
         <Card>
           <span>{copy.stats.tags}</span>
-          <strong>{tags.count ?? 0}</strong>
+          <strong>{summary.tags.count ?? copy.stats.unavailable}</strong>
           <small>{copy.stats.tagsHelp}</small>
         </Card>
       </div>
-      {onboarding.isComplete ? (
+      {onboarding?.isComplete ? (
         <Card className="welcome">
           <div className="welcome-icon">
             <Icon name="music" />
