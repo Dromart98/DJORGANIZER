@@ -1,6 +1,6 @@
 # Incidencias observadas y ajustes de flujo
 
-Actualizado: 2026-07-23.
+Actualizado: 2026-07-26.
 
 Este documento forma parte del roadmap de DJOrganizer y ordena los defectos y
 cambios de producto observados durante el uso real. Los puntos marcados como
@@ -12,17 +12,31 @@ anterior.
 
 ### 1. Error intermitente al cargar el dashboard
 
-**Estado:** incidencia comunicada, pendiente de reproducción y diagnóstico.
+**Estado:** Implementado.
 
-- [ ] Reproducir el fallo que aparece algunas veces al iniciar la aplicación y
-  muestra que el dashboard no se ha podido cargar correctamente.
-- [ ] Registrar de forma saneada qué consulta, límite de tiempo, sesión o
-  dependencia falla, sin incluir correo, rutas, cookies, audio ni secretos.
-- [ ] Separar error de autenticación, error de datos, error de red y error de
+- [x] Confirmar la causa funcional: cualquier fallo individual de los conteos de
+  pistas, crates o etiquetas se escalaba a la caída completa de Inicio. No hay
+  evidencia para atribuir el incidente histórico a una consulta concreta.
+- [x] Registrar de forma saneada qué operación y categoría de fallo intervienen,
+  sin incluir correo, rutas, cookies, audio ni secretos.
+- [x] Separar error de datos y error de red por estadística, sin sustituir el
+  error general de renderizado ni añadir reintentos automáticos ilimitados.
+- [x] Aislar los fallos parciales para conservar los conteos correctos, el shell,
+  la navegación y la sesión, y no inferir el onboarding con datos incompletos.
+- [x] Mantener un botón de reintento único y accesible mientras se recupera el
+  resumen.
+- [x] Añadir una matriz E2E autenticada para inicio vacío, recarga, sesión recién
+  creada y restaurada, aperturas consecutivas, fallos parciales en las tres
+  estadísticas (incluidas las categorías `query` y `network`), recuperación,
+  respuesta lenta y ausencia de solicitudes duplicadas.
+- [x] Ejecutar con éxito esa matriz en el entorno autenticado efímero de CI. La
+  validación remota del 2026-07-26 completó correctamente Supabase efímero,
+  Chromium, la matriz autenticada y el E2E móvil. La ejecución local previa había
+  quedado bloqueada por la ausencia de Supabase CLI y por HTTP 403 al descargar
+  Chromium, sin afectar a la validación final en GitHub Actions.
+- [x] Mantener separados los errores de autenticación, datos, red y
   renderizado; no sustituir el diagnóstico por reintentos automáticos ilimitados.
-- [ ] Mantener el shell, la navegación segura y un botón de reintento mientras se
-  corrige la causa raíz.
-- [ ] No modificar autenticación, RLS, caché privada ni contratos de consultas no
+- [x] No modificar autenticación, RLS, caché privada ni contratos de consultas no
   relacionados hasta tener una causa confirmada.
 
 **Validación mínima:** inicio en frío, recarga, sesión recién creada, sesión
