@@ -96,6 +96,18 @@ describe("i18n", () => {
         pages: 5,
       }),
     ).toBe("Page 2 of 5");
+    expect(
+      formatMessage("es", "Quitar etiqueta {tag} de {track}", {
+        tag: "House",
+        track: "Opening Track",
+      }),
+    ).toBe("Quitar etiqueta House de Opening Track");
+    expect(
+      formatMessage("en", "Quitar etiqueta {tag} de {track}", {
+        tag: "House",
+        track: "Opening Track",
+      }),
+    ).toBe("Remove tag House from Opening Track");
     expect(formatTrackCount("es", 1)).toBe("1 pista");
     expect(formatTrackCount("en", 2)).toBe("2 tracks");
     expect(formatFileCount("es", 1)).toBe("1 archivo");

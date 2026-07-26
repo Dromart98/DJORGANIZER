@@ -48,19 +48,20 @@ debe duplicar solicitudes ni perder la sesión.
 
 ### 2. Mostrar las etiquetas asignadas a cada canción
 
-**Estado:** incidencia comunicada. La asignación y retirada de etiquetas existe,
-pero debe comprobarse por qué la relación guardada no queda visible en el flujo
-normal de Biblioteca.
+**Estado:** Preparado — pendiente de validación E2E en CI. La lectura ya queda
+acotada a las pistas de la página, y Biblioteca, móvil y detalle representan y
+gestionan las relaciones persistidas. Queda pendiente ejecutar en el Supabase
+efímero de CI la matriz autenticada, incluida la validación RLS con dos usuarios.
 
-- [ ] Reproducir la asignación individual y masiva y verificar primero la fila en
+- [x] Reproducir la asignación individual y masiva y verificar primero la fila en
   `track_tags`, la consulta posterior y la actualización de la interfaz.
-- [ ] Mostrar las etiquetas de cada pista en Biblioteca, en la vista o edición de
+- [x] Mostrar las etiquetas de cada pista en Biblioteca, en la vista o edición de
   la canción y en las tarjetas móviles, sin cargar relaciones sin límite.
-- [ ] Refrescar el estado después de asignar o retirar una etiqueta y conservarlo
+- [x] Refrescar el estado después de asignar o retirar una etiqueta y conservarlo
   tras recargar, cambiar de página, buscar, filtrar y volver a la pista.
-- [ ] Permitir retirar una etiqueta desde un lugar claro sin borrar la etiqueta
+- [x] Permitir retirar una etiqueta desde un lugar claro sin borrar la etiqueta
   reutilizable ni afectar a otras canciones.
-- [ ] Mantener RLS, separación entre usuarios, paginación y edición masiva.
+- [x] Mantener RLS, separación entre usuarios, paginación y edición masiva.
 
 **Validación mínima:** asignación y retirada individual y masiva, dos usuarios,
 pistas con muchas etiquetas, móvil, teclado, recarga y navegación entre páginas.

@@ -218,6 +218,7 @@ async function changeTagAssignment(
 
   if (error) redirect(statusPath(returnTo, "tagError"));
   revalidatePath("/library");
+  uniqueTrackIds.forEach((trackId) => revalidatePath(`/library/${trackId}`));
   revalidatePath("/crates");
   redirect(statusPath(returnTo, operation === "add" ? "tagged" : "untagged"));
 }

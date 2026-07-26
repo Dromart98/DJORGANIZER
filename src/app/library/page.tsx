@@ -13,7 +13,7 @@ import {
   buildLibraryHref,
   parseTrackQuery,
 } from "@/lib/library/track-query";
-import { listTracks } from "@/lib/library/track-repository";
+import { listTracks, listTrackTags } from "@/lib/library/track-repository";
 import { createClient } from "@/lib/supabase/server";
 
 type LibraryPageProps = {
@@ -47,6 +47,12 @@ export default async function LibraryPage({
       .order("name", { ascending: true }),
   ]);
   if (tagsError) throw new Error("No se pudieron cargar las etiquetas.");
+  const trackTags = await listTrackTags(
+    supabase,
+    user.id,
+    page.tracks.map((track) => track.id),
+    tags,
+  );
   if (page.count > 0 && query.page > page.pageCount) {
     redirect(buildLibraryHref(query, { page: page.pageCount }));
   }
@@ -123,7 +129,7 @@ export default async function LibraryPage({
 
       {page.tracks.length > 0 ? (
         <>
-          <TrackTable query={query} tags={tags} tracks={page.tracks} />
+          <TrackTable query={query} tags={tags} trackTags={trackTags} tracks={page.tracks} />
           <nav aria-label={t("Paginación de biblioteca")} className="pagination">
             {page.page > 1 ? (
               <Link

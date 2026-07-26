@@ -22,6 +22,7 @@ import {
 } from "@/lib/library/track-query";
 import { formatDuration } from "@/lib/tracks";
 import type { Tables } from "@/types/database";
+import type { TrackTagsByTrackId } from "@/lib/library/track-repository";
 
 const columns: { key: TrackSort; label: string }[] = [
   { key: "title", label: "Título" },
@@ -45,10 +46,12 @@ function sortHref(query: TrackQuery, sort: TrackSort) {
 export function TrackTable({
   query,
   tags,
+  trackTags,
   tracks,
 }: {
   query: TrackQuery;
   tags: Pick<Tables<"tags">, "id" | "name">[];
+  trackTags: TrackTagsByTrackId;
   tracks: Tables<"tracks">[];
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -198,6 +201,7 @@ export function TrackTable({
                 </th>
               ))}
               <th>{t("Género")}</th>
+              <th>{t("Etiquetas")}</th>
               <th>Camelot</th>
               <th>{t("Energía")}</th>
               <th>{t("Valoración")}</th>
@@ -231,6 +235,9 @@ export function TrackTable({
                 </td>
                 <td>
                   <span className="genre">{track.genre ?? "—"}</span>
+                </td>
+                <td className="track-tags-cell">
+                  <TagList tags={trackTags[track.id] ?? []} />
                 </td>
                 <td>
                   {track.camelot_key ? (
@@ -280,6 +287,7 @@ export function TrackTable({
                 {track.musical_key ?? `${t("Tonalidad")} —`} ·{" "}
                 {displayDuration(track.duration_seconds)}
               </small>
+              <TagList tags={trackTags[track.id] ?? []} />
             </div>
             <Link
               aria-label={`${t("Editar")}: ${track.title}`}
@@ -292,4 +300,12 @@ export function TrackTable({
       </div>
     </>
   );
+}
+
+function TagList({ tags }: { tags: Pick<Tables<"tags">, "id" | "name">[] }) {
+  return tags.length ? (
+    <ul aria-label={tags.map((tag) => tag.name).join(", ")} className="track-tag-list">
+      {tags.map((tag) => <li className="track-tag" key={tag.id}>{tag.name}</li>)}
+    </ul>
+  ) : <span className="muted">—</span>;
 }
