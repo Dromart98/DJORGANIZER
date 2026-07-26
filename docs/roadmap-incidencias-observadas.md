@@ -12,7 +12,7 @@ anterior.
 
 ### 1. Error intermitente al cargar el dashboard
 
-**Estado:** preparado, pendiente de validar el E2E autenticado en CI.
+**Estado:** Implementado.
 
 - [x] Confirmar la causa funcional: cualquier fallo individual de los conteos de
   pistas, crates o etiquetas se escalaba a la caída completa de Inicio. No hay
@@ -29,10 +29,11 @@ anterior.
   creada y restaurada, aperturas consecutivas, fallos parciales en las tres
   estadísticas (incluidas las categorías `query` y `network`), recuperación,
   respuesta lenta y ausencia de solicitudes duplicadas.
-- [ ] Ejecutar con éxito esa matriz en el entorno autenticado efímero de CI. La
-  ejecución local del 2026-07-26 quedó bloqueada antes de abrir el navegador:
-  el contenedor no incluye Supabase CLI y la descarga de Chromium devolvió HTTP
-  403. No se cierra el P0 hasta disponer de ese resultado.
+- [x] Ejecutar con éxito esa matriz en el entorno autenticado efímero de CI. La
+  validación remota del 2026-07-26 completó correctamente Supabase efímero,
+  Chromium, la matriz autenticada y el E2E móvil. La ejecución local previa había
+  quedado bloqueada por la ausencia de Supabase CLI y por HTTP 403 al descargar
+  Chromium, sin afectar a la validación final en GitHub Actions.
 - [x] Mantener separados los errores de autenticación, datos, red y
   renderizado; no sustituir el diagnóstico por reintentos automáticos ilimitados.
 - [x] No modificar autenticación, RLS, caché privada ni contratos de consultas no
