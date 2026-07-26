@@ -19,7 +19,7 @@ export function TrackTags({
   trackId: string;
   trackTitle: string;
 }) {
-  const { t } = useTranslator();
+  const { locale, t } = useTranslator();
   const assignedIds = new Set(assignedTags.map((tag) => tag.id));
   const unassignedTags = availableTags.filter((tag) => !assignedIds.has(tag.id));
   const returnTo = `/library/${trackId}`;
@@ -40,7 +40,7 @@ export function TrackTags({
                 <input name="trackId" type="hidden" value={trackId} />
                 <input name="returnTo" type="hidden" value={returnTo} />
                 <button
-                  aria-label={`${t("Quitar etiqueta")} ${tag.name} ${t("de")} ${trackTitle}`}
+                  aria-label={`${t("Quitar etiqueta")} ${tag.name} ${locale === "en" ? "from" : "de"} ${trackTitle}`}
                   className="track-tag__remove"
                   data-offline-action="tag-unassign"
                   type="submit"
