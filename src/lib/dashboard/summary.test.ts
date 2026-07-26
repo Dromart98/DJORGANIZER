@@ -3,6 +3,7 @@ import {
   DASHBOARD_COUNT_OPERATIONS,
   loadDashboardSummary,
 } from "./summary";
+import { getDashboardE2EInjection } from "./e2e-injection";
 
 describe("dashboard summary loading", () => {
   it("loads every independent count once", async () => {
@@ -58,5 +59,44 @@ describe("dashboard summary loading", () => {
     );
 
     expect(summary.tracks).toEqual({ count: null, failure: "network" });
+  });
+});
+
+describe("dashboard E2E injection guard", () => {
+  it("accepts only known operations and modes in authenticated E2E", () => {
+    const previous = process.env.E2E_AUTHENTICATED;
+    process.env.E2E_AUTHENTICATED = "1";
+    try {
+      expect(getDashboardE2EInjection("tags-query")).toEqual({
+        kind: "failure",
+        mode: "query",
+        operation: "tags",
+      });
+      expect(getDashboardE2EInjection("crates-network")).toEqual({
+        kind: "failure",
+        mode: "network",
+        operation: "crates",
+      });
+      expect(getDashboardE2EInjection("tracks-slow")).toEqual({
+        kind: "slow",
+        operation: "tracks",
+      });
+      expect(getDashboardE2EInjection("users-query")).toBeNull();
+      expect(getDashboardE2EInjection("tracks-sql-select-all")).toBeNull();
+      expect(getDashboardE2EInjection(["tags-query"])).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.E2E_AUTHENTICATED;
+      else process.env.E2E_AUTHENTICATED = previous;
+    }
+  });
+
+  it("stays disabled outside authenticated E2E", () => {
+    const previous = process.env.E2E_AUTHENTICATED;
+    delete process.env.E2E_AUTHENTICATED;
+    try {
+      expect(getDashboardE2EInjection("tags-query")).toBeNull();
+    } finally {
+      if (previous !== undefined) process.env.E2E_AUTHENTICATED = previous;
+    }
   });
 });

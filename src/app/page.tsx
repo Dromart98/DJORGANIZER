@@ -13,6 +13,10 @@ import {
   DASHBOARD_COUNT_OPERATIONS,
   loadDashboardSummary,
 } from "@/lib/dashboard/summary";
+import {
+  applyDashboardE2EInjection,
+  getDashboardE2EInjection,
+} from "@/lib/dashboard/e2e-injection";
 import { createClient } from "@/lib/supabase/server";
 
 type DashboardPageProps = {
@@ -69,13 +73,20 @@ export default async function DashboardPage({
     throw new Error("Controlled route failure for end-to-end recovery.");
   }
 
+  const e2eInjection = getDashboardE2EInjection(query.__e2eSummary);
+
   const supabase = await createClient();
-  const summary = await loadDashboardSummary(async (operation) =>
-    await supabase
+  const summary = await loadDashboardSummary(async (operation) => {
+    const injectedResult = await applyDashboardE2EInjection(
+      e2eInjection,
+      operation,
+    );
+    if (injectedResult) return injectedResult;
+    return await supabase
       .from(operation)
       .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id),
-  );
+      .eq("user_id", user.id);
+  });
   const failedOperations = DASHBOARD_COUNT_OPERATIONS.filter(
     (operation) => summary[operation].failure !== null,
   );
@@ -104,7 +115,10 @@ export default async function DashboardPage({
         title={copy.title}
       />
       {failedOperations.length > 0 ? (
-        <DashboardSummaryRecovery locale={locale} />
+        <DashboardSummaryRecovery
+          clearE2EInjection={e2eInjection !== null}
+          locale={locale}
+        />
       ) : null}
       {onboarding && !onboarding.isComplete ? (
         <GettingStartedGuide counts={counts} locale={locale} />
