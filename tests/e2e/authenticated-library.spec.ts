@@ -122,6 +122,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   const firstTitle = `E2E Warmup ${runId}`;
   const secondTitle = `E2E Peak ${runId}`;
   const crateName = `E2E Set ${runId}`;
+  const tagName = `E2E Peak tag ${runId}`;
 
   await page.context().addCookies([
     {
@@ -359,6 +360,45 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
       { exact: false },
     ),
   ).toBeVisible();
+  const createTagForm = page.locator("form.tag-create-form");
+  await createTagForm.getByLabel("Name").fill(tagName);
+  await createTagForm.getByRole("button", { name: "Create tag" }).click();
+  await expect(page).toHaveURL(/tagCreated=1$/, { timeout: 20_000 });
+  await expect(page.locator(".tag-list").getByText(tagName, { exact: true })).toBeVisible();
+
+  await page.goto("/library");
+  await page.getByRole("checkbox", { name: `Select ${firstTitle}` }).check();
+  await page.getByRole("checkbox", { name: `Select ${secondTitle}` }).check();
+  await page.getByLabel("Tag for selection").selectOption({ label: tagName });
+  await page.getByRole("button", { name: "Assign", exact: true }).click();
+  await expect(page).toHaveURL(/tagged=1$/, { timeout: 20_000 });
+  for (const title of [firstTitle, secondTitle]) {
+    await expect(page.locator("tbody tr").filter({ hasText: title }).getByText(tagName)).toBeVisible();
+  }
+  await page.reload();
+  await expect(page.locator("tbody tr").filter({ hasText: firstTitle }).getByText(tagName)).toBeVisible();
+  await page.goto(`/library?q=${encodeURIComponent(firstTitle)}`);
+  await expect(page.locator("tbody tr").filter({ hasText: firstTitle }).getByText(tagName)).toBeVisible();
+  await page.setViewportSize({ width: 360, height: 780 });
+  const firstMobileCard = page.locator(".mobile-track").filter({ hasText: firstTitle });
+  await expect(firstMobileCard.getByText(tagName)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await firstMobileCard.getByRole("link", { name: `Edit: ${firstTitle}` }).focus();
+  await expect(firstMobileCard.getByRole("link", { name: `Edit: ${firstTitle}` })).toBeFocused();
+  await firstMobileCard.getByRole("link", { name: `Edit: ${firstTitle}` }).press("Enter");
+  await expect(page.getByRole("heading", { name: firstTitle })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tags" })).toBeVisible();
+  await expect(page.getByText(tagName, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: `Remove tag ${tagName} from ${firstTitle}` }).click();
+  await expect(page).toHaveURL(/untagged=1$/, { timeout: 20_000 });
+  await expect(page.getByText(tagName, { exact: true })).toHaveCount(1);
+  await page.goto("/library");
+  await expect(page.locator("tbody tr").filter({ hasText: firstTitle }).getByText(tagName)).toHaveCount(0);
+  await expect(page.locator("tbody tr").filter({ hasText: secondTitle }).getByText(tagName)).toBeVisible();
+  await page.goto("/crates");
+  await expect(page.locator(".tag-list").getByText(tagName, { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+
   const createCrateForm = page
     .locator("form.organization-form")
     .filter({ has: page.getByRole("heading", { name: "Create crate" }) });

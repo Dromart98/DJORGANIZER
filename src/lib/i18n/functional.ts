@@ -90,6 +90,12 @@ const english = {
   "Escribir metadatos en archivos": "Write metadata to files",
   "Etiqueta para la selección": "Tag for selection",
   "Etiqueta…": "Tag…",
+  "Quitar etiqueta": "Remove tag",
+  "Asignar etiqueta": "Assign tag",
+  "Etiqueta reutilizable": "Reusable tag",
+  "Esta canción aún no tiene etiquetas.": "This track does not have any tags yet.",
+  "Crea etiquetas reutilizables en Crates para clasificar tus canciones.":
+    "Create reusable tags in Crates to classify your tracks.",
   "Etiquetas locales reversibles": "Reversible local tags",
   "Ejecutar simulación final": "Run final simulation",
   "Exportar": "Export",

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeleteTrackForm } from "@/components/library/delete-track-form";
 import { TrackForm } from "@/components/library/track-form";
+import { TrackTags } from "@/components/library/track-tags";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
 import {
@@ -15,6 +16,7 @@ import { getCurrentLocale } from "@/lib/i18n/server";
 import {
   getTrack,
   listCompatibleTracks,
+  listTrackTags,
 } from "@/lib/library/track-repository";
 import { trackIdSchema } from "@/lib/library/track-schema";
 import { createClient } from "@/lib/supabase/server";
@@ -55,11 +57,12 @@ export default async function TrackDetailPage({
   const supabase = await createClient();
   const track = await getTrack(supabase, user.id, parsedId.data);
   if (!track) notFound();
-  const compatibleTracks = await listCompatibleTracks(
-    supabase,
-    user.id,
-    track,
-  );
+  const [{ data: tags, error: tagsError }, compatibleTracks] = await Promise.all([
+    supabase.from("tags").select("id, name").eq("user_id", user.id).order("name"),
+    listCompatibleTracks(supabase, user.id, track),
+  ]);
+  if (tagsError) throw new Error("No se pudieron cargar las etiquetas.");
+  const trackTags = await listTrackTags(supabase, user.id, [track.id], tags);
 
   const query = await searchParams;
 
@@ -128,6 +131,12 @@ export default async function TrackDetailPage({
         </dl>
       </section>
       <TrackForm mode="update" track={track} />
+      <TrackTags
+        assignedTags={trackTags[track.id] ?? []}
+        availableTags={tags}
+        trackId={track.id}
+        trackTitle={track.title}
+      />
       <section className="recommendations">
         <div className="organization-section-heading">
           <div>
