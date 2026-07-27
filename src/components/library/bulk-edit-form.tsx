@@ -8,9 +8,10 @@ import { formatBulkEditConfirmation } from "@/lib/i18n/functional";
 const fields = [
   { label: "Álbum", name: "album", placeholder: "Nombre del álbum", type: "text" },
   { label: "Género", name: "genre", placeholder: "House, Techno…", type: "text" },
+  { label: "Subgénero", name: "subgenre", placeholder: "Deep House…", type: "text" },
   { label: "BPM", max: 300, min: 20, name: "bpm", placeholder: "20–300", type: "number" },
   { label: "Tonalidad", name: "musical_key", placeholder: "Am, F# major o 8A", type: "text" },
-  { label: "Energía", max: 100, min: 0, name: "energy", placeholder: "0–100", type: "number" },
+  { label: "Energía", max: 10, min: 0, name: "energy", placeholder: "0–10", type: "number" },
   { label: "Valoración", max: 5, min: 0, name: "rating", placeholder: "0–5", type: "number" },
   { label: "Año", max: 2100, min: 1000, name: "release_year", placeholder: "AAAA", type: "number" },
   { label: "Comentarios", name: "comments", placeholder: "Comentario común", type: "text" },

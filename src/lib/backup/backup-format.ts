@@ -1,4 +1,4 @@
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 
 export type DjOrganizerBackup = {
   createdAt: string;
@@ -26,9 +26,10 @@ export function createBackup(
 }
 export function parseBackup(input: string): DjOrganizerBackup {
   const value = JSON.parse(input) as Partial<DjOrganizerBackup>;
+  const parsedVersion = (value as { version?: number }).version;
   if (
     value.product !== "DJOrganizer" ||
-    value.version !== BACKUP_VERSION ||
+    (parsedVersion !== BACKUP_VERSION && parsedVersion !== 1) ||
     !value.data ||
     !Array.isArray(value.data.tracks) ||
     !Array.isArray(value.data.crates) ||
@@ -37,6 +38,30 @@ export function parseBackup(input: string): DjOrganizerBackup {
     !Array.isArray(value.data.trackTags)
   ) {
     throw new Error("La copia de seguridad no es compatible.");
+  }
+  if (parsedVersion === 1) {
+    value.data.tracks = value.data.tracks.map((track) => {
+      if (!track || typeof track !== "object") return track;
+      const row = { ...(track as Record<string, unknown>) };
+      if (row.bpm_source === "local") row.bpm_source = "automatic";
+      if (row.key_source === "local") row.key_source = "automatic";
+      if (row.genre_source === "openai") row.genre_source = "automatic";
+      // Legacy manual + confidence was written only by an accepted local
+      // Discogs-EffNet suggestion; normal manual edits always cleared it.
+      if (row.genre_source === "manual" && row.genre_confidence != null) {
+        row.genre_source = "automatic";
+      }
+      if (typeof row.energy === "number") {
+        row.energy = Math.max(0, Math.min(10, Math.round(row.energy / 10)));
+        row.energy_source = "unknown";
+        row.energy_confidence = null;
+      }
+      row.subgenre ??= null;
+      row.subgenre_source ??= null;
+      row.subgenre_confidence ??= null;
+      return row;
+    });
+    value.version = BACKUP_VERSION;
   }
   return value as DjOrganizerBackup;
 }

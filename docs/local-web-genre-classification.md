@@ -104,7 +104,7 @@ El navegador decodifica/remuestrea con `AudioContext({ sampleRate: 16000 })`. Me
 - Cancelar termina el Worker y su cómputo; las inferencias terminadas liberan tensores.
 - Se promedian parches reales y se muestra una sugerencia y hasta cuatro alternativas. La puntuación es orientativa, no probabilidad calibrada.
 - Aceptar cambia solo el formulario temporal. Guardar es una acción separada; rechazar conserva el valor previo.
-- El contrato PostgreSQL actual no admite `genre_source = 'local'` y esta tarea excluye migraciones. Una sugerencia local aceptada se persiste como revisión `manual`; la UI identifica el cálculo local antes de aceptar.
+- El contrato PostgreSQL neutral registra una sugerencia aceptada como `automatic`; no reinterpreta sugerencias antiguas guardadas como `manual`. El nombre de Discogs-EffNet permanece como detalle interno del analizador.
 
 ## Caché, offline y privacidad
 

@@ -273,8 +273,8 @@ select is(
       and conname in (
         'tracks_bpm_analysis_requires_value',
         'tracks_key_analysis_requires_value',
-        'tracks_bpm_confidence_is_local',
-        'tracks_key_confidence_is_local'
+        'tracks_bpm_confidence_source_check',
+        'tracks_key_confidence_source_check'
       )
   ),
   4,
@@ -283,9 +283,9 @@ select is(
 
 update public.tracks
 set
-  bpm_source = 'local',
+  bpm_source = 'automatic',
   bpm_confidence = 0.875,
-  bpm_explanation = 'Three local windows agree.'
+  bpm_explanation = 'Three automatic analysis windows agree.'
 where id = '21000000-0000-4000-8000-000000000002';
 
 select is(
@@ -295,7 +295,7 @@ select is(
     where id = '21000000-0000-4000-8000-000000000002'
   ),
   0.875::numeric,
-  'A local BPM confidence value is stored'
+  'An automatic BPM confidence value is stored'
 );
 
 with changed as (

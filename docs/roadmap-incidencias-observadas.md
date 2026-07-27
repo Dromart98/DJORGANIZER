@@ -193,3 +193,10 @@ campos deformados.
 Cada punto se implementará en una fase y PR verificable. No se agruparán la
 corrección del dashboard, las migraciones de subgénero y el rediseño visual en
 una misma entrega.
+
+
+## Estabilizar subgénero y contrato de análisis musical unificado
+
+**Preparado — pendiente de validación completa en CI**
+
+Esta fase incorpora subgénero persistente, energía 0–10, procedencia neutral, protección de correcciones manuales y un contrato TypeScript por campo. Permanecen como fases posteriores e independientes: automatizar género/subgénero en Importar, añadir **Analizar pista** y retirar OpenAI. No implementa MAEST ni interpreta automáticamente etiquetas Discogs.

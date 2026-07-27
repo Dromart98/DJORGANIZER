@@ -38,15 +38,16 @@ export function analyzeEnergySamples(
   const crestDb = 20 * Math.log10(Math.max(peak / Math.max(rms, EPSILON), 1));
   const zeroCrossingRate = crossings / Math.max(1, samples.length - 1);
 
-  // Escala documentada 0–100:
+  // La fórmula conserva resolución interna 0–100 y normaliza el contrato a 0–10:
   // 72 % sonoridad RMS (-60 a -6 dBFS), 18 % densidad espectral aproximada
   // mediante cruces por cero y 10 % compresión/transitorios mediante crest factor.
   const loudness = clamp(((rmsDb + 60) / 54) * 100);
   const density = clamp((zeroCrossingRate / 0.22) * 100);
   const compression = 100 - clamp((crestDb / 20) * 100);
-  const energy = Math.round(
-    clamp(loudness * 0.72 + density * 0.18 + compression * 0.1),
+  const highResolutionEnergy = clamp(
+    loudness * 0.72 + density * 0.18 + compression * 0.1,
   );
+  const energy = Math.round(highResolutionEnergy / 10);
   const seconds = samples.length / sampleRate;
   const confidence = Math.round(clamp((seconds / 30) * 100)) / 100;
 

@@ -173,9 +173,18 @@ async function applyMutation(
       );
       if (conflict) return { conflict };
       const track = trackValuesFromFormData(formData);
+      const { data: persisted, error: readError } = await supabase
+        .from("tracks")
+        .select("bpm, bpm_confidence, bpm_explanation, bpm_source, camelot_key, energy, energy_confidence, energy_source, genre, genre_confidence, genre_source, key_confidence, key_explanation, key_source, musical_key, subgenre, subgenre_confidence, subgenre_source")
+        .eq("id", id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (readError || !persisted) {
+        throw new Error("No se pudo actualizar la canción.");
+      }
       const { data, error } = await supabase
         .from("tracks")
-        .update(toTrackUpdate(track))
+        .update(toTrackUpdate(track, persisted))
         .eq("id", id)
         .eq("user_id", userId)
         .select("id")

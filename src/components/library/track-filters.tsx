@@ -24,6 +24,10 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
           <input defaultValue={query.genre} maxLength={120} name="genre" />
         </label>
         <label className="field">
+          <span>{t("Subgénero")}</span>
+          <input defaultValue={query.subgenre} maxLength={120} name="subgenre" />
+        </label>
+        <label className="field">
           <span>{t("Tonalidad")}</span>
           <input defaultValue={query.key} maxLength={16} name="key" />
         </label>
@@ -59,7 +63,7 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
             <span>{t("Energía mínima")}</span>
             <input
               defaultValue={query.energyMin}
-              max={100}
+              max={10}
               min={0}
               name="energyMin"
               type="number"
@@ -69,7 +73,7 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
             <span>{t("Energía máxima")}</span>
             <input
               defaultValue={query.energyMax}
-              max={100}
+              max={10}
               min={0}
               name="energyMax"
               type="number"

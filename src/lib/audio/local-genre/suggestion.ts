@@ -9,10 +9,10 @@ export function applyLocalGenreSuggestion(
     ...input,
     genre: suggestion.label,
     genre_confidence: suggestion.score,
-    // The existing database contract has no "local" value and migrations are
+    // The existing database contract has no "automatic" value and migrations are
     // deliberately outside this proof of concept. Manual acceptance is the
-    // persisted provenance; the suggestion UI identifies local computation.
-    genre_source: "manual",
+    // Provider-neutral persisted provenance; analyzer details remain internal.
+    genre_source: "automatic",
   };
 }
 

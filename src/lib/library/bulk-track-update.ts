@@ -6,6 +6,7 @@ import type { TablesUpdate } from "@/types/database";
 export const BULK_EDITABLE_FIELDS = [
   "album",
   "genre",
+  "subgenre",
   "bpm",
   "musical_key",
   "energy",
@@ -63,8 +64,12 @@ export function parseBulkTrackUpdate(input: unknown): BulkTrackUpdate {
     case "genre":
       return {
         ...common,
-        update: { genre: optionalText(120).parse(parsed.value) },
+        update: (() => { const genre = optionalText(120).parse(parsed.value); return { genre, genre_confidence: null, genre_source: genre ? "manual" : null }; })(),
       };
+    case "subgenre": {
+      const subgenre = optionalText(120).parse(parsed.value);
+      return { ...common, update: { subgenre, subgenre_confidence: null, subgenre_source: subgenre ? "manual" : null } };
+    }
     case "bpm": {
       const bpm = nullableNumber(20, 300).parse(parsed.value);
       return {
@@ -95,7 +100,7 @@ export function parseBulkTrackUpdate(input: unknown): BulkTrackUpdate {
     case "energy":
       return {
         ...common,
-        update: { energy: nullableNumber(0, 100).parse(parsed.value) },
+        update: (() => { const energy = nullableNumber(0, 10).parse(parsed.value); return { energy, energy_confidence: null, energy_source: energy === null ? null : "manual" }; })(),
       };
     case "rating":
       return {

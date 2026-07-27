@@ -43,6 +43,8 @@ describe("metadataToImportTrack", () => {
       client_id: "a8209c99-ccf2-4d8c-a245-97abcb45e761",
       duration_seconds: 242.988,
       energy: null,
+      energy_confidence: null,
+      energy_source: null,
       file_fingerprint:
         "f6a8b3c23a7f0dfe4b9a0e96b0a6515f162c0f77c643fcf1f1f86a892f4f7c22",
       file_name: "pulse.flac",
@@ -51,6 +53,9 @@ describe("metadataToImportTrack", () => {
       genre: "House",
       genre_confidence: null,
       genre_source: "metadata",
+      subgenre: null,
+      subgenre_confidence: null,
+      subgenre_source: null,
       key_confidence: null,
       key_explanation: "Leída de las etiquetas del archivo.",
       key_source: "metadata",

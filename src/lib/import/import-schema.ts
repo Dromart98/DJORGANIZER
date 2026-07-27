@@ -27,20 +27,25 @@ export const importTrackSchema = z
     bpm: nullableNumber(20, 300),
     bpm_confidence: nullableNumber(0, 1),
     bpm_explanation: nullableAnalysisExplanation,
-    bpm_source: z.enum(["local", "manual", "metadata"]).nullable(),
+    bpm_source: z.enum(["automatic", "manual", "metadata", "unknown"]).nullable(),
     client_id: z.string().uuid(),
     duration_seconds: nullableNumber(0, 31_536_000),
-    energy: z.number().int().min(0).max(100).nullable(),
+    energy: z.number().int().min(0).max(10).nullable(),
+    energy_confidence: nullableNumber(0, 1),
+    energy_source: z.enum(["automatic", "manual", "metadata", "unknown"]).nullable(),
     file_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     file_name: z.string().trim().min(1).max(500),
     file_size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     file_type: z.string().trim().min(1).max(120),
     genre: nullableText(120),
     genre_confidence: nullableNumber(0, 1),
-    genre_source: z.enum(["manual", "metadata", "openai"]).nullable(),
+    genre_source: z.enum(["automatic", "manual", "metadata", "unknown"]).nullable(),
+    subgenre: nullableText(120),
+    subgenre_confidence: nullableNumber(0, 1),
+    subgenre_source: z.enum(["automatic", "manual", "metadata", "unknown"]).nullable(),
     key_confidence: nullableNumber(0, 1),
     key_explanation: nullableAnalysisExplanation,
-    key_source: z.enum(["local", "manual", "metadata"]).nullable(),
+    key_source: z.enum(["automatic", "manual", "metadata", "unknown"]).nullable(),
     musical_key: nullableText(16),
     release_year: z.number().int().min(1000).max(2100).nullable(),
     version_type: z
@@ -84,11 +89,11 @@ export const importTrackSchema = z
       }
       if (
         analysis.confidence !== null &&
-        analysis.source !== "local"
+        analysis.source !== "automatic"
       ) {
         context.addIssue({
           code: "custom",
-          message: "La confianza solo se conserva para análisis locales.",
+          message: "La confianza solo se conserva para análisis automáticos.",
           path: [analysis.confidencePath],
         });
       }

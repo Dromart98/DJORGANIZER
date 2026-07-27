@@ -12,6 +12,8 @@ const input: ImportTrackInput = {
   bpm_source: null,
   client_id: "d6d34945-a12a-4c9c-a1d7-066abf568a44",
   duration_seconds: 60,
+  energy_confidence: null,
+  energy_source: null,
   energy: null,
   file_fingerprint: "a".repeat(64),
   file_name: "synthetic.wav",
@@ -19,6 +21,9 @@ const input: ImportTrackInput = {
   file_type: "audio/wav",
   genre: "Previous",
   genre_confidence: null,
+  subgenre: null,
+  subgenre_confidence: null,
+  subgenre_source: null,
   genre_source: "manual",
   key_confidence: null,
   key_explanation: null,
@@ -41,7 +46,7 @@ describe("local suggestion review", () => {
     const accepted = applyLocalGenreSuggestion(input, suggestion);
     expect(accepted.genre).toBe("Electronic · Techno");
     expect(accepted.genre_confidence).toBe(0.82);
-    expect(accepted.genre_source).toBe("manual");
+    expect(accepted.genre_source).toBe("automatic");
     expect(accepted.title).toBe(input.title);
     expect(input.genre).toBe("Previous");
   });

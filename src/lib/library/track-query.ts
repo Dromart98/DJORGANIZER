@@ -9,6 +9,7 @@ const SORT_COLUMNS = {
   duration: "duration_seconds",
   key: "musical_key",
   title: "title",
+  subgenre: "subgenre",
 } as const;
 
 export type TrackSort = keyof typeof SORT_COLUMNS;
@@ -22,6 +23,7 @@ export type TrackQuery = {
   energyMax?: number;
   energyMin?: number;
   genre?: string;
+  subgenre?: string;
   key?: string;
   page: number;
   q?: string;
@@ -54,15 +56,16 @@ const querySchema = z.object({
   bpmMin: optionalBoundedNumber(20, 300),
   camelot: textValue(3),
   direction: z.enum(["asc", "desc"]).catch("asc"),
-  energyMax: optionalBoundedNumber(0, 100),
-  energyMin: optionalBoundedNumber(0, 100),
+  energyMax: optionalBoundedNumber(0, 10),
+  energyMin: optionalBoundedNumber(0, 10),
   genre: textValue(120),
+  subgenre: textValue(120),
   key: textValue(16),
   page: z.coerce.number().int().positive().catch(1),
   q: textValue(120),
   rating: optionalBoundedNumber(0, 5),
   sort: z
-    .enum(["artist", "bpm", "created", "duration", "key", "title"])
+    .enum(["artist", "bpm", "created", "duration", "key", "title", "subgenre"])
     .catch("created"),
 });
 
@@ -81,6 +84,7 @@ export function parseTrackQuery(searchParams: SearchParams): TrackQuery {
     energyMax: firstValue(searchParams.energyMax),
     energyMin: firstValue(searchParams.energyMin),
     genre: firstValue(searchParams.genre),
+    subgenre: firstValue(searchParams.subgenre),
     key: firstValue(searchParams.key),
     page: firstValue(searchParams.page),
     q: firstValue(searchParams.q),
@@ -114,6 +118,7 @@ export function queryToSearchParams(query: TrackQuery) {
   const entries: [string, string | number | undefined][] = [
     ["q", query.q],
     ["genre", query.genre],
+    ["subgenre", query.subgenre],
     ["bpmMin", query.bpmMin],
     ["bpmMax", query.bpmMax],
     ["key", query.key],
