@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-07-23.
+Actualizado: 2026-07-27.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -85,7 +85,7 @@ resultado directamente utilizable:
    género, subgénero cuando exista, artista, álbum, tonalidad, Camelot, BPM,
    rango de BPM, energía y año. Debe impedir combinaciones vacías o duplicadas y
    mostrar el árbol resultante antes de mover archivos.
-6. - [ ] Incorporar un campo persistente e independiente de subgénero. Añadirlo a
+6. - [x] Incorporar un campo persistente e independiente de subgénero. Añadirlo a
    migraciones, tipos, importación, edición individual y masiva, búsqueda,
    filtros, ordenación y sugerencias revisables. Mantener género y subgénero como
    datos separados, no sobrescribir correcciones manuales y exportarlo solo donde
@@ -339,7 +339,7 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
   después de estabilizar VirtualDJ.
 
 
-## Contrato musical estabilizado (preparado)
+## Contrato musical estabilizado (implementado)
 
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
