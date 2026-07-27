@@ -1,6 +1,6 @@
 begin;
 
-select plan(35);
+select plan(41);
 
 select is(
   (
@@ -215,6 +215,46 @@ select is((select count(*)::integer from public.crates), 1, 'B sees only its cra
 select is((select count(*)::integer from public.crate_tracks), 1, 'B sees only its crate track');
 select is((select count(*)::integer from public.integration_syncs), 1, 'B sees only its sync');
 select is((select count(*)::integer from public.ai_analysis_events), 1, 'B sees only its AI event');
+
+select throws_like(
+  $$
+    insert into public.track_tags (user_id, track_id, tag_id)
+    values (
+      '20000000-0000-4000-8000-000000000002',
+      '21000000-0000-4000-8000-000000000002',
+      '12000000-0000-4000-8000-000000000001'
+    )
+  $$,
+  '%violates foreign key constraint%',
+  'B cannot associate its track with an A tag'
+);
+
+with deleted as (
+  delete from public.track_tags
+  where track_id = '11000000-0000-4000-8000-000000000001'
+  returning 1
+)
+select is(count(*)::integer, 0, 'B cannot remove an A track tag') from deleted;
+
+insert into public.tracks (id, user_id, title)
+values (
+  '21000000-0000-4000-8000-000000000003',
+  '20000000-0000-4000-8000-000000000002',
+  'RLS test B second track'
+);
+insert into public.track_tags (user_id, track_id, tag_id)
+values (
+  '20000000-0000-4000-8000-000000000002',
+  '21000000-0000-4000-8000-000000000003',
+  '22000000-0000-4000-8000-000000000002'
+);
+delete from public.track_tags
+where track_id = '21000000-0000-4000-8000-000000000002'
+  and tag_id = '22000000-0000-4000-8000-000000000002';
+select is((select count(*)::integer from public.tags where id = '22000000-0000-4000-8000-000000000002'), 1, 'Removing a relation preserves its reusable tag');
+select is((select count(*)::integer from public.track_tags where track_id = '21000000-0000-4000-8000-000000000003'), 1, 'Removing one relation preserves the other track relation');
+select is((select count(*)::integer from public.track_tags where track_id = '21000000-0000-4000-8000-000000000002'), 0, 'Only the selected track relation is removed');
+select is((select count(*)::integer from public.tags), 1, 'The reusable tag catalog remains isolated and intact');
 
 select ok(
   (

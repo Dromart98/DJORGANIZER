@@ -18,6 +18,98 @@ export type TrackPage = {
   tracks: Tables<"tracks">[];
 };
 
+export type TrackTag = Pick<Tables<"tags">, "id" | "name">;
+export type TrackTagsByTrackId = Record<string, TrackTag[]>;
+
+const TAG_QUERY_PAGE_SIZE = 500;
+
+type TrackTagRelation = Pick<Tables<"track_tags">, "tag_id" | "track_id"> & {
+  tags: TrackTag | TrackTag[];
+};
+
+export function mapTrackTags(
+  trackIds: string[],
+  relations: TrackTagRelation[],
+): TrackTagsByTrackId {
+  const requestedIds = new Set(trackIds);
+  const result = Object.fromEntries(trackIds.map((id) => [id, []])) as TrackTagsByTrackId;
+  const seen = new Set<string>();
+
+  for (const relation of relations) {
+    const tag = Array.isArray(relation.tags) ? relation.tags[0] : relation.tags;
+    const relationKey = `${relation.track_id}:${relation.tag_id}`;
+    if (!requestedIds.has(relation.track_id) || !tag || seen.has(relationKey)) continue;
+    seen.add(relationKey);
+    result[relation.track_id].push(tag);
+  }
+
+  for (const trackTags of Object.values(result)) {
+    trackTags.sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+      left.id.localeCompare(right.id),
+    );
+  }
+  return result;
+}
+
+export async function listTrackTags(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  trackIds: string[],
+): Promise<TrackTagsByTrackId> {
+  const uniqueTrackIds = [...new Set(trackIds)];
+  if (!uniqueTrackIds.length) return {};
+  const relations: TrackTagRelation[] = [];
+
+  for (let from = 0; ; from += TAG_QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("track_tags")
+      .select("track_id, tag_id, tags!track_tags_tag_id_user_id_fkey(id, name)")
+      .eq("user_id", userId)
+      .in("track_id", uniqueTrackIds)
+      .order("track_id", { ascending: true })
+      .order("tag_id", { ascending: true })
+      .range(from, from + TAG_QUERY_PAGE_SIZE - 1);
+    if (error) throw new Error("No se pudieron cargar las etiquetas de las canciones.");
+    const page = (data ?? []) as TrackTagRelation[];
+    relations.push(...page);
+    if (page.length < TAG_QUERY_PAGE_SIZE) break;
+  }
+  return mapTrackTags(uniqueTrackIds, relations);
+}
+
+/** Loads the reusable catalog in bounded requests because the current UI offers it in selectors. */
+export async function listUserTags(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+): Promise<TrackTag[]> {
+  const tags: TrackTag[] = [];
+  for (let from = 0; ; from += TAG_QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("tags")
+      .select("id, name")
+      .eq("user_id", userId)
+      .order("name", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + TAG_QUERY_PAGE_SIZE - 1);
+    if (error) throw new Error("No se pudieron cargar las etiquetas.");
+    const page = data ?? [];
+    tags.push(...page);
+    if (page.length < TAG_QUERY_PAGE_SIZE) break;
+  }
+  const seen = new Set<string>();
+  return tags
+    .filter((tag) => {
+      if (seen.has(tag.id)) return false;
+      seen.add(tag.id);
+      return true;
+    })
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+      left.id.localeCompare(right.id),
+    );
+}
+
 export async function listTracks(
   supabase: SupabaseClient<Database>,
   userId: string,

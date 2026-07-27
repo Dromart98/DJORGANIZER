@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeleteTrackForm } from "@/components/library/delete-track-form";
 import { TrackForm } from "@/components/library/track-form";
+import { TrackTags } from "@/components/library/track-tags";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth/user";
 import {
@@ -15,6 +16,8 @@ import { getCurrentLocale } from "@/lib/i18n/server";
 import {
   getTrack,
   listCompatibleTracks,
+  listTrackTags,
+  listUserTags,
 } from "@/lib/library/track-repository";
 import { trackIdSchema } from "@/lib/library/track-schema";
 import { createClient } from "@/lib/supabase/server";
@@ -55,11 +58,11 @@ export default async function TrackDetailPage({
   const supabase = await createClient();
   const track = await getTrack(supabase, user.id, parsedId.data);
   if (!track) notFound();
-  const compatibleTracks = await listCompatibleTracks(
-    supabase,
-    user.id,
-    track,
-  );
+  const [tags, compatibleTracks] = await Promise.all([
+    listUserTags(supabase, user.id),
+    listCompatibleTracks(supabase, user.id, track),
+  ]);
+  const trackTags = await listTrackTags(supabase, user.id, [track.id]);
 
   const query = await searchParams;
 
@@ -84,6 +87,21 @@ export default async function TrackDetailPage({
       {query.updated === "1" ? (
         <p className="form-message form-message--success" role="status">
           {t("Los cambios se guardaron correctamente.")}
+        </p>
+      ) : null}
+      {query.tagged === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          {t("La etiqueta se asignó a la selección.")}
+        </p>
+      ) : null}
+      {query.untagged === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          {t("La etiqueta se quitó de la selección.")}
+        </p>
+      ) : null}
+      {query.tagError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          {t("No se pudo actualizar la etiqueta de la selección.")}
         </p>
       ) : null}
       <section
@@ -128,6 +146,12 @@ export default async function TrackDetailPage({
         </dl>
       </section>
       <TrackForm mode="update" track={track} />
+      <TrackTags
+        assignedTags={trackTags[track.id] ?? []}
+        availableTags={tags}
+        trackId={track.id}
+        trackTitle={track.title}
+      />
       <section className="recommendations">
         <div className="organization-section-heading">
           <div>

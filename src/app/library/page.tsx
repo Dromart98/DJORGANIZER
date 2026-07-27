@@ -13,7 +13,7 @@ import {
   buildLibraryHref,
   parseTrackQuery,
 } from "@/lib/library/track-query";
-import { listTracks } from "@/lib/library/track-repository";
+import { listTracks, listTrackTags, listUserTags } from "@/lib/library/track-repository";
 import { createClient } from "@/lib/supabase/server";
 
 type LibraryPageProps = {
@@ -38,15 +38,15 @@ export default async function LibraryPage({
   const t = (message: Parameters<typeof translate>[1]) =>
     translate(locale, message);
   const supabase = await createClient();
-  const [page, { data: tags, error: tagsError }] = await Promise.all([
+  const [page, tags] = await Promise.all([
     listTracks(supabase, user.id, query),
-    supabase
-      .from("tags")
-      .select("id, name")
-      .eq("user_id", user.id)
-      .order("name", { ascending: true }),
+    listUserTags(supabase, user.id),
   ]);
-  if (tagsError) throw new Error("No se pudieron cargar las etiquetas.");
+  const trackTags = await listTrackTags(
+    supabase,
+    user.id,
+    page.tracks.map((track) => track.id),
+  );
   if (page.count > 0 && query.page > page.pageCount) {
     redirect(buildLibraryHref(query, { page: page.pageCount }));
   }
@@ -123,7 +123,7 @@ export default async function LibraryPage({
 
       {page.tracks.length > 0 ? (
         <>
-          <TrackTable query={query} tags={tags} tracks={page.tracks} />
+          <TrackTable query={query} tags={tags} trackTags={trackTags} tracks={page.tracks} />
           <nav aria-label={t("Paginación de biblioteca")} className="pagination">
             {page.page > 1 ? (
               <Link

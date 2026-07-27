@@ -192,7 +192,22 @@ export type Database = {
           track_id?: string;
           user_id?: string;
         };
-        Relationships: Relationship[];
+        Relationships: [
+          {
+            foreignKeyName: "track_tags_tag_id_user_id_fkey";
+            columns: ["tag_id", "user_id"];
+            isOneToOne: false;
+            referencedRelation: "tags";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "track_tags_track_id_user_id_fkey";
+            columns: ["track_id", "user_id"];
+            isOneToOne: false;
+            referencedRelation: "tracks";
+            referencedColumns: ["id", "user_id"];
+          },
+        ];
       };
       tracks: {
         Row: {
