@@ -337,3 +337,11 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
   Library siguen fuera de alcance.
 - [ ] Implementaciones posteriores con Serato, Traktor y ecosistemas CDJ,
   después de estabilizar VirtualDJ.
+
+
+## Contrato musical estabilizado (preparado)
+
+- Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
+- Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
+- Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
+- MAEST y la automatización de género/subgénero siguen pendientes; OpenAI permanece disponible sin definir el dominio persistido.

@@ -49,7 +49,7 @@ preparación o portabilidad de una biblioteca musical.
 - Detectar o registrar BPM y permitir corrección manual.
 - Ordenar ascendente y descendentemente.
 - Ofrecer grupos útiles: 90–100, 100–110, 110–120, 120–130 y 130+ BPM.
-- Calcular energía con una escala 0–100 documentada, explicable y editable.
+- Calcular energía con una escala 0–10 documentada, explicable y editable.
 
 ### Géneros
 
@@ -85,7 +85,7 @@ Una pista debe contemplar:
 - `id`, `title` y `artist` opcional
 - género(s), etiquetas y notas
 - `bpm`, tonalidad tradicional y Camelot
-- energía 0–100
+- energía 0–10
 - duración, fecha de importación y favorito/rating
 - nombre/tamaño/tipo/huella del archivo
 - firma acústica y tipo de versión/remix cuando estén disponibles

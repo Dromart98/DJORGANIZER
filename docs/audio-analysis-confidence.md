@@ -6,7 +6,7 @@ Solo persiste el valor resultante, su procedencia y una explicación breve.
 
 ## Procedencia
 
-- `local`: resultado calculado en el dispositivo. Puede incluir confianza.
+- `automatic`: resultado calculado por un analizador aprobado. Puede incluir confianza.
 - `metadata`: valor leído de las etiquetas del archivo. No se inventa una
   confianza porque la etiqueta no aporta evidencia sobre cómo se obtuvo.
 - `manual`: valor revisado por la persona usuaria. No se puntúa.
@@ -43,3 +43,8 @@ La confianza va de 0 a 1 y sirve para priorizar revisión, no para certificar qu
 una pista tenga un único BPM o centro tonal. Ritmos sincopados, cambios de
 tempo, modulaciones, ruido, silencios y mezclas armónicamente complejas pueden
 reducir la precisión. El usuario conserva siempre la decisión final.
+
+
+## Contrato neutral estabilizado
+
+La procedencia persistente es `automatic`, `metadata`, `manual` o `unknown`; no identifica proveedores. BPM, tonalidad, energía, género y subgénero protegen una corrección `manual`. La energía pública y persistida es un entero 0–10.

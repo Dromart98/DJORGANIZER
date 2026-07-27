@@ -10,7 +10,7 @@ describe("parseBulkTrackUpdate", () => {
     ).toEqual({
       field: "genre",
       trackIds,
-      update: { genre: "House" },
+      update: { genre: "House", genre_confidence: null, genre_source: "manual" },
     });
   });
 

@@ -17,7 +17,9 @@ const validTrack: ImportTrackInput = {
   bpm_source: "metadata",
   client_id: "67cefe9c-4b34-44ca-b884-30c3f93607fa",
   duration_seconds: 240,
-  energy: 70,
+  energy_confidence: null,
+  energy_source: null,
+  energy: 7,
   file_fingerprint:
     "f6a8b3c23a7f0dfe4b9a0e96b0a6515f162c0f77c643fcf1f1f86a892f4f7c22",
   file_name: "pulse.mp3",
@@ -25,6 +27,9 @@ const validTrack: ImportTrackInput = {
   file_type: "audio/mpeg",
   genre: "House",
   genre_confidence: null,
+  subgenre: null,
+  subgenre_confidence: null,
+  subgenre_source: null,
   genre_source: "metadata",
   key_confidence: null,
   key_explanation: "Leída de metadatos.",
@@ -94,7 +99,7 @@ describe("importTrackSchema", () => {
     ).toBe(false);
   });
 
-  it("only accepts confidence from local analysis", () => {
+  it("only accepts confidence from automatic analysis", () => {
     expect(
       importTrackSchema.safeParse({
         ...validTrack,
@@ -105,7 +110,7 @@ describe("importTrackSchema", () => {
       importTrackSchema.safeParse({
         ...validTrack,
         bpm_confidence: 0.8,
-        bpm_source: "local",
+        bpm_source: "automatic",
       }).success,
     ).toBe(true);
   });

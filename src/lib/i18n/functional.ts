@@ -3,11 +3,15 @@ import type { Locale } from "./i18n";
 const english = {
   "0–100, calculada localmente y editable":
     "0–100, calculated locally and editable",
+  "0–10, calculada automáticamente y editable": "0–10, calculated automatically and editable",
+  "Energía (0–10)": "Energy (0–10)",
+  "Subgénero": "Subgenre",
   "Aún no tienes cuenta?": "Don't have an account yet?",
   "Ajustes": "Settings",
   "Álbum": "Album",
   "Anterior": "Previous",
   "Análisis explicable": "Explainable analysis",
+  "Análisis automático": "Automatic analysis",
   "Análisis local": "Local analysis",
   "Análisis local cancelado.": "Local analysis cancelled.",
   "Análisis local no disponible.": "Local analysis unavailable.",

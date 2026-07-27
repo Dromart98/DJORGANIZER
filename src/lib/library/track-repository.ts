@@ -128,11 +128,12 @@ export async function listTracks(
   if (search) {
     const pattern = `%${search}%`;
     request = request.or(
-      `title.ilike.${pattern},artist.ilike.${pattern},album.ilike.${pattern}`,
+      `title.ilike.${pattern},artist.ilike.${pattern},album.ilike.${pattern},genre.ilike.${pattern},subgenre.ilike.${pattern}`,
     );
   }
 
   if (query.genre) request = request.ilike("genre", query.genre);
+  if (query.subgenre) request = request.ilike("subgenre", query.subgenre);
   if (query.bpmMin !== undefined) request = request.gte("bpm", query.bpmMin);
   if (query.bpmMax !== undefined) request = request.lte("bpm", query.bpmMax);
   if (query.key) request = request.ilike("musical_key", query.key);

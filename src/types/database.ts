@@ -225,6 +225,8 @@ export type Database = {
           created_at: string;
           duration_seconds: number | null;
           energy: number | null;
+          energy_confidence: number | null;
+          energy_source: string | null;
           file_fingerprint: string | null;
           file_name: string | null;
           file_size: number | null;
@@ -232,6 +234,9 @@ export type Database = {
           genre: string | null;
           genre_confidence: number | null;
           genre_source: string | null;
+          subgenre: string | null;
+          subgenre_confidence: number | null;
+          subgenre_source: string | null;
           id: string;
           key_confidence: number | null;
           key_explanation: string | null;
@@ -259,6 +264,8 @@ export type Database = {
           created_at?: string;
           duration_seconds?: number | null;
           energy?: number | null;
+          energy_confidence?: number | null;
+          energy_source?: string | null;
           file_fingerprint?: string | null;
           file_name?: string | null;
           file_size?: number | null;
@@ -266,6 +273,9 @@ export type Database = {
           genre?: string | null;
           genre_confidence?: number | null;
           genre_source?: string | null;
+          subgenre?: string | null;
+          subgenre_confidence?: number | null;
+          subgenre_source?: string | null;
           id?: string;
           key_confidence?: number | null;
           key_explanation?: string | null;
@@ -293,6 +303,8 @@ export type Database = {
           created_at?: string;
           duration_seconds?: number | null;
           energy?: number | null;
+          energy_confidence?: number | null;
+          energy_source?: string | null;
           file_fingerprint?: string | null;
           file_name?: string | null;
           file_size?: number | null;
@@ -300,6 +312,9 @@ export type Database = {
           genre?: string | null;
           genre_confidence?: number | null;
           genre_source?: string | null;
+          subgenre?: string | null;
+          subgenre_confidence?: number | null;
+          subgenre_source?: string | null;
           id?: string;
           key_confidence?: number | null;
           key_explanation?: string | null;

@@ -53,6 +53,7 @@ export default async function LibraryPage({
   const hasFilters = Boolean(
     query.q ||
       query.genre ||
+      query.subgenre ||
       query.bpmMin !== undefined ||
       query.bpmMax !== undefined ||
       query.key ||

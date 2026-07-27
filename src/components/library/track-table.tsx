@@ -31,6 +31,7 @@ const columns: { key: TrackSort; label: string }[] = [
   { key: "key", label: "Tonalidad" },
   { key: "duration", label: "Duración" },
   { key: "created", label: "Añadida" },
+  { key: "subgenre", label: "Subgénero" },
 ];
 
 function displayDuration(value: number | null) {
@@ -235,6 +236,7 @@ export function TrackTable({
                 </td>
                 <td>
                   <span className="genre">{track.genre ?? "—"}</span>
+                  {track.subgenre ? <small className="muted"> · {track.subgenre}</small> : null}
                 </td>
                 <td className="track-tags-cell">
                   <TagList tags={trackTags[track.id] ?? []} />
@@ -287,6 +289,7 @@ export function TrackTable({
                 {track.musical_key ?? `${t("Tonalidad")} —`} ·{" "}
                 {displayDuration(track.duration_seconds)}
               </small>
+              <small>{track.genre ?? "—"}{track.subgenre ? ` · ${track.subgenre}` : ""}</small>
               <TagList tags={trackTags[track.id] ?? []} />
             </div>
             <Link

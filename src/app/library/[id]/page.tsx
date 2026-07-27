@@ -35,7 +35,7 @@ export async function generateMetadata() {
 function sourceLabel(locale: Locale, source: string | null) {
   const label = (
     {
-      local: "Análisis local",
+      automatic: "Análisis automático",
       manual: "Revisado manualmente",
       metadata: "Metadatos del archivo",
       unknown: "Procedencia anterior",

@@ -14,7 +14,7 @@ describe("trackFormSchema", () => {
       camelot_key: "8a",
       comments: "",
       duration_seconds: "240",
-      energy: "72",
+      energy: "7",
       genre: "House",
       musical_key: "Am",
       rating: "4",

@@ -3,11 +3,10 @@ import { normalizeMusicalKey } from "@/lib/music/key-normalization";
 import type { TablesInsert, TablesUpdate } from "@/types/database";
 
 const optionalText = (maximum: number) =>
-  z
-    .string()
-    .trim()
-    .max(maximum)
-    .transform((value: string) => value || null);
+  z.preprocess(
+    (value: unknown) => value ?? "",
+    z.string().trim().max(maximum).transform((value: string) => value || null),
+  );
 
 const optionalNumber = (minimum: number, maximum: number) =>
   z.preprocess(
@@ -34,8 +33,9 @@ export const trackFormSchema = z.object({
   camelot_key: camelotKey,
   comments: optionalText(5000),
   duration_seconds: optionalNumber(0, 31_536_000),
-  energy: optionalNumber(0, 100),
+  energy: optionalNumber(0, 10),
   genre: optionalText(120),
+  subgenre: optionalText(120),
   musical_key: optionalText(16),
   rating: optionalNumber(0, 5),
   release_year: optionalNumber(1000, 2100),
@@ -61,6 +61,7 @@ export function trackValuesFromFormData(formData: FormData): TrackFormValues {
     duration_seconds: formData.get("duration_seconds"),
     energy: formData.get("energy"),
     genre: formData.get("genre"),
+    subgenre: formData.get("subgenre"),
     musical_key: formData.get("musical_key"),
     rating: formData.get("rating"),
     release_year: formData.get("release_year"),
@@ -84,6 +85,12 @@ export function toTrackInsert(
     bpm_source: values.bpm === undefined ? null : "manual",
     duration_seconds: values.duration_seconds ?? null,
     energy: values.energy ?? null,
+    energy_confidence: null,
+    energy_source: values.energy === undefined ? null : "manual",
+    genre_confidence: null,
+    genre_source: values.genre ? "manual" : null,
+    subgenre_confidence: null,
+    subgenre_source: values.subgenre ? "manual" : null,
     camelot_key: normalizedKey?.camelotKey ?? values.camelot_key,
     key_confidence: null,
     key_explanation: normalizedKey ? "Valor revisado manualmente." : null,
@@ -110,6 +117,12 @@ export function toTrackUpdate(
     bpm_source: values.bpm === undefined ? null : "manual",
     duration_seconds: values.duration_seconds ?? null,
     energy: values.energy ?? null,
+    energy_confidence: null,
+    energy_source: values.energy === undefined ? null : "manual",
+    genre_confidence: null,
+    genre_source: values.genre ? "manual" : null,
+    subgenre_confidence: null,
+    subgenre_source: values.subgenre ? "manual" : null,
     camelot_key: normalizedKey?.camelotKey ?? values.camelot_key,
     key_confidence: null,
     key_explanation: normalizedKey ? "Valor revisado manualmente." : null,

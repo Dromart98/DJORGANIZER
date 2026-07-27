@@ -128,8 +128,8 @@ function analysisSourceLabel(
   confidence: number | null,
 ) {
   const label =
-    source === "local"
-      ? "Análisis local"
+    source === "automatic"
+      ? "Análisis automático"
       : source === "metadata"
         ? "Metadatos"
         : source === "manual"
@@ -544,6 +544,20 @@ export function AudioImporter() {
             genre_source: value === null ? null : "manual",
           };
         }
+        if (field === "subgenre") {
+          data = {
+            ...data,
+            subgenre_confidence: null,
+            subgenre_source: value === null ? null : "manual",
+          };
+        }
+        if (field === "energy") {
+          data = {
+            ...data,
+            energy_confidence: null,
+            energy_source: value === null ? null : "manual",
+          };
+        }
         const error = importValidationMessage(data);
         return {
           ...item,
@@ -654,6 +668,8 @@ export function AudioImporter() {
 
         const shouldAnalyzeBpm = item.data.bpm === null;
         const shouldAnalyzeKey = item.data.musical_key === null;
+        const shouldAnalyzeEnergy =
+          item.data.energy === null && item.data.energy_source !== "manual";
         updateItem(item.id, {
           bpmError: shouldAnalyzeBpm ? undefined : item.bpmError,
           bpmStatus: shouldAnalyzeBpm ? "analyzing" : item.bpmStatus,
@@ -675,7 +691,9 @@ export function AudioImporter() {
               ? detectKeyFromAudioBuffer(audioBuffer)
               : Promise.resolve(null),
           ]);
-          const energyResult = analyzeEnergyFromAudioBuffer(audioBuffer);
+          const energyResult = shouldAnalyzeEnergy
+            ? analyzeEnergyFromAudioBuffer(audioBuffer)
+            : null;
           const acousticSignature = createAcousticSignature(
             audioBuffer.getChannelData(0),
             audioBuffer.sampleRate,
@@ -691,7 +709,13 @@ export function AudioImporter() {
               let data: ImportTrackInput = {
                 ...currentItem.data,
                 acoustic_fingerprint: JSON.stringify(acousticSignature),
-                energy: energyResult.energy,
+                ...(energyResult
+                  ? {
+                      energy: energyResult.energy,
+                      energy_confidence: energyResult.confidence,
+                      energy_source: "automatic" as const,
+                    }
+                  : {}),
                 version_type: inferVersionType(currentItem.data.title),
               };
               let bpmError = currentItem.bpmError;
@@ -706,7 +730,7 @@ export function AudioImporter() {
                     bpm: bpmResult.value.bpm,
                     bpm_confidence: bpmResult.value.confidence,
                     bpm_explanation: bpmResult.value.explanation,
-                    bpm_source: "local",
+                    bpm_source: "automatic",
                   };
                   bpmError = undefined;
                   bpmStatus = "detected";
@@ -724,7 +748,7 @@ export function AudioImporter() {
                     ...data,
                     key_confidence: keyResult.value.confidence,
                     key_explanation: keyResult.value.explanation,
-                    key_source: "local",
+                    key_source: "automatic",
                     musical_key: keyResult.value.musicalKey,
                   };
                   keyError = undefined;
@@ -860,7 +884,7 @@ export function AudioImporter() {
                 bpm: bpm.bpm,
                 bpm_confidence: bpm.confidence,
                 bpm_explanation: bpm.explanation,
-                bpm_source: "local" as const,
+                bpm_source: "automatic" as const,
               };
               const error = importValidationMessage(data);
               return {
@@ -946,7 +970,7 @@ export function AudioImporter() {
                 ...currentItem.data,
                 key_confidence: result.confidence,
                 key_explanation: result.explanation,
-                key_source: "local" as const,
+                key_source: "automatic" as const,
                 musical_key: result.musicalKey,
               };
               const error = importValidationMessage(data);
@@ -1348,7 +1372,7 @@ export function AudioImporter() {
           ...currentItem.data,
           genre: item.genreSuggestion?.genre ?? null,
           genre_confidence: item.genreSuggestion?.confidence ?? null,
-          genre_source: "openai",
+          genre_source: "automatic",
         };
         return {
           ...currentItem,
@@ -1520,6 +1544,21 @@ export function AudioImporter() {
                       />
                     </label>
                     <label className="field">
+                      {t("Subgénero")}
+                      <input
+                        disabled={isLocked}
+                        maxLength={120}
+                        onChange={(event) =>
+                          updateField(
+                            item.id,
+                            "subgenre",
+                            event.target.value || null,
+                          )
+                        }
+                        value={item.data.subgenre ?? ""}
+                      />
+                    </label>
+                    <label className="field">
                       {t("Artista (opcional)")}
                       <input
                         disabled={isLocked}
@@ -1685,7 +1724,7 @@ export function AudioImporter() {
                       {t("Energía")}
                       <input
                         disabled={isLocked}
-                        max={100}
+                        max={10}
                         min={0}
                         onChange={(event) =>
                           updateField(
@@ -1699,7 +1738,7 @@ export function AudioImporter() {
                         type="number"
                         value={item.data.energy ?? ""}
                       />
-                      <small>{t("0–100, calculada localmente y editable")}</small>
+                      <small>{t("0–10, calculada automáticamente y editable")}</small>
                     </label>
                     <label className="field">
                       {t("Versión")}
@@ -1919,4 +1958,3 @@ export function AudioImporter() {
     </section>
   );
 }
-

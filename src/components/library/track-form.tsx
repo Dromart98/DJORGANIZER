@@ -101,6 +101,11 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="genre" />
         </label>
         <label className="field">
+          <span>{t("Subgénero")}</span>
+          <input defaultValue={track?.subgenre ?? ""} maxLength={120} name="subgenre" />
+          <FieldError errors={state.fieldErrors} name="subgenre" />
+        </label>
+        <label className="field">
           <span>BPM</span>
           <input
             defaultValue={track?.bpm ?? ""}
@@ -156,10 +161,10 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <FieldError errors={state.fieldErrors} name="release_year" />
         </label>
         <label className="field">
-          <span>{t("Energía (0–100)")}</span>
+          <span>{t("Energía (0–10)")}</span>
           <input
             defaultValue={track?.energy ?? ""}
-            max={100}
+            max={10}
             min={0}
             name="energy"
             type="number"
