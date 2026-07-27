@@ -7,12 +7,15 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const ANALYZER_ID: &str = "djorganizer.desktop.genre.maest";
-pub const ANALYZER_VERSION: &str = "discogs-maest-30s-pw-519l@1";
-pub const COMPATIBILITY_KEY: &str = "maest-519l|mel-16000-1876x96-f32|v1";
+pub const ANALYZER_VERSION: &str = "discogs-maest-30s-pw-519l@2";
+pub const COMPATIBILITY_KEY: &str = "maest-519l|mel-16000-1876x96-f32|v2";
 pub const CLASS_COUNT: usize = 519;
 pub const INPUT_FRAMES: usize = 1876;
 pub const INPUT_BANDS: usize = 96;
 pub const SAMPLE_RATE: u32 = 16_000;
+pub const MODEL_INPUT_NAME: &str = "melspectrogram";
+pub const MODEL_OUTPUT_NAME: &str = "PartitionedCall/Identity_13";
+pub const MODEL_SIZE_BYTES: u64 = 348_052_337;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,6 +105,7 @@ pub fn validate_output(scores: &[f32]) -> Result<usize, AnalysisError> {
 #[derive(Debug, Default)]
 pub struct InferenceGate(AtomicBool);
 
+#[derive(Debug)]
 pub struct InferencePermit<'a>(&'a AtomicBool);
 
 impl InferenceGate {
@@ -166,7 +170,7 @@ mod tests {
     #[test]
     fn stable_contract_identity() {
         assert_eq!(ANALYZER_ID, "djorganizer.desktop.genre.maest");
-        assert_eq!(ANALYZER_VERSION, "discogs-maest-30s-pw-519l@1");
-        assert_eq!(COMPATIBILITY_KEY, "maest-519l|mel-16000-1876x96-f32|v1");
+        assert_eq!(ANALYZER_VERSION, "discogs-maest-30s-pw-519l@2");
+        assert_eq!(COMPATIBILITY_KEY, "maest-519l|mel-16000-1876x96-f32|v2");
     }
 }
