@@ -1,116 +1,78 @@
-# DJOrganizer: guía duradera del producto y del repositorio
+# Instrucciones específicas de DJOrganizer
+
+Estas instrucciones complementan las instrucciones globales de Codex. No repitas aquí reglas globales sobre causa raíz, cambios mínimos, ahorro de tokens, validación, formato de respuesta o gestión de GitHub.
 
 ## Rol y objetivo
 
-Actúa como especialista en desarrollo de aplicaciones, arquitectura de
-software, experiencia de usuario y herramientas para DJs.
+Actúa como especialista en desarrollo de aplicaciones, arquitectura de software, experiencia de usuario y herramientas para DJs.
 
-DJOrganizer es una aplicación para DJs, productores musicales y personas que
-organizan bibliotecas musicales. Debe permitir preparar sesiones, sets,
-playlists y colecciones de forma rápida, clara y fiable.
+DJOrganizer organiza bibliotecas musicales para preparar sesiones, sets, playlists y colecciones de forma rápida, clara y fiable. Las decisiones deben mejorar de forma concreta la búsqueda, clasificación, preparación o portabilidad de una biblioteca musical.
 
-Las decisiones de producto y arquitectura deben estar adaptadas al trabajo real
-de un DJ. Evita soluciones genéricas que no mejoren la búsqueda, clasificación,
-preparación o portabilidad de una biblioteca musical.
+## Fuentes de verdad
+
+- Verifica el estado funcional real en el código de `main` antes de describir una capacidad como implementada.
+- Usa `docs/roadmap.md` para fases, prioridades y estado de funcionalidades.
+- Usa `docs/roadmap-incidencias-observadas.md` para defectos y ajustes observados durante uso real.
+- Usa `README.md` para instalación, arquitectura y documentación general.
+- Usa la documentación específica de `docs/` para contratos de seguridad, formatos, análisis y distribución.
+- No mantengas listas dinámicas de funcionalidades implementadas o pendientes dentro de este archivo; deben vivir en el roadmap correspondiente.
 
 ## Principios del producto
 
 - La biblioteca musical es la pantalla y el flujo principal.
-- El usuario conserva siempre el control sobre metadatos, clasificaciones y
-  cambios en archivos.
-- Las operaciones destructivas requieren previsualización, confirmación,
-  historial y una vía de recuperación o deshacer.
-- El audio y las rutas locales son privados. El análisis debe ser local por
-  defecto; cualquier envío remoto requiere consentimiento explícito y revisión.
-- La interfaz debe ser oscura, profesional, rápida, accesible y utilizable con
-  bibliotecas grandes.
-- Los filtros deben permanecer visibles, ser combinables y ofrecer resultados
-  inmediatos.
-- La arquitectura debe mantenerse abierta a VirtualDJ, Rekordbox, Serato,
-  Traktor y ecosistemas CDJ mediante contratos de integración separados del
-  dominio.
+- El usuario conserva siempre el control sobre metadatos, clasificaciones y cambios en archivos.
+- Las operaciones destructivas requieren previsualización, confirmación, historial y una vía de recuperación o deshacer cuando corresponda.
+- El audio y las rutas locales son privados. El análisis debe ejecutarse en el dispositivo por defecto; cualquier transferencia remota requiere consentimiento explícito y un alcance visible.
+- Nunca publiques rutas absolutas del dispositivo en la nube.
+- Los filtros deben permanecer visibles, ser combinables y ofrecer resultados inmediatos.
+- La interfaz debe ser oscura, profesional, rápida, accesible y utilizable con bibliotecas grandes.
+- La arquitectura debe mantenerse abierta a VirtualDJ, Rekordbox, Serato, Traktor y ecosistemas CDJ mediante contratos de integración separados del dominio.
+- Los resultados automáticos son propuestas revisables. No sobrescribas correcciones manuales ni apliques género, subgénero u otros metadatos de forma silenciosa.
+- La interfaz debe evitar nombres técnicos de proveedores, runtimes o capas cuando no ayuden al usuario a tomar una decisión; las distinciones técnicas sí deben conservarse en código, permisos, seguridad y documentación.
 
-## Capacidades requeridas
+## Dominio musical
 
-### Biblioteca musical
+Una pista puede contemplar, según disponibilidad:
 
-- Importar canciones desde el dispositivo.
-- Leer, analizar o registrar metadatos.
-- Mostrar una tabla o lista ordenable y una vista de detalle.
-- Editar una pista y realizar ediciones masivas.
-- Buscar por título, artista, género, BPM y tonalidad.
-- Filtrar por género, rango de BPM, tonalidad/Camelot, energía, fecha de
-  importación y etiquetas.
-- Soportar notas, favoritos y etiquetas personalizadas.
-- Mantener buen rendimiento con decenas de miles de pistas.
-
-### BPM y energía
-
-- Detectar o registrar BPM y permitir corrección manual.
-- Ordenar ascendente y descendentemente.
-- Ofrecer grupos útiles: 90–100, 100–110, 110–120, 120–130 y 130+ BPM.
-- Calcular energía con una escala 0–10 documentada, explicable y editable.
-
-### Géneros
-
-- Clasificar por género y permitir múltiples géneros o etiquetas por pista.
-- Crear, editar y eliminar clasificaciones personalizadas.
-- La clasificación con OpenAI `gpt-audio` es opcional: consentimiento por
-  fragmento autorizado, clave solo en servidor, taxonomía cerrada, límites de
-  coste/tamaño, confianza visible y aplicación únicamente tras revisión manual.
-
-### Tonalidad y mezcla armónica
-
-- Registrar tonalidad tradicional, por ejemplo `Am`, `C` o `F#m`.
-- Normalizar y mostrar opcionalmente la notación Camelot, por ejemplo `8A`.
-- Sugerir pistas armónicamente compatibles y con BPM próximo.
-- Explicar la compatibilidad para ayudar a crear transiciones fluidas.
-
-### Crates, playlists y sets
-
-- Crear playlists/crates con nombre, descripción, jerarquía y orden persistente.
-- Añadir, retirar y reordenar canciones; favorecer arrastrar y soltar cuando sea
-  accesible y mantener controles de teclado equivalentes.
-- Sugerir canciones por BPM, tonalidad y energía.
-- Poder ordenar una sesión para construir una progresión musical.
-- Exportar listas completas, múltiples y jerárquicas a VirtualDJ conservando el
-  orden.
-- Importar My Lists en modo de previsualización y reconciliar conflictos sin
-  sobrescribir silenciosamente.
-
-## Modelo de dominio mínimo
-
-Una pista debe contemplar:
-
-- `id`, `title` y `artist` opcional
-- género(s), etiquetas y notas
-- `bpm`, tonalidad tradicional y Camelot
-- energía 0–10
-- duración, fecha de importación y favorito/rating
-- nombre/tamaño/tipo/huella del archivo
-- firma acústica y tipo de versión/remix cuando estén disponibles
-- estado, procedencia y confianza de cada análisis automático
+- `id`, título, artista, álbum y año;
+- género y subgénero como campos independientes;
+- etiquetas, comentarios y favorito/rating;
+- BPM, tonalidad tradicional, Camelot y energía;
+- duración y fecha de importación;
+- nombre, tamaño, tipo y huella del archivo;
+- firma acústica y tipo de versión/remix;
+- estado y procedencia de análisis automático cuando formen parte del contrato vigente.
 
 Un crate o playlist debe contemplar:
 
-- `id`, `name`, `description`
-- jerarquía opcional
-- canciones con posición explícita
-- `createdAt` y `updatedAt`
+- `id`, `name`, `description`;
+- jerarquía opcional;
+- canciones con posición explícita;
+- marcas de creación y actualización.
 
-Nunca publiques rutas absolutas del dispositivo en la nube. Las asociaciones
-entre registros persistentes y archivos locales deben vivir en el dispositivo.
+Las asociaciones entre registros persistentes y rutas absolutas deben permanecer en el dispositivo.
 
-## Stack y arquitectura vigentes
+## Análisis musical
 
-La opción principal es:
+- BPM, tonalidad, energía, género y subgénero deben integrarse en flujos coherentes y no como proveedores o botones técnicos dispersos cuando el roadmap indique su unificación.
+- La corrección manual tiene prioridad sobre cualquier nuevo cálculo automático.
+- Un fallo parcial de análisis no debe descartar resultados correctos de otros campos.
+- Los análisis de lotes deben permitir progreso, cancelación y tratamiento de fallos parciales cuando el flujo lo requiera.
+- No introduzcas una dependencia obligatoria de OpenAI u otro proveedor remoto para clasificación de género. Sigue el proveedor y flujo vigentes definidos por el roadmap y el código actual.
+- No inventes subgéneros, coincidencias o metadatos cuando la evidencia disponible no sea suficiente.
 
-- Next.js App Router, React y TypeScript estricto para la aplicación web/PWA.
-- Supabase Auth y PostgreSQL con RLS para datos personales sincronizados.
-- Tauri 2 y Rust para acceso seguro al sistema de archivos, exportaciones,
-  reorganización, instaladores y actualizaciones.
-- Web Audio, music-metadata, Meyda y algoritmos locales para análisis.
-- Vitest para el dominio y Playwright para flujos end-to-end.
+## Crates, archivos e integraciones
+
+- Conserva el orden persistente de crates y playlists durante altas, retiradas, reordenaciones, exportaciones e importaciones.
+- Las reorganizaciones de archivos deben previsualizar destinos, detectar colisiones, confirmar el lote y conservar rollback/deshacer cuando sea posible.
+- No aceptes rutas arbitrarias procedentes de la web en comandos Tauri. Usa selectores nativos, raíces confirmadas e identificadores opacos de sesión.
+- Antes de mover o escribir archivos, comprueba existencia, tamaño, destino y cambios externos. Si falla un lote, revierte lo ya aplicado cuando el contrato lo permita.
+- Una importación externa propone cambios antes de aplicarlos y nunca sobrescribe silenciosamente información existente.
+- VirtualDJ, Rekordbox, Serato, Traktor y otras integraciones deben respetar únicamente campos y formatos con contrato verificable; no inventes compatibilidad.
+
+## Stack y separación de capas
+
+La arquitectura vigente usa Next.js App Router, React, TypeScript estricto, Supabase Auth/PostgreSQL con RLS, Tauri 2/Rust, Vitest y Playwright.
 
 Mantén separadas estas capas:
 
@@ -118,127 +80,50 @@ Mantén separadas estas capas:
 - `src/components`: interfaz y flujos interactivos.
 - `src/lib`: dominio puro, análisis, offline, backup e integraciones.
 - `src/types`: contratos y tipos de base de datos.
-- `src-tauri`: operaciones nativas limitadas a selecciones confirmadas.
+- `src-tauri`: operaciones nativas acotadas a selecciones y sesiones confirmadas.
 - `supabase/migrations`: esquema, índices y RLS versionados.
+- `supabase/tests`: pruebas de base de datos y aislamiento cuando existan.
+- `tests/e2e`: caminos críticos con Playwright.
 - `docs`: decisiones, seguridad, formatos y roadmap.
 
-Las aplicaciones móviles futuras deben reutilizar contratos y dominio, no
-forzar ahora dependencias móviles dentro del frontend principal.
+Las aplicaciones móviles futuras deben reutilizar contratos y dominio; no introduzcas ahora dependencias móviles dentro del frontend principal.
 
-## Reglas de seguridad y datos
+## Seguridad y datos
 
-- Toda tabla personal expuesta debe tener RLS y políticas por propietario.
-- Nunca uses una clave `service_role` o `OPENAI_API_KEY` en el cliente.
-- Revalida autenticación y propiedad en Route Handlers/acciones; el middleware
-  no es una barrera suficiente.
-- No aceptes rutas arbitrarias de la web en comandos Tauri. Usa selectores
-  nativos, raíces confirmadas e identificadores opacos de sesión.
-- Antes de mover archivos, comprueba existencia, tamaño, destino y cambios
-  externos. Si falla un lote, revierte lo ya aplicado.
-- Una importación externa propone cambios antes de aplicarlos.
-- Las copias de seguridad deben estar versionadas, validadas y limitadas.
-- La cola offline no debe almacenar audio ni secretos.
+- Toda tabla personal expuesta debe mantener RLS y políticas por propietario.
+- Nunca uses una clave `service_role` o secretos de proveedores en el cliente.
+- Revalida autenticación y propiedad en Route Handlers y acciones de servidor.
+- No almacenes audio, secretos ni rutas absolutas en Supabase, backups, colas offline o diagnósticos.
+- Sanea diagnósticos y logs para excluir correos, cookies, claves, audio, rutas y bibliotecas del usuario.
+- Las copias de seguridad deben estar versionadas, validadas y limitadas antes de restaurarlas.
 
 ## UX y accesibilidad
 
-- Modo oscuro de alto contraste con densidad apropiada para herramientas DJ.
-- Tabla densa en escritorio y filas táctiles sin desbordamiento en móvil.
-- Foco visible, nombres accesibles, estados `aria-live`, navegación completa por
-  teclado y respeto a `prefers-reduced-motion`.
+- Mantén densidad adecuada para una herramienta DJ en escritorio y objetivos táctiles utilizables en móvil.
+- Conserva foco visible, nombres accesibles, estados `aria-live`, navegación completa por teclado y respeto a `prefers-reduced-motion`.
 - No dependas solo de color, drag-and-drop o iconos para transmitir acciones.
-- Diseña estados vacíos, carga, error, offline, conflicto, éxito y recuperación.
-- Internacionaliza textos de interfaz; español e inglés son los idiomas base.
-- Conserva búsquedas, filtros, orden y paginación en URL o estado persistente.
+- Diseña estados vacíos, carga, error, offline, conflicto, éxito y recuperación cuando correspondan.
+- Conserva búsquedas, filtros, orden y paginación en URL o estado persistente cuando ese sea el patrón vigente.
+- Español e inglés son los idiomas base; evita introducir textos visibles en un solo idioma cuando el área ya esté internacionalizada.
 
-## Fases del producto
+## Validación específica
 
-### MVP
+Según el alcance afectado, usa los comandos vigentes del repositorio, entre ellos:
 
-- Autenticación y aislamiento por usuario.
-- CRUD de biblioteca, filtros, orden y edición.
-- Importación local de metadatos y duplicados exactos.
-- BPM, tonalidad, Camelot, crates, etiquetas y recomendaciones armónicas.
-- PWA y base de escritorio segura.
+- `npm run typecheck`
+- `npm run lint`
+- `npm test`
+- `npm run build`
+- `npm run test:e2e`
+- `supabase test db`
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`
+- `cargo check --manifest-path src-tauri/Cargo.toml --all-targets`
+- `cargo test --manifest-path src-tauri/Cargo.toml`
 
-### Versión avanzada
+No uses una suite completa como sustituto de una prueba dirigida del comportamiento cambiado. Para cambios Tauri, Supabase o E2E, ejecuta primero la validación específica del área y deja la validación transversal para el cierre cuando corresponda.
 
-- Energía, firmas acústicas y versiones/remixes.
-- Clasificación opt-in con `gpt-audio`.
-- Crates jerárquicos y sincronización VirtualDJ bidireccional.
-- Reorganización real con historial/deshacer.
-- Cola offline, reconciliación de conflictos y backup/restauración.
-- Instaladores, actualizaciones verificadas y E2E.
+## Documentación
 
-### Funciones futuras
-
-- Rekordbox, Serato, Traktor y CDJ.
-- Cue points, colores e historial únicamente tras validar cada formato oficial.
-- Análisis más preciso y explicable.
-- Clientes móviles centrados en revisión, preparación y sincronización.
-
-## Criterios de aceptación
-
-Una función se considera terminada cuando:
-
-- Tiene flujo útil y completo, no solo una interfaz o placeholder.
-- Valida entradas, propiedad y límites de seguridad.
-- Incluye estados de error, vacío, carga, offline y recuperación pertinentes.
-- Es accesible por teclado y no introduce desbordamientos móviles.
-- Tiene pruebas unitarias del dominio y E2E para el camino crítico cuando
-  corresponde.
-- Supera `typecheck`, lint, pruebas, build web y validación Rust afectada.
-- Documenta decisiones de privacidad, formatos o limitaciones no obvias.
-- No rompe orden de crates, aislamiento entre usuarios ni privacidad local.
-
-## Roadmap y entregables vivos
-
-Mantén actualizados `README.md` y `docs/roadmap.md` con:
-
-- descripción general y funciones disponibles;
-- flujo principal y estructura de pantallas;
-- modelo de datos y arquitectura;
-- MVP, versión avanzada y funciones futuras;
-- criterios de aceptación y decisiones UI/UX;
-- estructura de carpetas y comandos de validación.
-
-Prioriza siempre recomendaciones prácticas y distingue claramente entre lo
-implementado, lo preparado por contrato y lo bloqueado por credenciales,
-certificados o especificaciones externas.
-
-## Eficiencia de Codex
-
-- Minimiza el consumo de tokens sin reducir la calidad de la implementación.
-- Lee únicamente los archivos necesarios para la tarea y amplía el análisis solo cuando sea necesario para encontrar la causa raíz.
-- No revises el repositorio completo salvo que la tarea lo requiera.
-- Ejecuta primero las pruebas directamente relacionadas con los cambios realizados.
-- No ejecutes suites completas salvo cambios transversales, validación final o riesgo que lo justifique.
-- No incluyas diffs completos en la respuesta final.
-- No enumeres archivos simplemente revisados; indica únicamente los modificados.
-- No repitas análisis, razonamientos ni detalles que ya sean evidentes en el código o diff.
-- Mantén explicaciones extensas únicamente cuando exista un error, bloqueo o decisión técnica relevante.
-- No realices tareas de gestión de GitHub que pueda asumir ChatGPT, como revisar PR, checks, Actions, logs o fusionar PR.
-
-### Respuesta final
-
-La respuesta final debe ser mínima e incluir únicamente:
-
-- Rama.
-- SHA final.
-- Archivos modificados.
-- Pruebas ejecutadas y resultado.
-- Estado final o bloqueo existente.
-
-Formato recomendado:
-
-Rama: `...`
-SHA: `...`
-
-Modificados:
-
-- `archivo`
-
-Pruebas:
-
-- `prueba` → PASS/FAIL
-
-Estado: implementado y verificado / bloqueado por `motivo`.
+- Mantén `README.md`, `docs/roadmap.md` y la documentación específica sincronizados únicamente cuando el cambio altere su contenido real.
+- Distingue siempre entre implementado, preparado por contrato, pendiente y bloqueado.
+- No dupliques prioridades o estado vivo en `AGENTS.md`; el roadmap es la fuente para esa información.
