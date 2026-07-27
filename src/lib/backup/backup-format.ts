@@ -43,6 +43,14 @@ export function parseBackup(input: string): DjOrganizerBackup {
     value.data.tracks = value.data.tracks.map((track) => {
       if (!track || typeof track !== "object") return track;
       const row = { ...(track as Record<string, unknown>) };
+      if (row.bpm_source === "local") row.bpm_source = "automatic";
+      if (row.key_source === "local") row.key_source = "automatic";
+      if (row.genre_source === "openai") row.genre_source = "automatic";
+      // Legacy manual + confidence was written only by an accepted local
+      // Discogs-EffNet suggestion; normal manual edits always cleared it.
+      if (row.genre_source === "manual" && row.genre_confidence != null) {
+        row.genre_source = "automatic";
+      }
       if (typeof row.energy === "number") {
         row.energy = Math.max(0, Math.min(10, Math.round(row.energy / 10)));
         row.energy_source = "unknown";

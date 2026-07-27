@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { normalizeMusicalKey } from "@/lib/music/key-normalization";
-import type { TablesInsert, TablesUpdate } from "@/types/database";
+import type { Tables, TablesInsert, TablesUpdate } from "@/types/database";
 
 const optionalText = (maximum: number) =>
   z.preprocess(
@@ -102,32 +102,90 @@ export function toTrackInsert(
   };
 }
 
+export type TrackAnalysisEvidence = Pick<
+  Tables<"tracks">,
+  | "bpm"
+  | "bpm_confidence"
+  | "bpm_explanation"
+  | "bpm_source"
+  | "camelot_key"
+  | "energy"
+  | "energy_confidence"
+  | "energy_source"
+  | "genre"
+  | "genre_confidence"
+  | "genre_source"
+  | "key_confidence"
+  | "key_explanation"
+  | "key_source"
+  | "musical_key"
+  | "subgenre"
+  | "subgenre_confidence"
+  | "subgenre_source"
+>;
+
 export function toTrackUpdate(
   values: TrackFormValues,
+  persisted: TrackAnalysisEvidence,
 ): TablesUpdate<"tracks"> {
   const normalizedKey = normalizeMusicalKey(
     values.musical_key ?? values.camelot_key,
   );
+  const persistedKey = normalizeMusicalKey(
+    persisted.musical_key ?? persisted.camelot_key,
+  );
+  const bpm = values.bpm ?? null;
+  const energy = values.energy ?? null;
+  const musicalKey = normalizedKey?.musicalKey ?? values.musical_key;
+  const camelotKey = normalizedKey?.camelotKey ?? values.camelot_key;
+  const bpmChanged = bpm !== persisted.bpm;
+  const energyChanged = energy !== persisted.energy;
+  const genreChanged = values.genre !== persisted.genre;
+  const subgenreChanged = values.subgenre !== persisted.subgenre;
+  const keyChanged =
+    musicalKey !== (persistedKey?.musicalKey ?? persisted.musical_key) ||
+    camelotKey !== (persistedKey?.camelotKey ?? persisted.camelot_key);
+
   return {
     ...values,
-    bpm: values.bpm ?? null,
-    bpm_confidence: null,
-    bpm_explanation:
-      values.bpm === undefined ? null : "Valor revisado manualmente.",
-    bpm_source: values.bpm === undefined ? null : "manual",
+    bpm,
+    ...(bpmChanged
+      ? {
+          bpm_confidence: null,
+          bpm_explanation: bpm === null ? null : "Valor revisado manualmente.",
+          bpm_source: bpm === null ? null : "manual",
+        }
+      : {}),
     duration_seconds: values.duration_seconds ?? null,
-    energy: values.energy ?? null,
-    energy_confidence: null,
-    energy_source: values.energy === undefined ? null : "manual",
-    genre_confidence: null,
-    genre_source: values.genre ? "manual" : null,
-    subgenre_confidence: null,
-    subgenre_source: values.subgenre ? "manual" : null,
-    camelot_key: normalizedKey?.camelotKey ?? values.camelot_key,
-    key_confidence: null,
-    key_explanation: normalizedKey ? "Valor revisado manualmente." : null,
-    key_source: normalizedKey ? "manual" : null,
-    musical_key: normalizedKey?.musicalKey ?? values.musical_key,
+    energy,
+    ...(energyChanged
+      ? {
+          energy_confidence: null,
+          energy_source: energy === null ? null : "manual",
+        }
+      : {}),
+    ...(genreChanged
+      ? {
+          genre_confidence: null,
+          genre_source: values.genre ? "manual" : null,
+        }
+      : {}),
+    ...(subgenreChanged
+      ? {
+          subgenre_confidence: null,
+          subgenre_source: values.subgenre ? "manual" : null,
+        }
+      : {}),
+    camelot_key: camelotKey,
+    ...(keyChanged
+      ? {
+          key_confidence: null,
+          key_explanation:
+            normalizedKey === null ? null : "Valor revisado manualmente.",
+          key_source: normalizedKey === null ? null : "manual",
+        }
+      : {}),
+    musical_key: musicalKey,
     rating: values.rating ?? null,
     release_year: values.release_year ?? null,
   };

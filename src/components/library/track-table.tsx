@@ -236,8 +236,8 @@ export function TrackTable({
                 </td>
                 <td>
                   <span className="genre">{track.genre ?? "—"}</span>
-                  {track.subgenre ? <small className="muted"> · {track.subgenre}</small> : null}
                 </td>
+                <td className="muted">{track.subgenre ?? "—"}</td>
                 <td className="track-tags-cell">
                   <TagList tags={trackTags[track.id] ?? []} />
                 </td>

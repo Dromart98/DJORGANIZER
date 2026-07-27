@@ -15,6 +15,13 @@ where energy is not null;
 update public.tracks set bpm_source = 'automatic' where bpm_source = 'local';
 update public.tracks set key_source = 'automatic' where key_source = 'local';
 update public.tracks set genre_source = 'automatic' where genre_source = 'openai';
+-- Before this migration, only an accepted Discogs-EffNet suggestion wrote the
+-- otherwise impossible manual + non-null confidence combination. Human edits
+-- and metadata writers always cleared confidence, so only those proven rows
+-- can be normalized without reclassifying genuine manual corrections.
+update public.tracks
+set genre_source = 'automatic'
+where genre_source = 'manual' and genre_confidence is not null;
 
 alter table public.tracks
   add column subgenre text null,

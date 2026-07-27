@@ -105,9 +105,21 @@ export async function updateTrackAction(
   }
 
   const supabase = await createClient();
+  const { data: persisted, error: readError } = await supabase
+    .from("tracks")
+    .select("bpm, bpm_confidence, bpm_explanation, bpm_source, camelot_key, energy, energy_confidence, energy_source, genre, genre_confidence, genre_source, key_confidence, key_explanation, key_source, musical_key, subgenre, subgenre_confidence, subgenre_source")
+    .eq("id", idResult.data)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (readError || !persisted) {
+    return {
+      message: translate(locale, "No se pudo actualizar la canción."),
+      status: "error",
+    };
+  }
   const { data, error } = await supabase
     .from("tracks")
-    .update(toTrackUpdate(values))
+    .update(toTrackUpdate(values, persisted))
     .eq("id", idResult.data)
     .eq("user_id", user.id)
     .select("id")

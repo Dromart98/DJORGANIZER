@@ -272,7 +272,8 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
 
   await firstItem.getByRole("button", { name: "Suggest genre locally" }).click();
   await firstItem.getByRole("button", { name: "Accept suggestion" }).click();
-  await expect(firstItem.getByLabel("Genre")).toHaveValue("Electronic · Techno");
+  await expect(firstItem.getByLabel("Genre", { exact: true })).toHaveValue("Electronic · Techno");
+  await expect(firstItem.getByLabel("Subgenre", { exact: true })).toHaveValue("");
 
   await page.evaluate(() =>
     window.localStorage.setItem("e2e-local-genre-mode", "hang"),
@@ -294,7 +295,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     secondItem.getByRole("button", { name: "Suggest genre with OpenAI" }),
   ).toBeEnabled();
-  await expect(secondItem.getByLabel("Genre")).toBeEnabled();
+  await expect(secondItem.getByLabel("Genre", { exact: true })).toBeEnabled();
 
   const fillReviewedAnalysis = async (
     item: ReturnType<typeof page.locator>,
@@ -379,6 +380,11 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(page.locator("tbody tr").filter({ hasText: firstTitle }).getByText(tagName)).toBeVisible();
   await page.goto(`/library?q=${encodeURIComponent(firstTitle)}`);
   await expect(page.locator("tbody tr").filter({ hasText: firstTitle }).getByText(tagName)).toBeVisible();
+  const desktopTable = page.locator(".library-table table");
+  expect(await desktopTable.locator("thead th").count()).toBe(
+    await desktopTable.locator("tbody tr").first().locator("td").count(),
+  );
+  await expect(desktopTable.getByRole("columnheader", { name: /Subgenre/ })).toBeVisible();
   await page.setViewportSize({ width: 360, height: 780 });
   const firstMobileCard = page.locator(".mobile-track").filter({ hasText: firstTitle });
   await expect(firstMobileCard.getByText(tagName)).toBeVisible();
