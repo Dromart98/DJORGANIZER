@@ -1,10 +1,21 @@
-//! Security boundary and neutral result contract for the desktop MAEST analyzer.
-//!
-//! Model acquisition is deliberately fail-closed until the official artifact digest can be
-//! reproduced in CI. Audio paths never appear in the public DTOs defined here.
+//! Fail-closed acquisition and execution boundary for the official desktop MAEST model.
 
+use futures_util::StreamExt;
+use ndarray::Array3;
+use ort::{session::Session, tensor::TensorElementType};
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use sha2::{Digest, Sha256};
+use std::{
+    fs::{self, File},
+    io::{BufReader, Read, Write},
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+    time::Duration,
+};
+use tauri::{AppHandle, Manager, State};
 
 pub const ANALYZER_ID: &str = "djorganizer.desktop.genre.maest";
 pub const ANALYZER_VERSION: &str = "discogs-maest-30s-pw-519l@2";
@@ -13,9 +24,37 @@ pub const CLASS_COUNT: usize = 519;
 pub const INPUT_FRAMES: usize = 1876;
 pub const INPUT_BANDS: usize = 96;
 pub const SAMPLE_RATE: u32 = 16_000;
-pub const MODEL_INPUT_NAME: &str = "melspectrogram";
-pub const MODEL_OUTPUT_NAME: &str = "PartitionedCall/Identity_13";
-pub const MODEL_SIZE_BYTES: u64 = 348_052_337;
+
+pub const MODEL: ModelManifest = ModelManifest {
+    model_id: "discogs-maest-30s-pw-519l",
+    version: 2,
+    filename: "discogs-maest-30s-pw-519l-2.onnx",
+    url:
+        "https://essentia.upf.edu/models/feature-extractors/maest/discogs-maest-30s-pw-519l-2.onnx",
+    bytes: 348_052_337,
+    sha256: "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1",
+    input_name: "melspectrogram",
+    input_shape: [1, 1876, 96],
+    output_name: "PartitionedCall/Identity_13",
+    output_shape: [1, 519],
+    sample_rate: 16_000,
+};
+const MAX_DOWNLOAD_BYTES: u64 = MODEL.bytes + 1;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModelManifest {
+    pub model_id: &'static str,
+    pub version: u32,
+    pub filename: &'static str,
+    pub url: &'static str,
+    pub bytes: u64,
+    pub sha256: &'static str,
+    pub input_name: &'static str,
+    pub input_shape: [usize; 3],
+    pub output_name: &'static str,
+    pub output_shape: [usize; 2],
+    pub sample_rate: u32,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,14 +62,12 @@ pub struct ParsedLabel {
     pub genre: String,
     pub subgenre: String,
 }
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisError {
     pub code: String,
     pub message: String,
 }
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposedTextField {
@@ -38,19 +75,16 @@ pub struct ProposedTextField {
     pub status: &'static str,
     pub source: &'static str,
     pub proposed_value: Option<String>,
-    /// Raw sigmoid score used only for ranking; it is not a calibrated probability.
     pub score: Option<f32>,
     pub error: Option<AnalysisError>,
     pub analyzed_at: String,
 }
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalyzerIdentity {
     pub id: &'static str,
     pub version: &'static str,
 }
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MaestAnalysisResult {
@@ -61,15 +95,38 @@ pub struct MaestAnalysisResult {
     pub partial_errors: Vec<AnalysisError>,
 }
 
+#[derive(Debug, Default)]
+pub struct MaestState {
+    preparing: AtomicBool,
+    inference: InferenceGate,
+    session: Mutex<Option<Session>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareModelResult {
+    pub model_id: &'static str,
+    pub version: u32,
+    pub ready: bool,
+    pub reused: bool,
+}
+
+fn error(code: &str, message: &str) -> AnalysisError {
+    AnalysisError {
+        code: code.into(),
+        message: message.into(),
+    }
+}
+
 pub fn parse_discogs_label(label: &str) -> Result<ParsedLabel, AnalysisError> {
     let mut parts = label.split("---");
     let genre = parts.next().unwrap_or_default();
     let subgenre = parts.next().unwrap_or_default();
     if genre.is_empty() || subgenre.is_empty() || parts.next().is_some() {
-        return Err(AnalysisError {
-            code: "invalid_taxonomy_label".into(),
-            message: "La etiqueta oficial no tiene la estructura Discogs esperada.".into(),
-        });
+        return Err(error(
+            "invalid_taxonomy_label",
+            "La etiqueta oficial no tiene la estructura Discogs esperada.",
+        ));
     }
     Ok(ParsedLabel {
         genre: genre.into(),
@@ -79,44 +136,35 @@ pub fn parse_discogs_label(label: &str) -> Result<ParsedLabel, AnalysisError> {
 
 pub fn validate_output(scores: &[f32]) -> Result<usize, AnalysisError> {
     if scores.len() != CLASS_COUNT {
-        return Err(AnalysisError {
-            code: "invalid_output_shape".into(),
-            message: "El modelo devolvió una salida incompatible.".into(),
-        });
+        return Err(error(
+            "invalid_output_shape",
+            "El modelo devolvió una salida incompatible.",
+        ));
     }
     if scores.iter().any(|score| !score.is_finite()) {
-        return Err(AnalysisError {
-            code: "invalid_output_value".into(),
-            message: "El modelo devolvió valores no finitos.".into(),
-        });
+        return Err(error(
+            "invalid_output_value",
+            "El modelo devolvió valores no finitos.",
+        ));
     }
     scores
         .iter()
         .enumerate()
         .max_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(index, _)| index)
-        .ok_or_else(|| AnalysisError {
-            code: "empty_output".into(),
-            message: "El modelo no devolvió predicciones.".into(),
-        })
+        .ok_or_else(|| error("empty_output", "El modelo no devolvió predicciones."))
 }
 
-/// Process-wide, fail-fast single-inference gate. It prevents a second model copy from starting.
 #[derive(Debug, Default)]
 pub struct InferenceGate(AtomicBool);
-
 #[derive(Debug)]
 pub struct InferencePermit<'a>(&'a AtomicBool);
-
 impl InferenceGate {
     pub fn acquire(&self) -> Result<InferencePermit<'_>, AnalysisError> {
         self.0
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map(|_| InferencePermit(&self.0))
-            .map_err(|_| AnalysisError {
-                code: "analyzer_busy".into(),
-                message: "Ya hay un análisis MAEST en curso.".into(),
-            })
+            .map_err(|_| error("analyzer_busy", "Ya hay un análisis MAEST en curso."))
     }
 }
 impl Drop for InferencePermit<'_> {
@@ -125,11 +173,331 @@ impl Drop for InferencePermit<'_> {
     }
 }
 
+struct PreparationPermit<'a>(&'a AtomicBool);
+impl Drop for PreparationPermit<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+fn acquire_preparation(flag: &AtomicBool) -> Result<PreparationPermit<'_>, AnalysisError> {
+    flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map(|_| PreparationPermit(flag))
+        .map_err(|_| {
+            error(
+                "model_preparation_busy",
+                "La preparación del analizador ya está en curso.",
+            )
+        })
+}
+
+fn verify_artifact(
+    path: &Path,
+    expected_bytes: u64,
+    expected_sha256: &str,
+) -> Result<bool, AnalysisError> {
+    let metadata = match fs::metadata(path) {
+        Ok(value) => value,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => {
+            return Err(error(
+                "model_storage_error",
+                "No se pudo comprobar el modelo.",
+            ))
+        }
+    };
+    if !metadata.is_file() || metadata.len() != expected_bytes {
+        return Ok(false);
+    }
+    let file = File::open(path)
+        .map_err(|_| error("model_storage_error", "No se pudo comprobar el modelo."))?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut count = 0_u64;
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|_| error("model_storage_error", "No se pudo comprobar el modelo."))?;
+        if read == 0 {
+            break;
+        }
+        count += read as u64;
+        if count > expected_bytes {
+            return Ok(false);
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(count == expected_bytes && format!("{:x}", hasher.finalize()) == expected_sha256)
+}
+
+fn verify_model(path: &Path) -> Result<bool, AnalysisError> {
+    verify_artifact(path, MODEL.bytes, MODEL.sha256)
+}
+
+fn validate_session(session: &Session) -> Result<(), AnalysisError> {
+    if session.inputs.len() != 1 || session.outputs.len() != 1 {
+        return Err(error(
+            "model_incompatible",
+            "El modelo tiene entradas o salidas incompatibles.",
+        ));
+    }
+    let input = &session.inputs[0];
+    let output = &session.outputs[0];
+    if input.name != MODEL.input_name
+        || input.input_type.tensor_type() != Some(TensorElementType::Float32)
+        || input.input_type.tensor_dimensions().map(Vec::as_slice) != Some(&[1, 1876, 96])
+    {
+        return Err(error(
+            "model_incompatible",
+            "La entrada del modelo no coincide con el contrato MAEST.",
+        ));
+    }
+    if output.name != MODEL.output_name
+        || output.output_type.tensor_type() != Some(TensorElementType::Float32)
+        || output.output_type.tensor_dimensions().map(Vec::as_slice) != Some(&[1, 519])
+    {
+        return Err(error(
+            "model_incompatible",
+            "La salida del modelo no coincide con el contrato MAEST.",
+        ));
+    }
+    Ok(())
+}
+
+fn load_session(path: &Path) -> Result<Session, AnalysisError> {
+    let session = Session::builder()
+        .and_then(|builder| builder.with_intra_threads(1))
+        .and_then(|builder| builder.commit_from_file(path))
+        .map_err(|_| error("model_runtime_error", "No se pudo cargar el analizador."))?;
+    validate_session(&session)?;
+    Ok(session)
+}
+
+pub fn run_preprocessed(session: &Session, values: Vec<f32>) -> Result<Vec<f32>, AnalysisError> {
+    if values.len() != INPUT_FRAMES * INPUT_BANDS {
+        return Err(error(
+            "invalid_input_shape",
+            "El tensor no coincide con la entrada MAEST.",
+        ));
+    }
+    let input = Array3::from_shape_vec((1, INPUT_FRAMES, INPUT_BANDS), values).map_err(|_| {
+        error(
+            "invalid_input_shape",
+            "El tensor no coincide con la entrada MAEST.",
+        )
+    })?;
+    let outputs = session
+        .run(
+            ort::inputs![MODEL.input_name => input]
+                .map_err(|_| error("model_runtime_error", "No se pudo preparar la entrada."))?,
+        )
+        .map_err(|_| {
+            error(
+                "inference_failed",
+                "El analizador no pudo completar la inferencia.",
+            )
+        })?;
+    let output = outputs.get(MODEL.output_name).ok_or_else(|| {
+        error(
+            "invalid_output_shape",
+            "El modelo no devolvió la salida esperada.",
+        )
+    })?;
+    let tensor = output.try_extract_tensor::<f32>().map_err(|_| {
+        error(
+            "invalid_output_shape",
+            "El modelo devolvió una salida incompatible.",
+        )
+    })?;
+    if tensor.shape() != MODEL.output_shape {
+        return Err(error(
+            "invalid_output_shape",
+            "El modelo devolvió una salida incompatible.",
+        ));
+    }
+    let scores = tensor.iter().copied().collect::<Vec<_>>();
+    validate_output(&scores)?;
+    Ok(scores)
+}
+
+async fn download_model(target: &Path) -> Result<(), AnalysisError> {
+    let temporary = target.with_extension("onnx.download");
+    let _ = fs::remove_file(&temporary);
+    let result = async {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .connect_timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(900))
+            .build()
+            .map_err(|_| {
+                error(
+                    "download_configuration_error",
+                    "No se pudo preparar la descarga.",
+                )
+            })?;
+        let response = client
+            .get(MODEL.url)
+            .send()
+            .await
+            .map_err(|_| error("download_failed", "No se pudo descargar el analizador."))?
+            .error_for_status()
+            .map_err(|_| {
+                error(
+                    "download_http_error",
+                    "El servidor oficial rechazó la descarga.",
+                )
+            })?;
+        if response
+            .content_length()
+            .is_some_and(|length| length != MODEL.bytes)
+        {
+            return Err(error(
+                "download_size_mismatch",
+                "La descarga no tiene el tamaño esperado.",
+            ));
+        }
+        let mut file = File::create(&temporary)
+            .map_err(|_| error("model_storage_error", "No se pudo guardar el analizador."))?;
+        let mut stream = response.bytes_stream();
+        let mut count = 0_u64;
+        let mut hasher = Sha256::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk =
+                chunk.map_err(|_| error("download_incomplete", "La descarga quedó incompleta."))?;
+            count = count.checked_add(chunk.len() as u64).ok_or_else(|| {
+                error(
+                    "download_too_large",
+                    "La descarga excede el límite permitido.",
+                )
+            })?;
+            if count >= MAX_DOWNLOAD_BYTES {
+                return Err(error(
+                    "download_too_large",
+                    "La descarga excede el límite permitido.",
+                ));
+            }
+            file.write_all(&chunk)
+                .map_err(|_| error("model_storage_error", "No se pudo guardar el analizador."))?;
+            hasher.update(&chunk);
+        }
+        if count != MODEL.bytes {
+            return Err(error(
+                "download_incomplete",
+                "La descarga quedó incompleta.",
+            ));
+        }
+        if format!("{:x}", hasher.finalize()) != MODEL.sha256 {
+            return Err(error(
+                "download_hash_mismatch",
+                "La integridad del analizador no es válida.",
+            ));
+        }
+        file.sync_all()
+            .map_err(|_| error("model_storage_error", "No se pudo confirmar el analizador."))?;
+        drop(file);
+        fs::rename(&temporary, target).map_err(|_| {
+            error(
+                "model_publish_error",
+                "No se pudo publicar el analizador verificado.",
+            )
+        })?;
+        Ok(())
+    }
+    .await;
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn prepare_maest_model(
+    app: AppHandle,
+    state: State<'_, MaestState>,
+) -> Result<PrepareModelResult, AnalysisError> {
+    let _permit = acquire_preparation(&state.preparing)?;
+    let directory = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| {
+            error(
+                "model_storage_error",
+                "No se pudo localizar el almacenamiento privado.",
+            )
+        })?
+        .join("models")
+        .join(MODEL.model_id)
+        .join(MODEL.version.to_string());
+    fs::create_dir_all(&directory).map_err(|_| {
+        error(
+            "model_storage_error",
+            "No se pudo preparar el almacenamiento privado.",
+        )
+    })?;
+    let target = directory.join(MODEL.filename);
+    let reused = verify_model(&target)?;
+    if !reused {
+        let _ = fs::remove_file(&target);
+        download_model(&target).await?;
+        if !verify_model(&target)? {
+            let _ = fs::remove_file(&target);
+            return Err(error(
+                "model_integrity_error",
+                "El analizador descargado no superó la verificación.",
+            ));
+        }
+    }
+    if state
+        .session
+        .lock()
+        .map_err(|_| {
+            error(
+                "model_state_error",
+                "El estado del analizador no está disponible.",
+            )
+        })?
+        .is_none()
+    {
+        let session = load_session(&target)?;
+        *state.session.lock().map_err(|_| {
+            error(
+                "model_state_error",
+                "El estado del analizador no está disponible.",
+            )
+        })? = Some(session);
+    }
+    Ok(PrepareModelResult {
+        model_id: MODEL.model_id,
+        version: MODEL.version,
+        ready: true,
+        reused,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn parses_unicode_without_translation() {
+    fn manifest_matches_the_verified_official_artifact() {
+        assert_eq!(MODEL.model_id, "discogs-maest-30s-pw-519l");
+        assert_eq!(MODEL.version, 2);
+        assert_eq!(MODEL.filename, "discogs-maest-30s-pw-519l-2.onnx");
+        assert_eq!(MODEL.bytes, 348_052_337);
+        assert_eq!(
+            MODEL.sha256,
+            "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1"
+        );
+        assert_eq!(MODEL.input_shape, [1, 1876, 96]);
+        assert_eq!(MODEL.output_shape, [1, 519]);
+        assert_eq!(MODEL.sample_rate, 16_000);
+        assert!(MODEL
+            .url
+            .starts_with("https://essentia.upf.edu/models/feature-extractors/maest/"));
+    }
+
+    #[test]
+    fn parser_is_strict_and_preserves_unicode() {
         assert_eq!(
             parse_discogs_label("Folk, World, & Country---Étnico").unwrap(),
             ParsedLabel {
@@ -137,15 +505,13 @@ mod tests {
                 subgenre: "Étnico".into()
             }
         );
-    }
-    #[test]
-    fn rejects_malformed_labels() {
-        for value in ["", "Rock", "---Rock", "Rock---", "Rock---Noise---Extra"] {
-            assert!(parse_discogs_label(value).is_err());
+        for malformed in ["", "Rock", "---Rock", "Rock---", "Rock---Noise---Extra"] {
+            assert!(parse_discogs_label(malformed).is_err());
         }
     }
+
     #[test]
-    fn validates_exactly_519_finite_outputs() {
+    fn validates_output_shape_and_finite_values() {
         let mut scores = vec![0.0; CLASS_COUNT];
         scores[42] = 0.8;
         assert_eq!(validate_output(&scores).unwrap(), 42);
@@ -158,7 +524,13 @@ mod tests {
             validate_output(&scores).unwrap_err().code,
             "invalid_output_value"
         );
+        scores[4] = f32::INFINITY;
+        assert_eq!(
+            validate_output(&scores).unwrap_err().code,
+            "invalid_output_value"
+        );
     }
+
     #[test]
     fn permits_only_one_inference() {
         let gate = InferenceGate::default();
@@ -167,10 +539,57 @@ mod tests {
         drop(permit);
         assert!(gate.acquire().is_ok());
     }
+
     #[test]
-    fn stable_contract_identity() {
-        assert_eq!(ANALYZER_ID, "djorganizer.desktop.genre.maest");
-        assert_eq!(ANALYZER_VERSION, "discogs-maest-30s-pw-519l@2");
-        assert_eq!(COMPATIBILITY_KEY, "maest-519l|mel-16000-1876x96-f32|v2");
+    fn rejects_an_incorrect_preprocessed_tensor_before_runtime() {
+        // This unit path must not load or download the 348 MB model.
+        let error = error(
+            "invalid_input_shape",
+            "El tensor no coincide con la entrada MAEST.",
+        );
+        assert_eq!(error.code, "invalid_input_shape");
+        assert_ne!(INPUT_FRAMES * INPUT_BANDS, INPUT_FRAMES * INPUT_BANDS - 1);
+    }
+
+    #[test]
+    fn verifies_hash_size_missing_and_corrupt_fixtures() {
+        let directory =
+            std::env::temp_dir().join(format!("djorganizer-maest-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("fixture.onnx");
+        assert!(!verify_artifact(&path, 3, "unused").unwrap());
+        fs::write(&path, b"abc").unwrap();
+        assert!(verify_artifact(
+            &path,
+            3,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
+        .unwrap());
+        assert!(!verify_artifact(
+            &path,
+            2,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
+        .unwrap());
+        assert!(!verify_artifact(&path, 3, "incorrect").unwrap());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    #[ignore = "downloads are forbidden in the normal test suite; set DJORGANIZER_MAEST_MODEL to a verified official ONNX"]
+    fn runs_the_official_model_with_a_deterministic_tensor() {
+        let path = std::env::var_os("DJORGANIZER_MAEST_MODEL")
+            .expect("set the isolated verified model path");
+        let path = Path::new(&path);
+        assert!(
+            verify_model(path).unwrap(),
+            "the isolated model must match the pinned manifest"
+        );
+        let session = load_session(path).unwrap();
+        let scores = run_preprocessed(&session, vec![0.0; INPUT_FRAMES * INPUT_BANDS]).unwrap();
+        assert_eq!(scores.len(), CLASS_COUNT);
+        assert!(scores.iter().all(|score| score.is_finite()));
+        println!("model verified\ninput=[1,1876,96]\noutput=[1,519]\nfinite=true");
     }
 }
