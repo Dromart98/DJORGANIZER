@@ -17,6 +17,7 @@ import {
   getTrack,
   listCompatibleTracks,
   listTrackTags,
+  listUserTags,
 } from "@/lib/library/track-repository";
 import { trackIdSchema } from "@/lib/library/track-schema";
 import { createClient } from "@/lib/supabase/server";
@@ -57,12 +58,11 @@ export default async function TrackDetailPage({
   const supabase = await createClient();
   const track = await getTrack(supabase, user.id, parsedId.data);
   if (!track) notFound();
-  const [{ data: tags, error: tagsError }, compatibleTracks] = await Promise.all([
-    supabase.from("tags").select("id, name").eq("user_id", user.id).order("name"),
+  const [tags, compatibleTracks] = await Promise.all([
+    listUserTags(supabase, user.id),
     listCompatibleTracks(supabase, user.id, track),
   ]);
-  if (tagsError) throw new Error("No se pudieron cargar las etiquetas.");
-  const trackTags = await listTrackTags(supabase, user.id, [track.id], tags);
+  const trackTags = await listTrackTags(supabase, user.id, [track.id]);
 
   const query = await searchParams;
 
