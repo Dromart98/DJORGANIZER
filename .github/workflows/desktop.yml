@@ -33,8 +33,21 @@ jobs:
           actual_bytes="$(stat -c%s "$target")"
           test "$actual_bytes" = "$expected_bytes"
           digest="$(sha256sum "$target" | cut -d ' ' -f 1)"
-          printf 'artifact=%s\nbytes=%s\nsha256=%s\n' "$name" "$actual_bytes" "$digest"
+          integrity_file="$RUNNER_TEMP/maest-integrity.txt"
+          printf 'artifact=%s\nbytes=%s\nsha256=%s\n' \
+            "$name" \
+            "$actual_bytes" \
+            "$digest" > "$integrity_file"
+          cat "$integrity_file"
           rm -f "$target"
+
+      - name: Upload MAEST integrity diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: maest-integrity-diagnostic
+          path: ${{ runner.temp }}/maest-integrity.txt
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Install Tauri system dependencies
         run: |
