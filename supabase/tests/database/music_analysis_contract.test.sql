@@ -2,7 +2,7 @@ begin;
 select plan(16);
 
 select has_column('public', 'tracks', 'subgenre', 'tracks has independent subgenre');
-select col_is_nullable('public', 'tracks', 'subgenre', 'subgenre remains nullable');
+select col_is_null('public', 'tracks', 'subgenre', 'subgenre remains nullable');
 select has_column('public', 'tracks', 'energy_source', 'tracks records energy provenance');
 select has_column('public', 'tracks', 'energy_confidence', 'tracks records energy confidence');
 select has_column('public', 'tracks', 'subgenre_source', 'tracks records subgenre provenance');
