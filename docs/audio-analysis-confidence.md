@@ -48,3 +48,7 @@ reducir la precisión. El usuario conserva siempre la decisión final.
 ## Contrato neutral estabilizado
 
 La procedencia persistente es `automatic`, `metadata`, `manual` o `unknown`; no identifica proveedores. BPM, tonalidad, energía, género y subgénero protegen una corrección `manual`. La energía pública y persistida es un entero 0–10.
+
+## MAEST de escritorio
+
+La base y su bloqueo de integridad se documentan en [`desktop-maest-foundation.md`](desktop-maest-foundation.md). Los valores sigmoid se tratarán como scores multietiqueta sin calibrar, no como probabilidades estadísticas.

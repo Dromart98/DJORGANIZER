@@ -1,3 +1,5 @@
+mod maest;
+
 use lofty::{
     config::{ParseOptions, WriteOptions},
     file::{AudioFile, TaggedFileExt},
