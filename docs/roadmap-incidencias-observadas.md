@@ -1,6 +1,6 @@
 # Incidencias observadas y ajustes de flujo
 
-Actualizado: 2026-07-26.
+Actualizado: 2026-07-27.
 
 Este documento forma parte del roadmap de DJOrganizer y ordena los defectos y
 cambios de producto observados durante el uso real. Los puntos marcados como
@@ -48,10 +48,13 @@ debe duplicar solicitudes ni perder la sesión.
 
 ### 2. Mostrar las etiquetas asignadas a cada canción
 
-**Estado:** Preparado — pendiente de validación E2E en CI. La lectura ya queda
-acotada a las pistas de la página, y Biblioteca, móvil y detalle representan y
-gestionan las relaciones persistidas. Queda pendiente ejecutar en el Supabase
-efímero de CI la matriz autenticada, incluida la validación RLS con dos usuarios.
+**Estado:** Implementado. Biblioteca, tarjetas móviles y detalle representan y
+gestionan las relaciones persistidas. Las relaciones se consultan solo para las
+pistas visibles y el catálogo reutilizable se pagina en lotes acotados, sin
+suponer un máximo total de 1.000 etiquetas. La CI autenticada del 2026-07-27
+validó Supabase efímero, RLS y separación entre usuarios, Chromium, flujo
+completo de asignación/retirada, persistencia, móvil y Crates antes de fusionar
+la PR #65.
 
 - [x] Reproducir la asignación individual y masiva y verificar primero la fila en
   `track_tags`, la consulta posterior y la actualización de la interfaz.
