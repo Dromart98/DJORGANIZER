@@ -26,7 +26,8 @@ pequeñas.
   géneros, subgéneros, etiquetas, notas y valoraciones sin entregar el control
   de su catálogo a un análisis automático.
 - **Usuario de software DJ de escritorio:** necesita preparar crates y exportar
-  listas sin que DJOrganizer mueva, renombre o suba los archivos de audio.
+  listas sin que DJOrganizer mueva, renombre o suba los archivos de audio sin
+  una acción explícita.
 
 La interfaz base está disponible en español e inglés; el español es el idioma
 predeterminado. Las futuras decisiones deben reducir pasos innecesarios y ser
@@ -42,24 +43,34 @@ comprensibles también para usuarios no técnicos.
   incluyen género, rangos de BPM y energía, tonalidad, Camelot y valoración.
   La ordenación y la paginación se realizan en la base de datos.
 - Una pista contempla, entre otros datos, título, artista opcional, álbum,
-  géneros, BPM, tonalidad normalizada, Camelot, energía, valoración, comentarios
-  y datos de análisis/procedencia. Las etiquetas reutilizables complementan la
-  clasificación.
+  género, subgénero, BPM, tonalidad normalizada, Camelot, energía, valoración,
+  comentarios y datos de análisis/procedencia. Las etiquetas reutilizables
+  complementan la clasificación.
 - Hay estados diferenciados para biblioteca vacía, resultados vacíos, carga y
   error, además de recuperación mediante reintento.
 
-### Importación y análisis local
+### Importación y análisis musical
 
 - La importación web acepta tandas de archivos locales, lee sus metadatos y
   ofrece una revisión editable antes de guardar. También existe un flujo de
   escaneo de carpetas para el entorno de escritorio/Tauri cuando está disponible.
-- El navegador puede estimar BPM y tonalidad, calcular una huella SHA-256,
-  detectar duplicados y obtener energía y una firma acústica compacta. Los
-  resultados automáticos conservan confianza, explicación y procedencia, y el
-  usuario puede corregirlos.
-- Las sugerencias de género locales y la opción de OpenAI son voluntarias y se
-  revisan manualmente; no se debe analizar audio ni aplicar clasificaciones en
-  segundo plano.
+- El sistema puede calcular o proponer BPM, tonalidad, energía, género,
+  subgénero y otros datos de análisis según el flujo y proveedor disponibles.
+  Cada campo debe conservar su resultado, procedencia y posibilidad de revisión
+  de acuerdo con el contrato vigente.
+- Un análisis puede formar parte automáticamente de la cola de importación o
+  iniciarse de forma explícita desde la biblioteca cuando el roadmap y el código
+  lo habiliten. Automatizar el cálculo no significa aplicar silenciosamente el
+  resultado ni sobrescribir una corrección manual.
+- Los fallos parciales deben aislarse por campo o pista cuando sea posible: un
+  fallo de género no debe invalidar BPM, tonalidad o energía correctos.
+- Género y subgénero son resultados independientes y revisables. No se debe
+  inventar un subgénero cuando la evidencia, la taxonomía o el modelo no permitan
+  distinguirlo de forma suficiente.
+- `PRODUCT.md` no fija un proveedor concreto para clasificación musical. El
+  proveedor y flujo vigentes deben verificarse en el código y en el roadmap para
+  evitar conservar como requisito una integración que esté siendo sustituida o
+  retirada.
 
 ### Tonalidad, mezcla y organización
 
@@ -92,8 +103,10 @@ comprensibles también para usuarios no técnicos.
   Supabase Auth, PostgreSQL y RLS. Las acciones del servidor vuelven a comprobar
   autenticación y pertenencia.
 - El audio, las rutas locales y los secretos son privados. No se almacenan audio
-  ni rutas absolutas en Supabase, y una clave `OPENAI_API_KEY` nunca pertenece al
-  cliente.
+  ni rutas absolutas en Supabase, y ningún secreto o clave privilegiada de un
+  proveedor remoto debe llegar al cliente.
+- Cualquier transferencia remota de audio, si existe en un flujo vigente, debe
+  ser visible, acotada y autorizada explícitamente para ese análisis.
 - Cualquier operación potencialmente destructiva debe explicar su alcance,
   pedir confirmación, dejar historial o recuperación cuando aplique y no
   sobrescribir importaciones externas silenciosamente.
@@ -118,8 +131,8 @@ comprensibles también para usuarios no técnicos.
 
 ## Evidencia y estado
 
-Este documento combina el contexto de producto acordado para DJOrganizer con
-capacidades verificadas en el repositorio. Las funcionalidades descritas como
-actuales proceden del README, rutas, componentes y contratos existentes; las
-integraciones o formatos no encontrados se han marcado explícitamente como no
-confirmados en lugar de convertirlos en promesas de implementación.
+Este documento recoge contexto y principios de producto duraderos. El código de
+`main` es la fuente del estado funcional real y `docs/roadmap.md` junto con
+`docs/roadmap-incidencias-observadas.md` determinan qué fases están implementadas,
+pendientes, bloqueadas o descartadas. `PRODUCT.md` no debe duplicar esas listas ni
+convertir proveedores temporales en requisitos permanentes.
