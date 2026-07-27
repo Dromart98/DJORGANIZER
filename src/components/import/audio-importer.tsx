@@ -1588,10 +1588,13 @@ export function AudioImporter() {
                         value={item.data.album ?? ""}
                       />
                     </label>
-                    <label className="field">
-                      {t("Género")}
+                    <div className="field">
+                      <label htmlFor={`import-genre-${item.id}`}>
+                        {t("Género")}
+                      </label>
                       <input
                         disabled={isLocked}
+                        id={`import-genre-${item.id}`}
                         maxLength={120}
                         onChange={(event) =>
                           updateField(
@@ -1719,7 +1722,7 @@ export function AudioImporter() {
                           {item.genreError}
                         </small>
                       ) : null}
-                    </label>
+                    </div>
                     <label className="field">
                       {t("Energía")}
                       <input
