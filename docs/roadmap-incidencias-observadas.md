@@ -197,6 +197,6 @@ una misma entrega.
 
 ## Estabilizar subgénero y contrato de análisis musical unificado
 
-**Preparado — pendiente de validación completa en CI**
+**Implementado — PR #66 fusionada y CI completa validada el 2026-07-27.**
 
 Esta fase incorpora subgénero persistente, energía 0–10, procedencia neutral, protección de correcciones manuales y un contrato TypeScript por campo. Permanecen como fases posteriores e independientes: automatizar género/subgénero en Importar, añadir **Analizar pista** y retirar OpenAI. No implementa MAEST ni interpreta automáticamente etiquetas Discogs.
