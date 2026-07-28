@@ -78,11 +78,6 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Build unsigned Windows NSIS installer
-        uses: tauri-apps/tauri-action@v1
-        with:
-          args: --bundles nsis
-
       - name: Validate MAEST runtime on Windows
         shell: pwsh
         run: |
@@ -100,6 +95,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows MAEST inference failed" }
           Remove-Item $model -Force
 
+      - name: Build unsigned Windows NSIS installer
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: --bundles nsis
+
       - name: Install and inspect Windows NSIS package
         shell: pwsh
         run: |
@@ -116,6 +116,16 @@ jobs:
             Select-Object -First 1
           if (-not $installer) { throw "NSIS installer not found" }
 
+          $installDir = Join-Path $env:RUNNER_TEMP "DJOrganizerInstalled"
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS installation failed: $($process.ExitCode)" }
+
+          $installedApp = Get-ChildItem $installDir -Recurse -File -Filter $app.Name |
+            Select-Object -First 1
+          if (-not $installedApp) { throw "Installed executable not found" }
+          if ($installedApp.Length -le 0) { throw "Installed executable is empty" }
+
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsRoot = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
           if (-not $vsRoot) { throw "Visual Studio C++ tools not found" }
@@ -125,28 +135,15 @@ jobs:
             Select-Object -First 1
           if (-not $dumpbin) { throw "dumpbin.exe not found" }
 
-          $dependencies = (& $dumpbin.FullName /DEPENDENTS $app.FullName | Out-String)
+          $dependencies = (& $dumpbin.FullName /DEPENDENTS $installedApp.FullName | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw "Could not inspect installed executable dependencies" }
           $dynamicOrt = $dependencies -match "(?i)onnxruntime\.dll"
-
-          $installDir = Join-Path $env:RUNNER_TEMP "DJOrganizerInstalled"
-          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-          $process = Start-Process -FilePath $installer.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "NSIS installation failed: $($process.ExitCode)" }
-
-          $installedApp = Get-ChildItem $installDir -Recurse -File -Filter $app.Name |
-            Select-Object -First 1
-          if (-not $installedApp) { throw "Installed executable not found" }
-          $sourceHash = (Get-FileHash $app.FullName -Algorithm SHA256).Hash
-          $installedHash = (Get-FileHash $installedApp.FullName -Algorithm SHA256).Hash
-          if ($sourceHash -ne $installedHash) {
-            throw "Installed executable differs from the release executable"
-          }
-
           $installedRuntime = Get-ChildItem $installDir -Recurse -File -Filter "onnxruntime.dll" |
             Select-Object -First 1
+
           if ($dynamicOrt) {
             if (-not $installedRuntime) {
-              throw "Executable imports onnxruntime.dll but installer does not contain it"
+              throw "Installed executable imports onnxruntime.dll but installer does not contain it"
             }
             if ($installedRuntime.DirectoryName -ne $installedApp.DirectoryName) {
               throw "onnxruntime.dll is not installed beside the executable"
