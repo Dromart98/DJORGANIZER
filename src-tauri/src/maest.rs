@@ -35,7 +35,7 @@ pub const MODEL: ModelManifest = ModelManifest {
     sha256: "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1",
     input_name: "melspectrogram",
     input_shape: [1, 1876, 96],
-    output_name: "PartitionedCall/Identity_13",
+    output_name: "activations",
     output_shape: [1, 519],
     sample_rate: 16_000,
 };
