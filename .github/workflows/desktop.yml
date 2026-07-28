@@ -88,9 +88,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $model = Join-Path $env:RUNNER_TEMP "discogs-maest-30s-pw-519l-2.onnx"
-          Invoke-WebRequest \
-            -Uri "https://essentia.upf.edu/models/feature-extractors/maest/discogs-maest-30s-pw-519l-2.onnx" \
-            -OutFile $model
+          Invoke-WebRequest -Uri "https://essentia.upf.edu/models/feature-extractors/maest/discogs-maest-30s-pw-519l-2.onnx" -OutFile $model
           $file = Get-Item $model
           if ($file.Length -ne 348052337) { throw "Unexpected ONNX byte length" }
           $hash = (Get-FileHash $model -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -98,10 +96,7 @@ jobs:
             throw "Unexpected ONNX SHA-256"
           }
           $env:DJORGANIZER_MAEST_MODEL = $model
-          cargo test --release --locked \
-            --manifest-path src-tauri/Cargo.toml \
-            maest::tests::runs_the_official_model_with_a_deterministic_tensor \
-            -- --ignored --exact --nocapture
+          & cargo test --release --locked --manifest-path src-tauri/Cargo.toml maest::tests::runs_the_official_model_with_a_deterministic_tensor -- --ignored --exact --nocapture
           if ($LASTEXITCODE -ne 0) { throw "Windows MAEST inference failed" }
           Remove-Item $model -Force
 
@@ -122,9 +117,7 @@ jobs:
           if (-not $installer) { throw "NSIS installer not found" }
 
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsRoot = (& $vswhere -latest -products * \
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
-            -property installationPath | Select-Object -First 1)
+          $vsRoot = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
           if (-not $vsRoot) { throw "Visual Studio C++ tools not found" }
           $dumpbin = Get-ChildItem "$vsRoot\VC\Tools\MSVC" -Recurse -File -Filter "dumpbin.exe" |
             Where-Object { $_.FullName -match "Hostx64\\x64\\dumpbin\.exe$" } |
@@ -137,8 +130,7 @@ jobs:
 
           $installDir = Join-Path $env:RUNNER_TEMP "DJOrganizerInstalled"
           New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-          $process = Start-Process -FilePath $installer.FullName \
-            -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "NSIS installation failed: $($process.ExitCode)" }
 
           $installedApp = Get-ChildItem $installDir -Recurse -File -Filter $app.Name |
