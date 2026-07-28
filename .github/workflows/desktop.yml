@@ -128,7 +128,7 @@ jobs:
           body="$(printf '%s\n\n```text\n%s\n```' \
             '<!-- maest-real-inference-diagnostic -->**Diagnóstico temporal de inferencia MAEST**' \
             "$diagnostic")"
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments/5105169841" \
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/5105169841" \
             --method PATCH -f body="$body" >/dev/null
 
           exit "$status"
