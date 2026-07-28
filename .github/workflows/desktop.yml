@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   issues: write
 
 jobs:
@@ -20,47 +20,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Apply verified MAEST output correction
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          source = Path("src-tauri/src/maest.rs")
-          text = source.read_text(encoding="utf-8")
-          old = 'output_name: "PartitionedCall/Identity_13",'
-          new = 'output_name: "activations",'
-          if old in text:
-              text = text.replace(old, new, 1)
-              source.write_text(text, encoding="utf-8")
-          elif new not in text:
-              raise SystemExit("MAEST output manifest anchor not found")
-
-          docs = Path("docs/desktop-maest-foundation.md")
-          text = docs.read_text(encoding="utf-8")
-          old = "- Salida sigmoid `PartitionedCall/Identity_13`, `[1, 519]`. La salida directa hace redundante cargar `genre_discogs519` para este artefacto."
-          new = "- La metadata TensorFlow identifica la salida sigmoid como `PartitionedCall/Identity_13`; ONNX Runtime la expone como `activations`, `float32`, `[1, 519]`. La salida directa hace redundante cargar `genre_discogs519` para este artefacto."
-          if old in text:
-              docs.write_text(text.replace(old, new, 1), encoding="utf-8")
-          elif new not in text:
-              raise SystemExit("MAEST documentation output anchor not found")
-          PY
-          cargo fmt --manifest-path src-tauri/Cargo.toml
-          if git diff --quiet; then
-            echo "MAEST output correction already applied"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src-tauri/src/maest.rs docs/desktop-maest-foundation.md
-            git commit -m "fix(maest): use ONNX Runtime activations output"
-            git push origin HEAD:codex/implementar-analizador-maest-para-escritorio
-          fi
 
       - name: Install Tauri system dependencies
         run: |
@@ -105,8 +64,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install Tauri system dependencies
         run: |
