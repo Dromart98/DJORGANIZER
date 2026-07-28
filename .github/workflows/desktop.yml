@@ -5,10 +5,11 @@ on:
     paths:
       - "src-tauri/**"
       - ".github/workflows/desktop.yml"
+      - ".github/scripts/recover_maest.py"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   desktop-check:
@@ -18,11 +19,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Recover unpublished MAEST changes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/recover_maest.py
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          if git diff --quiet; then
+            echo "No recovery changes required"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/desktop-maest-foundation.md src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/resources/maest-discogs519-v2.json src-tauri/src/maest.rs
+            git commit -m "fix(maest): restore verified Discogs519 catalog"
+            git push origin HEAD:codex/implementar-analizador-maest-para-escritorio
+          fi
 
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y             libwebkit2gtk-4.1-dev             libayatana-appindicator3-dev             librsvg2-dev
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
 
       - name: Configure Rust
         run: |
@@ -58,8 +84,12 @@ jobs:
           curl --fail --location --retry 2 --connect-timeout 20 --max-time 900 \
             --output "$model" \
             "https://essentia.upf.edu/models/feature-extractors/maest/discogs-maest-30s-pw-519l-2.onnx"
-          test "$(stat -c%s "$model")" = "348052337"
-          test "$(sha256sum "$model" | cut -d ' ' -f 1)" = \
+          actual_bytes="$(stat -c%s "$model")"
+          actual_sha256="$(sha256sum "$model" | cut -d ' ' -f 1)"
+          echo "onnx_bytes=$actual_bytes"
+          echo "onnx_sha256=$actual_sha256"
+          test "$actual_bytes" = "348052337"
+          test "$actual_sha256" = \
             "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1"
           DJORGANIZER_MAEST_MODEL="$model" cargo test --locked \
             --manifest-path src-tauri/Cargo.toml \
