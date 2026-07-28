@@ -83,7 +83,29 @@ jobs:
         with:
           args: --bundles nsis
 
-      - name: Inspect ONNX Runtime packaging
+      - name: Validate MAEST runtime on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $model = Join-Path $env:RUNNER_TEMP "discogs-maest-30s-pw-519l-2.onnx"
+          Invoke-WebRequest \
+            -Uri "https://essentia.upf.edu/models/feature-extractors/maest/discogs-maest-30s-pw-519l-2.onnx" \
+            -OutFile $model
+          $file = Get-Item $model
+          if ($file.Length -ne 348052337) { throw "Unexpected ONNX byte length" }
+          $hash = (Get-FileHash $model -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1") {
+            throw "Unexpected ONNX SHA-256"
+          }
+          $env:DJORGANIZER_MAEST_MODEL = $model
+          cargo test --release --locked \
+            --manifest-path src-tauri/Cargo.toml \
+            maest::tests::runs_the_official_model_with_a_deterministic_tensor \
+            -- --ignored --exact --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Windows MAEST inference failed" }
+          Remove-Item $model -Force
+
+      - name: Install and inspect Windows NSIS package
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -94,37 +116,60 @@ jobs:
             Select-Object -First 1
           if (-not $app) { throw "Release executable not found" }
 
-          $runtime = Get-ChildItem $release -Recurse -File -Filter "onnxruntime.dll"
-          if (-not $runtime) { throw "onnxruntime.dll not found in release output" }
-
           $installer = Get-ChildItem "$release/bundle/nsis" -File -Filter "*.exe" |
             Sort-Object Length -Descending |
             Select-Object -First 1
           if (-not $installer) { throw "NSIS installer not found" }
 
-          $listing = (& 7z l -slt $installer.FullName | Out-String)
-          if ($listing -notmatch "(?i)onnxruntime\.dll") {
-            throw "onnxruntime.dll is absent from the NSIS archive"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsRoot = (& $vswhere -latest -products * \
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+            -property installationPath | Select-Object -First 1)
+          if (-not $vsRoot) { throw "Visual Studio C++ tools not found" }
+          $dumpbin = Get-ChildItem "$vsRoot\VC\Tools\MSVC" -Recurse -File -Filter "dumpbin.exe" |
+            Where-Object { $_.FullName -match "Hostx64\\x64\\dumpbin\.exe$" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe not found" }
+
+          $dependencies = (& $dumpbin.FullName /DEPENDENTS $app.FullName | Out-String)
+          $dynamicOrt = $dependencies -match "(?i)onnxruntime\.dll"
+
+          $installDir = Join-Path $env:RUNNER_TEMP "DJOrganizerInstalled"
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+          $process = Start-Process -FilePath $installer.FullName \
+            -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "NSIS installation failed: $($process.ExitCode)" }
+
+          $installedApp = Get-ChildItem $installDir -Recurse -File -Filter $app.Name |
+            Select-Object -First 1
+          if (-not $installedApp) { throw "Installed executable not found" }
+          $sourceHash = (Get-FileHash $app.FullName -Algorithm SHA256).Hash
+          $installedHash = (Get-FileHash $installedApp.FullName -Algorithm SHA256).Hash
+          if ($sourceHash -ne $installedHash) {
+            throw "Installed executable differs from the release executable"
           }
 
-          $extract = Join-Path $env:RUNNER_TEMP "djorganizer-nsis"
-          New-Item -ItemType Directory -Force -Path $extract | Out-Null
-          & 7z x -y "-o$extract" $installer.FullName | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Could not extract NSIS installer" }
-
-          $packedRuntime = Get-ChildItem $extract -Recurse -File -Filter "onnxruntime.dll" |
+          $installedRuntime = Get-ChildItem $installDir -Recurse -File -Filter "onnxruntime.dll" |
             Select-Object -First 1
-          $packedApp = Get-ChildItem $extract -Recurse -File -Filter $app.Name |
-            Select-Object -First 1
-          if (-not $packedRuntime) { throw "Extracted installer does not contain onnxruntime.dll" }
-          if (-not $packedApp) { throw "Extracted installer does not contain $($app.Name)" }
-          if ($packedRuntime.DirectoryName -ne $packedApp.DirectoryName) {
-            throw "onnxruntime.dll is not installed beside the application executable"
+          if ($dynamicOrt) {
+            if (-not $installedRuntime) {
+              throw "Executable imports onnxruntime.dll but installer does not contain it"
+            }
+            if ($installedRuntime.DirectoryName -ne $installedApp.DirectoryName) {
+              throw "onnxruntime.dll is not installed beside the executable"
+            }
+            $linkage = "dynamic"
+          } else {
+            if ($installedRuntime) {
+              throw "Unexpected onnxruntime.dll for a statically linked executable"
+            }
+            $linkage = "static"
           }
 
           Write-Host "app_executable=$($app.Name)"
-          Write-Host "release_runtime=$($runtime[0].FullName)"
           Write-Host "installer=$($installer.Name)"
-          Write-Host "packed_runtime=$($packedRuntime.FullName)"
-          Write-Host "packed_app=$($packedApp.FullName)"
-          Write-Host "onnxruntime_packaging=verified"
+          Write-Host "installed_app=$($installedApp.FullName)"
+          Write-Host "onnxruntime_linkage=$linkage"
+          Write-Host "windows_real_inference=verified"
+          Write-Host "windows_nsis_installation=verified"
