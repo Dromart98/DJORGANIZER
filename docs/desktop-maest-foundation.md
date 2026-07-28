@@ -13,6 +13,7 @@
 - Entrada `melspectrogram`, `float32`, `[1, 1876, 96]`, a 16 kHz.
 - Salida sigmoid `PartitionedCall/Identity_13`, `[1, 519]`. La salida directa hace redundante cargar `genre_discogs519` para este artefacto.
 - La metadata contiene 519 clases. Cada clase se interpreta únicamente si contiene exactamente un separador `---`; no se traduce, fusiona ni reinterpreta.
+- El recurso `src-tauri/resources/maest-discogs519-v2.json` conserva las 519 clases oficiales en orden y se valida mediante pruebas Rust.
 - Los scores sigmoid se conservan como scores internos de ordenación, no como probabilidades calibradas ni como `confidence` visible.
 - La licencia publicada por MTG para estos modelos es CC BY-NC-SA 4.0: atribución, uso no comercial y ShareAlike para derivados. Una distribución comercial requiere revisar y obtener la licencia propietaria ofrecida por MTG.
 
@@ -26,7 +27,7 @@ Las fuentes oficiales relacionan `TensorflowPredictMAEST` con `TensorflowInputMu
 
 ## Pendiente
 
-- Incorporar de forma reproducible el catálogo oficial completo y ejecutar su prueba Rust sobre las 519 etiquetas.
+- Catálogo oficial completo incorporado de forma reproducible y validado sobre las 519 etiquetas.
 - Ejecutar `ort` contra este ONNX y confirmar nombres, tipos y shapes en runtime.
 - Implementar y validar el preprocesamiento equivalente.
 - Ejecutar una inferencia real autorizada y registrar métricas técnicas saneadas.

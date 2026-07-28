@@ -3,7 +3,7 @@
 use futures_util::StreamExt;
 use ndarray::Array3;
 use ort::{session::Session, tensor::TensorElementType};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -40,6 +40,12 @@ pub const MODEL: ModelManifest = ModelManifest {
     sample_rate: 16_000,
 };
 const MAX_DOWNLOAD_BYTES: u64 = MODEL.bytes + 1;
+const RAW_CATALOG: &str = include_str!("../resources/maest-discogs519-v2.json");
+
+#[derive(Debug, Deserialize)]
+struct DiscogsCatalog {
+    classes: Vec<String>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelManifest {
@@ -116,6 +122,36 @@ fn error(code: &str, message: &str) -> AnalysisError {
         code: code.into(),
         message: message.into(),
     }
+}
+
+fn catalog_classes() -> Result<Vec<String>, AnalysisError> {
+    let catalog: DiscogsCatalog = serde_json::from_str(RAW_CATALOG).map_err(|_| {
+        error(
+            "invalid_taxonomy_catalog",
+            "El catálogo oficial de géneros no es válido.",
+        )
+    })?;
+    if catalog.classes.len() != CLASS_COUNT {
+        return Err(error(
+            "invalid_taxonomy_catalog",
+            "El catálogo oficial no contiene 519 clases.",
+        ));
+    }
+    for label in &catalog.classes {
+        parse_discogs_label(label)?;
+    }
+    Ok(catalog.classes)
+}
+
+pub fn resolve_discogs_class(index: usize) -> Result<ParsedLabel, AnalysisError> {
+    let classes = catalog_classes()?;
+    let label = classes.get(index).ok_or_else(|| {
+        error(
+            "invalid_taxonomy_index",
+            "El modelo devolvió un índice de género fuera de rango.",
+        )
+    })?;
+    parse_discogs_label(label)
 }
 
 pub fn parse_discogs_label(label: &str) -> Result<ParsedLabel, AnalysisError> {
@@ -524,6 +560,36 @@ mod tests {
     }
 
     #[test]
+    fn embedded_catalog_is_complete_ordered_and_safe() {
+        let catalog: DiscogsCatalog = serde_json::from_str(RAW_CATALOG).unwrap();
+        assert_eq!(catalog.classes.len(), CLASS_COUNT);
+        for label in &catalog.classes {
+            assert_eq!(label.matches("---").count(), 1);
+            assert!(parse_discogs_label(label).is_ok());
+        }
+        for (index, expected) in [
+            (0, "Blues---Boogie Woogie"),
+            (4, "Blues---East Coast Blues"),
+            (9, "Blues---Memphis Blues"),
+            (12, "Blues---Piedmont Blues"),
+            (59, "Electronic---Deep House"),
+            (158, "Folk, World, & Country---Aboriginal"),
+            (241, "Hip Hop---Bass Music"),
+            (270, "Hip Hop---Trap"),
+            (414, "Rock---AOR"),
+            (518, "Stage & Screen---Theme"),
+        ] {
+            assert_eq!(catalog.classes[index], expected);
+        }
+        assert_eq!(resolve_discogs_class(59).unwrap().genre, "Electronic");
+        assert_eq!(resolve_discogs_class(59).unwrap().subgenre, "Deep House");
+        assert_eq!(
+            resolve_discogs_class(CLASS_COUNT).unwrap_err().code,
+            "invalid_taxonomy_index"
+        );
+    }
+
+    #[test]
     fn validates_output_shape_and_finite_values() {
         let mut scores = vec![0.0; CLASS_COUNT];
         scores[42] = 0.8;
@@ -591,14 +657,47 @@ mod tests {
         let path = std::env::var_os("DJORGANIZER_MAEST_MODEL")
             .expect("set the isolated verified model path");
         let path = Path::new(&path);
+
+        println!("stage=integrity");
         assert!(
             verify_model(path).unwrap(),
             "the isolated model must match the pinned manifest"
         );
-        let session = load_session(path).unwrap();
-        let scores = run_preprocessed(&session, vec![0.0; INPUT_FRAMES * INPUT_BANDS]).unwrap();
-        assert_eq!(scores.len(), CLASS_COUNT);
-        assert!(scores.iter().all(|score| score.is_finite()));
+
+        println!("stage=session");
+        let session = Session::builder()
+            .unwrap_or_else(|error| panic!("stage=session builder_error={error:?}"))
+            .with_intra_threads(1)
+            .unwrap_or_else(|error| panic!("stage=session thread_error={error:?}"))
+            .commit_from_file(path)
+            .unwrap_or_else(|error| panic!("stage=session ort_error={error:?}"));
+
+        println!("stage=contract");
+        validate_session(&session).unwrap_or_else(|error| panic!("stage=contract error={error:?}"));
+
+        println!("stage=inference");
+        let input = Array3::from_shape_vec(
+            (1, INPUT_FRAMES, INPUT_BANDS),
+            vec![0.0; INPUT_FRAMES * INPUT_BANDS],
+        )
+        .expect("the deterministic tensor shape is valid");
+        let inputs = ort::inputs![MODEL.input_name => input]
+            .unwrap_or_else(|error| panic!("stage=inference input_error={error:?}"));
+        let outputs = session
+            .run(inputs)
+            .unwrap_or_else(|error| panic!("stage=inference ort_error={error:?}"));
+
+        println!("stage=output");
+        let output = outputs
+            .get(MODEL.output_name)
+            .unwrap_or_else(|| panic!("stage=output missing={}", MODEL.output_name));
+        let tensor = output
+            .try_extract_tensor::<f32>()
+            .unwrap_or_else(|error| panic!("stage=output tensor_error={error:?}"));
+        assert_eq!(tensor.shape(), MODEL.output_shape);
+        let scores = tensor.iter().copied().collect::<Vec<_>>();
+        validate_output(&scores).unwrap();
+
         println!("model verified\ninput=[1,1876,96]\noutput=[1,519]\nfinite=true");
     }
 }
