@@ -6,11 +6,10 @@ on:
       - "src-tauri/**"
       - ".github/workflows/desktop.yml"
       - "docs/desktop-maest-foundation.md"
-      - "docs/roadmap.md"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   desktop-check:
@@ -20,66 +19,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: docs/sync-maest-runtime-roadmap
-          fetch-depth: 0
-
-      - name: Synchronize MAEST roadmap status
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'docs/sync-maest-runtime-roadmap'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("docs/roadmap.md")
-          text = path.read_text(encoding="utf-8")
-          text = text.replace("Actualizado: 2026-07-27.", "Actualizado: 2026-07-28.", 1)
-
-          old = '''- [ ] Implementar la clasificación local de escritorio con
-            `discogs-maest-30s-pw-519l` y `genre_discogs519`. Los pesos oficiales están
-            disponibles en ONNX, el extractor ocupa aproximadamente 348 MB y el modelo
-            cubre 519 estilos de Discogs. Ejecutar desde Tauri mediante un runtime nativo,
-            descargar el paquete solo con confirmación, verificar integridad y versión,
-            limitar memoria, permitir cancelación y conservar el audio y las rutas
-            exclusivamente en el dispositivo. Comparar CPU y aceleración disponible antes
-            de habilitar análisis masivo.
-            Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).'''
-          new = '''- [x] Implementar y validar la base del runtime local de escritorio con
-            `discogs-maest-30s-pw-519l`: manifiesto fijado, descarga confirmada, tamaño y
-            SHA-256 verificados, catálogo oficial ordenado de 519 clases, sesión reutilizable
-            de ONNX Runtime e inferencia real en Linux y Windows. El instalador NSIS x64
-            enlaza ONNX Runtime estáticamente y se instaló e inspeccionó en CI. Esta fase
-            todavía no analiza archivos de audio.
-            Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
-          - [ ] Completar la clasificación local de escritorio con MAEST: decodificar y
-            remuestrear audio, reproducir numéricamente el preprocesamiento oficial, limitar
-            memoria, permitir cancelación, integrar propuestas revisables por pista y
-            conservar audio y rutas exclusivamente en el dispositivo. Comparar CPU y
-            aceleración disponible antes de habilitar análisis masivo.
-            Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).'''
-          if old not in text:
-              raise SystemExit("MAEST roadmap block not found")
-          text = text.replace(old, new, 1)
-
-          old_contract = "- MAEST y la automatización de género/subgénero siguen pendientes; OpenAI permanece disponible sin definir el dominio persistido."
-          new_contract = "- La base del runtime MAEST está implementada y validada; el preprocesamiento de audio, la integración por pista y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido."
-          if old_contract not in text:
-              raise SystemExit("MAEST contract summary not found")
-          text = text.replace(old_contract, new_contract, 1)
-          path.write_text(text, encoding="utf-8")
-          PY
-
-          git checkout origin/main -- .github/workflows/desktop.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/roadmap.md .github/workflows/desktop.yml
-          if git diff --cached --quiet; then
-            echo "Roadmap already synchronized"
-          else
-            git commit -m "docs: sync MAEST runtime roadmap status"
-            git push origin HEAD:docs/sync-maest-runtime-roadmap
-          fi
 
       - name: Install Tauri system dependencies
         run: |
