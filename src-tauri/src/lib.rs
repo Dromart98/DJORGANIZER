@@ -1,3 +1,5 @@
+mod maest;
+
 use lofty::{
     config::{ParseOptions, WriteOptions},
     file::{AudioFile, TaggedFileExt},
@@ -3107,6 +3109,7 @@ async fn install_available_update(app: AppHandle) -> Result<DesktopUpdateStatus,
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(DesktopState::default())
+        .manage(maest::MaestState::default())
         .plugin(tauri_plugin_dialog::init());
 
     #[cfg(not(debug_assertions))]
@@ -3114,6 +3117,7 @@ pub fn run() {
 
     builder
         .invoke_handler(tauri::generate_handler![
+            maest::prepare_maest_model,
             choose_and_scan_music_folder,
             scan_music_folder_incrementally,
             link_library_tracks,

@@ -5,6 +5,7 @@ on:
     paths:
       - "src-tauri/**"
       - ".github/workflows/desktop.yml"
+      - "docs/desktop-maest-foundation.md"
   workflow_dispatch:
 
 permissions:
@@ -22,7 +23,10 @@ jobs:
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y             libwebkit2gtk-4.1-dev             libayatana-appindicator3-dev             librsvg2-dev
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
 
       - name: Configure Rust
         run: |
