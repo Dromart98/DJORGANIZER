@@ -2,7 +2,7 @@
 
 ## Estado de esta rama
 
-**Runtime MAEST implementado y validado con el ONNX oficial; análisis de audio pendiente.** La rama descarga y verifica el artefacto fijado, carga una sesión reutilizable de ONNX Runtime, acepta el tensor preprocesado oficial y obtiene una salida finita de 519 clases. La decodificación, el preprocesamiento equivalente, la integración por pista y el empaquetado final del runtime siguen fuera de alcance.
+**Runtime MAEST implementado y validado con el ONNX oficial, incluido el instalador Windows x64; análisis de audio pendiente.** La rama descarga y verifica el artefacto fijado, carga una sesión reutilizable de ONNX Runtime, acepta el tensor preprocesado oficial y obtiene una salida finita de 519 clases. Windows enlaza ONNX Runtime estáticamente y el instalador NSIS se ha construido, instalado e inspeccionado. La decodificación, el preprocesamiento equivalente y la integración por pista siguen fuera de alcance.
 
 ## Confirmado con la metadata oficial
 
@@ -19,15 +19,27 @@
 
 ## Runtime validado
 
-`ort 2.0.0-rc.9` declara MSRV 1.70 y ONNX Runtime 1.20, por lo que es compatible con el `rust-version = 1.77.2` actual y dispone de CPU para Windows x86_64 sin Python ni CUDA. Se integra con binarios CPU descargados y copiados durante la compilación (`download-binaries`, `copy-dylibs`), sin Python, CUDA ni DirectML. La versión `rc.12` exige Rust 1.88; no se justificó subir el toolchain.
+`ort 2.0.0-rc.9` declara MSRV 1.70 y ONNX Runtime 1.20, por lo que es compatible con el `rust-version = 1.77.2` actual y dispone de CPU para Windows x86_64 sin Python ni CUDA. La compilación Windows verificada enlaza ONNX Runtime estáticamente: el ejecutable instalado no importa ni necesita `onnxruntime.dll`.
 
-GitHub Actions cargó el ONNX oficial verificado y ejecutó una inferencia determinista completa:
+GitHub Actions cargó el ONNX oficial verificado y ejecutó una inferencia determinista completa en Linux y Windows:
 
 - integridad, sesión y contrato: PASS;
 - entrada: `float32 [1, 1876, 96]`;
 - salida seleccionada: `activations`, `float32 [1, 519]`;
 - valores finitos: PASS;
-- prueba: `1 passed`, sin fallos.
+- prueba real Windows: PASS.
+
+## Empaquetado Windows validado
+
+Se construyó un instalador NSIS x64 sin publicarlo, se instaló de forma silenciosa en un directorio temporal y se inspeccionó el ejecutable instalado:
+
+- instalador: `DJOrganizer_0.1.0_x64-setup.exe`;
+- ejecutable: `djorganizer-desktop.exe`;
+- instalación: PASS;
+- enlace de ONNX Runtime: estático;
+- inferencia real en Windows antes del empaquetado: PASS.
+
+Las comprobaciones específicas de los instaladores macOS y Linux no forman parte de esta base orientada al entorno Windows principal y deberán ejecutarse antes de una distribución oficial para esas plataformas.
 
 ## Preprocesamiento pendiente de equivalencia
 
@@ -35,8 +47,8 @@ Las fuentes oficiales relacionan `TensorflowPredictMAEST` con `TensorflowInputMu
 
 ## Pendiente
 
-- Validar que ONNX Runtime queda incluido y localizable en los instaladores Tauri soportados.
 - Implementar y validar decodificación, remuestreo y preprocesamiento equivalente.
 - Integrar análisis por pista, propuestas de género/subgénero y persistencia segura.
+- Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado está implementado y validado. El analizador de canciones completo permanece pendiente hasta cerrar empaquetado, preprocesamiento e integración.
+El runtime aislado y su empaquetado Windows están implementados y validados. El analizador de canciones completo permanece pendiente hasta cerrar preprocesamiento e integración.
