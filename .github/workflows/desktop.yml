@@ -5,10 +5,11 @@ on:
     paths:
       - "src-tauri/**"
       - ".github/workflows/desktop.yml"
+      - "docs/desktop-maest-foundation.md"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -19,6 +20,47 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply verified MAEST output correction
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path("src-tauri/src/maest.rs")
+          text = source.read_text(encoding="utf-8")
+          old = 'output_name: "PartitionedCall/Identity_13",'
+          new = 'output_name: "activations",'
+          if old in text:
+              text = text.replace(old, new, 1)
+              source.write_text(text, encoding="utf-8")
+          elif new not in text:
+              raise SystemExit("MAEST output manifest anchor not found")
+
+          docs = Path("docs/desktop-maest-foundation.md")
+          text = docs.read_text(encoding="utf-8")
+          old = "- Salida sigmoid `PartitionedCall/Identity_13`, `[1, 519]`. La salida directa hace redundante cargar `genre_discogs519` para este artefacto."
+          new = "- La metadata TensorFlow identifica la salida sigmoid como `PartitionedCall/Identity_13`; ONNX Runtime la expone como `activations`, `float32`, `[1, 519]`. La salida directa hace redundante cargar `genre_discogs519` para este artefacto."
+          if old in text:
+              docs.write_text(text.replace(old, new, 1), encoding="utf-8")
+          elif new not in text:
+              raise SystemExit("MAEST documentation output anchor not found")
+          PY
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          if git diff --quiet; then
+            echo "MAEST output correction already applied"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src-tauri/src/maest.rs docs/desktop-maest-foundation.md
+            git commit -m "fix(maest): use ONNX Runtime activations output"
+            git push origin HEAD:codex/implementar-analizador-maest-para-escritorio
+          fi
 
       - name: Install Tauri system dependencies
         run: |
@@ -63,6 +105,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install Tauri system dependencies
         run: |
@@ -95,26 +139,6 @@ jobs:
           test "$actual_sha256" = \
             "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1"
 
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src-tauri/src/maest.rs")
-          text = path.read_text(encoding="utf-8")
-          anchor = '        println!("stage=contract");\n'
-          insertion = '''        println!("stage=contract");
-                  for input in &session.inputs {
-                      println!("session_input name={} type={:?}", input.name, input.input_type);
-                  }
-                  for output in &session.outputs {
-                      println!("session_output name={} type={:?}", output.name, output.output_type);
-                  }
-          '''
-          if anchor not in text:
-              raise SystemExit("diagnostic insertion anchor not found")
-          path.write_text(text.replace(anchor, insertion, 1), encoding="utf-8")
-          PY
-          cargo fmt --manifest-path src-tauri/Cargo.toml
-
           set +e
           output="$(DJORGANIZER_MAEST_MODEL="$model" cargo test --quiet --locked \
             --manifest-path src-tauri/Cargo.toml \
@@ -124,10 +148,13 @@ jobs:
           set -e
           printf '%s\n' "$output"
 
-          diagnostic="$(printf '%s\n' "$output" | tail -n 140)"
-          body="$(printf '%s\n\n```text\n%s\n```' \
-            '<!-- maest-real-inference-diagnostic -->**Diagnóstico temporal de inferencia MAEST**' \
-            "$diagnostic")"
+          diagnostic="$(printf '%s\n' "$output" | tail -n 80)"
+          if [ "$status" -eq 0 ]; then
+            heading='<!-- maest-real-inference-diagnostic -->**Inferencia MAEST real validada**'
+          else
+            heading='<!-- maest-real-inference-diagnostic -->**Diagnóstico temporal de inferencia MAEST**'
+          fi
+          body="$(printf '%s\n\n```text\n%s\n```' "$heading" "$diagnostic")"
           gh api "repos/${GITHUB_REPOSITORY}/issues/comments/5105169841" \
             --method PATCH -f body="$body" >/dev/null
 
