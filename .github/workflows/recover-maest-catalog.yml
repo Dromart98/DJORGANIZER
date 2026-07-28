@@ -1,8 +1,9 @@
 name: Recover MAEST catalog changes
 
 on:
-  pull_request:
-    types: [synchronize]
+  push:
+    branches:
+      - codex/implementar-analizador-maest-para-escritorio
     paths:
       - ".github/workflows/recover-maest-catalog.yml"
 
@@ -11,7 +12,7 @@ permissions:
 
 jobs:
   recover:
-    if: github.event.pull_request.head.ref == 'codex/implementar-analizador-maest-para-escritorio'
+    if: github.ref_name == 'codex/implementar-analizador-maest-para-escritorio'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
