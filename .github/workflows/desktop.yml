@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           python .github/scripts/recover_maest.py
-          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo fmt --manifest-path src-tauri/Cargo.toml
           if git diff --quiet; then
             echo "No recovery changes required"
           else
