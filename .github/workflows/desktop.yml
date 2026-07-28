@@ -95,6 +95,29 @@ jobs:
           test "$actual_sha256" = \
             "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1"
 
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src-tauri/src/maest.rs")
+          text = path.read_text(encoding="utf-8")
+          old = '''        println!("stage=contract");
+                  validate_session(&session).unwrap_or_else(|error| panic!("stage=contract error={error:?}"));
+          '''
+          new = '''        println!("stage=contract");
+                  for input in &session.inputs {
+                      println!("session_input name={} type={:?}", input.name, input.input_type);
+                  }
+                  for output in &session.outputs {
+                      println!("session_output name={} type={:?}", output.name, output.output_type);
+                  }
+                  validate_session(&session).unwrap_or_else(|error| panic!("stage=contract error={error:?}"));
+          '''
+          if old not in text:
+              raise SystemExit("diagnostic insertion anchor not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+
           set +e
           output="$(DJORGANIZER_MAEST_MODEL="$model" cargo test --quiet --locked \
             --manifest-path src-tauri/Cargo.toml \
@@ -105,11 +128,11 @@ jobs:
           printf '%s\n' "$output"
 
           if [ "$status" -ne 0 ]; then
-            diagnostic="$(printf '%s\n' "$output" | tail -n 80)"
+            diagnostic="$(printf '%s\n' "$output" | tail -n 120)"
             body="$(printf '%s\n\n```text\n%s\n```' \
               '<!-- maest-real-inference-diagnostic -->**Diagnóstico temporal de inferencia MAEST**' \
               "$diagnostic")"
-            gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments" \
-              -f body="$body" >/dev/null
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments/5105169841" \
+              --method PATCH -f body="$body" >/dev/null
             exit "$status"
           fi
