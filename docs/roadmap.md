@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-07-27.
+Actualizado: 2026-07-28.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -181,14 +181,18 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   WASM están registrados en Chrome y Edge de escritorio; Firefox, Safari y
   móvil quedan fuera del alcance de esta prueba de concepto.
   Referencia: [`docs/local-web-genre-classification.md`](local-web-genre-classification.md).
-- [ ] Implementar la clasificación local de escritorio con
-  `discogs-maest-30s-pw-519l` y `genre_discogs519`. Los pesos oficiales están
-  disponibles en ONNX, el extractor ocupa aproximadamente 348 MB y el modelo
-  cubre 519 estilos de Discogs. Ejecutar desde Tauri mediante un runtime nativo,
-  descargar el paquete solo con confirmación, verificar integridad y versión,
-  limitar memoria, permitir cancelación y conservar el audio y las rutas
-  exclusivamente en el dispositivo. Comparar CPU y aceleración disponible antes
-  de habilitar análisis masivo.
+- [x] Implementar y validar la base del runtime local de escritorio con
+  `discogs-maest-30s-pw-519l`: manifiesto fijado, descarga confirmada, tamaño y
+  SHA-256 verificados, catálogo oficial ordenado de 519 clases, sesión reutilizable
+  de ONNX Runtime e inferencia real en Linux y Windows. El instalador NSIS x64
+  enlaza ONNX Runtime estáticamente y se instaló e inspeccionó en CI. Esta fase
+  todavía no analiza archivos de audio.
+  Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
+- [ ] Completar la clasificación local de escritorio con MAEST: decodificar y
+  remuestrear audio, reproducir numéricamente el preprocesamiento oficial, limitar
+  memoria, permitir cancelación, integrar propuestas revisables por pista y
+  conservar audio y rutas exclusivamente en el dispositivo. Comparar CPU y
+  aceleración disponible antes de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
 - [x] Verificar y documentar la licencia de `discogs-effnet-bs64-1`: modelo y
   derivados bajo CC BY-NC-SA 4.0, con atribución separada, ShareAlike y uso
@@ -344,4 +348,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- MAEST y la automatización de género/subgénero siguen pendientes; OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST está implementada y validada; el preprocesamiento de audio, la integración por pista y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
