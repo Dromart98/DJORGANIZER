@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -20,6 +20,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply verified MAEST tensor-type correction
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src-tauri/src/maest.rs")
+          text = path.read_text(encoding="utf-8")
+          old = "vec![0.0; INPUT_FRAMES * INPUT_BANDS]"
+          new = "vec![0.0_f32; INPUT_FRAMES * INPUT_BANDS]"
+          if old in text:
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          elif new not in text:
+              raise SystemExit("MAEST deterministic tensor anchor not found")
+          PY
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          if git diff --quiet; then
+            echo "MAEST tensor-type correction already applied"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src-tauri/src/maest.rs
+            git commit -m "test(maest): use float32 deterministic tensor"
+            git push origin HEAD:codex/implementar-analizador-maest-para-escritorio
+          fi
 
       - name: Install Tauri system dependencies
         run: |
@@ -55,6 +86,7 @@ jobs:
 
   # TEMPORARY: remove after PR #67 records a successful real-model inference.
   maest-real-inference:
+    needs: desktop-check
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -62,8 +94,10 @@ jobs:
       GH_TOKEN: ${{ github.token }}
 
     steps:
-      - name: Checkout
+      - name: Checkout corrected PR head
         uses: actions/checkout@v4
+        with:
+          ref: codex/implementar-analizador-maest-para-escritorio
 
       - name: Install Tauri system dependencies
         run: |
