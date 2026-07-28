@@ -5,11 +5,10 @@ on:
     paths:
       - "src-tauri/**"
       - ".github/workflows/desktop.yml"
-      - ".github/scripts/recover_maest.py"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   desktop-check:
@@ -19,28 +18,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Recover unpublished MAEST changes
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python .github/scripts/recover_maest.py
-          cargo fmt --manifest-path src-tauri/Cargo.toml
-          if git diff --quiet; then
-            echo "No recovery changes required"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add docs/desktop-maest-foundation.md src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/resources/maest-discogs519-v2.json src-tauri/src/maest.rs
-            git commit -m "fix(maest): restore verified Discogs519 catalog"
-            git push origin HEAD:codex/implementar-analizador-maest-para-escritorio
-          fi
 
       - name: Install Tauri system dependencies
         run: |
