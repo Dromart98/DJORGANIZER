@@ -678,7 +678,7 @@ mod tests {
         println!("stage=inference");
         let input = Array3::from_shape_vec(
             (1, INPUT_FRAMES, INPUT_BANDS),
-            vec![0.0; INPUT_FRAMES * INPUT_BANDS],
+            vec![0.0_f32; INPUT_FRAMES * INPUT_BANDS],
         )
         .expect("the deterministic tensor shape is valid");
         let inputs = ort::inputs![MODEL.input_name => input]
