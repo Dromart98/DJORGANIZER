@@ -51,14 +51,38 @@ jobs:
             cargo test --manifest-path src-tauri/Cargo.toml
           fi
 
-      # TEMPORARY: remove after PR #67 records a successful real-model inference.
+  # TEMPORARY: remove after PR #67 records a successful real-model inference.
+  maest-real-inference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: never
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y -qq \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Configure Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
       - name: Validate MAEST real ONNX inference
         shell: bash
         run: |
           set -euo pipefail
           readonly model="$RUNNER_TEMP/discogs-maest-30s-pw-519l-2.onnx"
           trap 'rm -f "$model"' EXIT
-          curl --fail --location --retry 2 --connect-timeout 20 --max-time 900 \
+          curl --silent --show-error --fail --location --retry 2 \
+            --connect-timeout 20 --max-time 900 \
             --output "$model" \
             "https://essentia.upf.edu/models/feature-extractors/maest/discogs-maest-30s-pw-519l-2.onnx"
           actual_bytes="$(stat -c%s "$model")"
@@ -68,7 +92,7 @@ jobs:
           test "$actual_bytes" = "348052337"
           test "$actual_sha256" = \
             "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1"
-          DJORGANIZER_MAEST_MODEL="$model" cargo test --locked \
+          DJORGANIZER_MAEST_MODEL="$model" cargo test --quiet --locked \
             --manifest-path src-tauri/Cargo.toml \
             maest::tests::runs_the_official_model_with_a_deterministic_tensor \
             -- --ignored --exact --nocapture
