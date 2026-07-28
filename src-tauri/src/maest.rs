@@ -235,14 +235,13 @@ fn verify_model(path: &Path) -> Result<bool, AnalysisError> {
 }
 
 fn validate_session(session: &Session) -> Result<(), AnalysisError> {
-    if session.inputs.len() != 1 || session.outputs.len() != 1 {
+    if session.inputs.len() != 1 {
         return Err(error(
             "model_incompatible",
-            "El modelo tiene entradas o salidas incompatibles.",
+            "El modelo tiene entradas incompatibles.",
         ));
     }
     let input = &session.inputs[0];
-    let output = &session.outputs[0];
     if input.name != MODEL.input_name
         || input.input_type.tensor_type() != Some(TensorElementType::Float32)
         || input.input_type.tensor_dimensions().map(Vec::as_slice) != Some(&[1, 1876, 96])
@@ -252,8 +251,17 @@ fn validate_session(session: &Session) -> Result<(), AnalysisError> {
             "La entrada del modelo no coincide con el contrato MAEST.",
         ));
     }
-    if output.name != MODEL.output_name
-        || output.output_type.tensor_type() != Some(TensorElementType::Float32)
+    let output = session
+        .outputs
+        .iter()
+        .find(|output| output.name == MODEL.output_name)
+        .ok_or_else(|| {
+            error(
+                "model_incompatible",
+                "El modelo no contiene la salida de predicciones MAEST.",
+            )
+        })?;
+    if output.output_type.tensor_type() != Some(TensorElementType::Float32)
         || output.output_type.tensor_dimensions().map(Vec::as_slice) != Some(&[1, 519])
     {
         return Err(error(
@@ -273,13 +281,18 @@ fn load_session(path: &Path) -> Result<Session, AnalysisError> {
     Ok(session)
 }
 
-pub fn run_preprocessed(session: &Session, values: Vec<f32>) -> Result<Vec<f32>, AnalysisError> {
-    if values.len() != INPUT_FRAMES * INPUT_BANDS {
+fn validate_preprocessed_len(length: usize) -> Result<(), AnalysisError> {
+    if length != INPUT_FRAMES * INPUT_BANDS {
         return Err(error(
             "invalid_input_shape",
             "El tensor no coincide con la entrada MAEST.",
         ));
     }
+    Ok(())
+}
+
+pub fn run_preprocessed(session: &Session, values: Vec<f32>) -> Result<Vec<f32>, AnalysisError> {
+    validate_preprocessed_len(values.len())?;
     let input = Array3::from_shape_vec((1, INPUT_FRAMES, INPUT_BANDS), values).map_err(|_| {
         error(
             "invalid_input_shape",
@@ -542,13 +555,9 @@ mod tests {
 
     #[test]
     fn rejects_an_incorrect_preprocessed_tensor_before_runtime() {
-        // This unit path must not load or download the 348 MB model.
-        let error = error(
-            "invalid_input_shape",
-            "El tensor no coincide con la entrada MAEST.",
-        );
+        let error = validate_preprocessed_len(INPUT_FRAMES * INPUT_BANDS - 1).unwrap_err();
         assert_eq!(error.code, "invalid_input_shape");
-        assert_ne!(INPUT_FRAMES * INPUT_BANDS, INPUT_FRAMES * INPUT_BANDS - 1);
+        assert!(validate_preprocessed_len(INPUT_FRAMES * INPUT_BANDS).is_ok());
     }
 
     #[test]

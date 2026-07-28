@@ -2,9 +2,7 @@
 
 ## Estado de esta rama
 
-**Preparado para tensor preprocesado; pendiente de audio.** La metadata oficial ya está identificada y su catálogo de 519 clases está disponible, pero el entorno local devuelve `403 Forbidden` al origen de Essentia. El SHA-256 del ONNX oficial fue reproducido mediante GitHub Actions. La preparación explícita descarga, verifica y carga el modelo; todavía no hay decodificación, preprocesamiento de audio, persistencia ni integración con Importar.
-
-La capa nativa fija el manifiesto, prepara el modelo en almacenamiento privado y permite inferencia interna solo sobre tensores ya preprocesados con la forma oficial.
+**Runtime implementado; validación real pendiente.** El manifiesto y la descarga verificada están implementados, y el runtime admite el tensor preprocesado oficial. Un paso aislado temporal de GitHub Actions debe confirmar la carga del ONNX real, la selección de `PartitionedCall/Identity_13` entre sus múltiples outputs y una salida finita `[1, 519]`. La decodificación y el preprocesamiento de audio siguen fuera de alcance.
 
 ## Confirmado con la metadata oficial
 

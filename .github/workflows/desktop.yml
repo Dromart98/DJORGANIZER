@@ -47,3 +47,21 @@ jobs:
           else
             cargo test --manifest-path src-tauri/Cargo.toml
           fi
+
+      # TEMPORARY: remove after PR #67 records a successful real-model inference.
+      - name: Validate MAEST real ONNX inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly model="$RUNNER_TEMP/discogs-maest-30s-pw-519l-2.onnx"
+          trap 'rm -f "$model"' EXIT
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 900 \
+            --output "$model" \
+            "https://essentia.upf.edu/models/feature-extractors/maest/discogs-maest-30s-pw-519l-2.onnx"
+          test "$(stat -c%s "$model")" = "348052337"
+          test "$(sha256sum "$model" | cut -d ' ' -f 1)" = \
+            "c90a51a752cdd94f37de886787d5e3a5b2071c6d0ef49ea788058f65f11883b1"
+          DJORGANIZER_MAEST_MODEL="$model" cargo test --locked \
+            --manifest-path src-tauri/Cargo.toml \
+            maest::tests::runs_the_official_model_with_a_deterministic_tensor \
+            -- --ignored --exact --nocapture
