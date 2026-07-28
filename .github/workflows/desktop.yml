@@ -51,3 +51,80 @@ jobs:
           else
             cargo test --manifest-path src-tauri/Cargo.toml
           fi
+
+  # TEMPORARY: remove after PR #67 records a successful Windows installer inspection.
+  maest-windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Configure Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build unsigned Windows NSIS installer
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: --bundles nsis
+
+      - name: Inspect ONNX Runtime packaging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $release = Resolve-Path "src-tauri/target/release"
+          $app = Get-ChildItem $release -File -Filter "*.exe" |
+            Where-Object { $_.Name -notmatch "uninstall|setup" } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          if (-not $app) { throw "Release executable not found" }
+
+          $runtime = Get-ChildItem $release -Recurse -File -Filter "onnxruntime.dll"
+          if (-not $runtime) { throw "onnxruntime.dll not found in release output" }
+
+          $installer = Get-ChildItem "$release/bundle/nsis" -File -Filter "*.exe" |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found" }
+
+          $listing = (& 7z l -slt $installer.FullName | Out-String)
+          if ($listing -notmatch "(?i)onnxruntime\.dll") {
+            throw "onnxruntime.dll is absent from the NSIS archive"
+          }
+
+          $extract = Join-Path $env:RUNNER_TEMP "djorganizer-nsis"
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          & 7z x -y "-o$extract" $installer.FullName | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract NSIS installer" }
+
+          $packedRuntime = Get-ChildItem $extract -Recurse -File -Filter "onnxruntime.dll" |
+            Select-Object -First 1
+          $packedApp = Get-ChildItem $extract -Recurse -File -Filter $app.Name |
+            Select-Object -First 1
+          if (-not $packedRuntime) { throw "Extracted installer does not contain onnxruntime.dll" }
+          if (-not $packedApp) { throw "Extracted installer does not contain $($app.Name)" }
+          if ($packedRuntime.DirectoryName -ne $packedApp.DirectoryName) {
+            throw "onnxruntime.dll is not installed beside the application executable"
+          }
+
+          Write-Host "app_executable=$($app.Name)"
+          Write-Host "release_runtime=$($runtime[0].FullName)"
+          Write-Host "installer=$($installer.Name)"
+          Write-Host "packed_runtime=$($packedRuntime.FullName)"
+          Write-Host "packed_app=$($packedApp.FullName)"
+          Write-Host "onnxruntime_packaging=verified"
