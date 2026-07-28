@@ -1,0 +1,291 @@
+from pathlib import Path
+from urllib.request import Request, urlopen
+import base64
+import gzip
+import hashlib
+import json
+import os
+import re
+
+ROOT = Path.cwd()
+COMMENT_URL = "https://api.github.com/repos/Dromart98/DJORGANIZER/issues/comments/5102042827"
+EXPECTED_GZIP_SHA256 = "cbb6733218cadf2807268097e967378b023631c5fcf0673db971c3d2db81608c"
+EXPECTED_JSON_SHA256 = "38973c6d52395852e026dbe283731ae415612671e7ce17268a5bbb9f144f24e2"
+EXPECTED_JSON_BYTES = 15155
+EXPECTED_CLASSES = 519
+
+
+def replace_once(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if new in text:
+        return
+    if old not in text:
+        raise RuntimeError(f"No se encontró el ancla esperada en {path}")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+request = Request(
+    COMMENT_URL,
+    headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+        "User-Agent": "DJOrganizer-MAEST-Recovery",
+    },
+)
+with urlopen(request, timeout=30) as response:
+    body = json.load(response)["body"]
+
+match = re.search(r"```text\s*([A-Za-z0-9+/=\r\n]+?)\s*```", body)
+if match is None:
+    raise RuntimeError("No se encontró el payload del catálogo")
+
+compressed = base64.b64decode("".join(match.group(1).split()), validate=True)
+if hashlib.sha256(compressed).hexdigest() != EXPECTED_GZIP_SHA256:
+    raise RuntimeError("SHA-256 GZIP incorrecto")
+
+payload = gzip.decompress(compressed)
+if len(payload) != EXPECTED_JSON_BYTES:
+    raise RuntimeError(f"Tamaño JSON incorrecto: {len(payload)}")
+if hashlib.sha256(payload).hexdigest() != EXPECTED_JSON_SHA256:
+    raise RuntimeError("SHA-256 JSON incorrecto")
+
+catalog = json.loads(payload)
+classes = catalog.get("classes")
+if not isinstance(classes, list) or len(classes) != EXPECTED_CLASSES:
+    raise RuntimeError("El catálogo no contiene exactamente 519 clases")
+
+sentinels = {
+    0: "Blues---Boogie Woogie",
+    4: "Blues---East Coast Blues",
+    9: "Blues---Memphis Blues",
+    12: "Blues---Piedmont Blues",
+    59: "Electronic---Deep House",
+    158: "Folk, World, & Country---Aboriginal",
+    241: "Hip Hop---Bass Music",
+    270: "Hip Hop---Trap",
+    414: "Rock---AOR",
+    518: "Stage & Screen---Theme",
+}
+for index, label in enumerate(classes):
+    if not isinstance(label, str) or label.count("---") != 1:
+        raise RuntimeError(f"Etiqueta inválida en índice {index}")
+    genre, subgenre = label.split("---")
+    if not genre or not subgenre:
+        raise RuntimeError(f"Etiqueta vacía en índice {index}")
+for index, expected in sentinels.items():
+    if classes[index] != expected:
+        raise RuntimeError(f"Sentinela incorrecto en índice {index}")
+
+resource = ROOT / "src-tauri/resources/maest-discogs519-v2.json"
+resource.parent.mkdir(parents=True, exist_ok=True)
+resource.write_bytes(payload)
+
+cargo_toml = ROOT / "src-tauri/Cargo.toml"
+replace_once(
+    cargo_toml,
+    'serde = { version = "1", features = ["derive"] }\n',
+    'serde = { version = "1", features = ["derive"] }\nserde_json = "1"\n',
+)
+
+cargo_lock = ROOT / "src-tauri/Cargo.lock"
+lock = cargo_lock.read_text(encoding="utf-8")
+package_start = lock.index('[[package]]\nname = "djorganizer-desktop"')
+package_end = lock.index('\n[[package]]', package_start + 1)
+package = lock[package_start:package_end]
+if '"serde_json",' not in package:
+    if ' "serde",\n' not in package:
+        raise RuntimeError("No se encontró serde en el paquete raíz de Cargo.lock")
+    package = package.replace(' "serde",\n', ' "serde",\n "serde_json",\n', 1)
+    lock = lock[:package_start] + package + lock[package_end:]
+    cargo_lock.write_text(lock, encoding="utf-8")
+if '[[package]]\nname = "serde_json"' not in lock:
+    raise RuntimeError("serde_json no está fijado en Cargo.lock")
+
+maest = ROOT / "src-tauri/src/maest.rs"
+replace_once(maest, "use serde::Serialize;", "use serde::{Deserialize, Serialize};")
+replace_once(
+    maest,
+    "const MAX_DOWNLOAD_BYTES: u64 = MODEL.bytes + 1;\n",
+    """const MAX_DOWNLOAD_BYTES: u64 = MODEL.bytes + 1;
+const RAW_CATALOG: &str = include_str!(\"../resources/maest-discogs519-v2.json\");
+
+#[derive(Debug, Deserialize)]
+struct DiscogsCatalog {
+    classes: Vec<String>,
+}
+""",
+)
+error_block = """fn error(code: &str, message: &str) -> AnalysisError {
+    AnalysisError {
+        code: code.into(),
+        message: message.into(),
+    }
+}
+"""
+catalog_block = error_block + """
+fn catalog_classes() -> Result<Vec<String>, AnalysisError> {
+    let catalog: DiscogsCatalog = serde_json::from_str(RAW_CATALOG).map_err(|_| {
+        error(
+            \"invalid_taxonomy_catalog\",
+            \"El catálogo oficial de géneros no es válido.\",
+        )
+    })?;
+    if catalog.classes.len() != CLASS_COUNT {
+        return Err(error(
+            \"invalid_taxonomy_catalog\",
+            \"El catálogo oficial no contiene 519 clases.\",
+        ));
+    }
+    for label in &catalog.classes {
+        parse_discogs_label(label)?;
+    }
+    Ok(catalog.classes)
+}
+
+pub fn resolve_discogs_class(index: usize) -> Result<ParsedLabel, AnalysisError> {
+    let classes = catalog_classes()?;
+    let label = classes.get(index).ok_or_else(|| {
+        error(
+            \"invalid_taxonomy_index\",
+            \"El modelo devolvió un índice de género fuera de rango.\",
+        )
+    })?;
+    parse_discogs_label(label)
+}
+"""
+replace_once(maest, error_block, catalog_block)
+
+parser_test = """    #[test]
+    fn parser_is_strict_and_preserves_unicode() {
+        assert_eq!(
+            parse_discogs_label(\"Folk, World, & Country---Étnico\").unwrap(),
+            ParsedLabel {
+                genre: \"Folk, World, & Country\".into(),
+                subgenre: \"Étnico\".into()
+            }
+        );
+        for malformed in [\"\", \"Rock\", \"---Rock\", \"Rock---\", \"Rock---Noise---Extra\"] {
+            assert!(parse_discogs_label(malformed).is_err());
+        }
+    }
+"""
+catalog_test = parser_test + """
+    #[test]
+    fn embedded_catalog_is_complete_ordered_and_safe() {
+        let catalog: DiscogsCatalog = serde_json::from_str(RAW_CATALOG).unwrap();
+        assert_eq!(catalog.classes.len(), CLASS_COUNT);
+        for label in &catalog.classes {
+            assert_eq!(label.matches(\"---\").count(), 1);
+            assert!(parse_discogs_label(label).is_ok());
+        }
+        for (index, expected) in [
+            (0, \"Blues---Boogie Woogie\"),
+            (4, \"Blues---East Coast Blues\"),
+            (9, \"Blues---Memphis Blues\"),
+            (12, \"Blues---Piedmont Blues\"),
+            (59, \"Electronic---Deep House\"),
+            (158, \"Folk, World, & Country---Aboriginal\"),
+            (241, \"Hip Hop---Bass Music\"),
+            (270, \"Hip Hop---Trap\"),
+            (414, \"Rock---AOR\"),
+            (518, \"Stage & Screen---Theme\"),
+        ] {
+            assert_eq!(catalog.classes[index], expected);
+        }
+        assert_eq!(resolve_discogs_class(59).unwrap().genre, \"Electronic\");
+        assert_eq!(resolve_discogs_class(59).unwrap().subgenre, \"Deep House\");
+        assert_eq!(resolve_discogs_class(CLASS_COUNT).unwrap_err().code, \"invalid_taxonomy_index\");
+    }
+"""
+replace_once(maest, parser_test, catalog_test)
+
+old_real_test = """    #[test]
+    #[ignore = \"downloads are forbidden in the normal test suite; set DJORGANIZER_MAEST_MODEL to a verified official ONNX\"]
+    fn runs_the_official_model_with_a_deterministic_tensor() {
+        let path = std::env::var_os(\"DJORGANIZER_MAEST_MODEL\")
+            .expect(\"set the isolated verified model path\");
+        let path = Path::new(&path);
+        assert!(
+            verify_model(path).unwrap(),
+            \"the isolated model must match the pinned manifest\"
+        );
+        let session = load_session(path).unwrap();
+        let scores = run_preprocessed(&session, vec![0.0; INPUT_FRAMES * INPUT_BANDS]).unwrap();
+        assert_eq!(scores.len(), CLASS_COUNT);
+        assert!(scores.iter().all(|score| score.is_finite()));
+        println!(\"model verified\\ninput=[1,1876,96]\\noutput=[1,519]\\nfinite=true\");
+    }
+"""
+new_real_test = """    #[test]
+    #[ignore = \"downloads are forbidden in the normal test suite; set DJORGANIZER_MAEST_MODEL to a verified official ONNX\"]
+    fn runs_the_official_model_with_a_deterministic_tensor() {
+        let path = std::env::var_os(\"DJORGANIZER_MAEST_MODEL\")
+            .expect(\"set the isolated verified model path\");
+        let path = Path::new(&path);
+
+        println!(\"stage=integrity\");
+        assert!(
+            verify_model(path).unwrap(),
+            \"the isolated model must match the pinned manifest\"
+        );
+
+        println!(\"stage=session\");
+        let session = Session::builder()
+            .unwrap_or_else(|error| panic!(\"stage=session builder_error={error:?}\"))
+            .with_intra_threads(1)
+            .unwrap_or_else(|error| panic!(\"stage=session thread_error={error:?}\"))
+            .commit_from_file(path)
+            .unwrap_or_else(|error| panic!(\"stage=session ort_error={error:?}\"));
+
+        println!(\"stage=contract\");
+        validate_session(&session)
+            .unwrap_or_else(|error| panic!(\"stage=contract error={error:?}\"));
+
+        println!(\"stage=inference\");
+        let input = Array3::from_shape_vec(
+            (1, INPUT_FRAMES, INPUT_BANDS),
+            vec![0.0; INPUT_FRAMES * INPUT_BANDS],
+        )
+        .expect(\"the deterministic tensor shape is valid\");
+        let inputs = ort::inputs![MODEL.input_name => input]
+            .unwrap_or_else(|error| panic!(\"stage=inference input_error={error:?}\"));
+        let outputs = session
+            .run(inputs)
+            .unwrap_or_else(|error| panic!(\"stage=inference ort_error={error:?}\"));
+
+        println!(\"stage=output\");
+        let output = outputs
+            .get(MODEL.output_name)
+            .unwrap_or_else(|| panic!(\"stage=output missing={}\", MODEL.output_name));
+        let tensor = output
+            .try_extract_tensor::<f32>()
+            .unwrap_or_else(|error| panic!(\"stage=output tensor_error={error:?}\"));
+        assert_eq!(tensor.shape(), MODEL.output_shape);
+        let scores = tensor.iter().copied().collect::<Vec<_>>();
+        validate_output(&scores).unwrap();
+
+        println!(\"model verified\\ninput=[1,1876,96]\\noutput=[1,519]\\nfinite=true\");
+    }
+"""
+replace_once(maest, old_real_test, new_real_test)
+
+docs = ROOT / "docs/desktop-maest-foundation.md"
+docs_text = docs.read_text(encoding="utf-8")
+completed_bullet = "- Catálogo oficial completo incorporado de forma reproducible y validado sobre las 519 etiquetas."
+if completed_bullet not in docs_text:
+    docs_text = docs_text.replace(
+        "- La metadata contiene 519 clases. Cada clase se interpreta únicamente si contiene exactamente un separador `---`; no se traduce, fusiona ni reinterpreta.\n",
+        "- La metadata contiene 519 clases. Cada clase se interpreta únicamente si contiene exactamente un separador `---`; no se traduce, fusiona ni reinterpreta.\n"
+        "- El recurso `src-tauri/resources/maest-discogs519-v2.json` conserva las 519 clases oficiales en orden y se valida mediante pruebas Rust.\n",
+        1,
+    )
+    docs_text = docs_text.replace(
+        "- Incorporar de forma reproducible el catálogo oficial completo y ejecutar su prueba Rust sobre las 519 etiquetas.",
+        completed_bullet,
+        1,
+    )
+    docs.write_text(docs_text, encoding="utf-8")
+
+print(f"catalog_bytes={len(payload)}")
+print(f"catalog_sha256={hashlib.sha256(payload).hexdigest()}")
+print(f"catalog_classes={len(classes)}")
