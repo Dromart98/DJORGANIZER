@@ -268,6 +268,34 @@ mod tests {
     }
 
     #[test]
+    fn exact_maximum_tie_skips_taxonomy_and_releases_the_gate() {
+        let gate = InferenceGate::default();
+        let resolved = Cell::new(false);
+        let error = analyze_media_source_with(
+            &gate,
+            audio_source(),
+            "now",
+            |_| {
+                let mut values = scores(59, 0.8);
+                values[60] = 0.8;
+                Ok(values)
+            },
+            |_| {
+                resolved.set(true);
+                resolve_discogs_class(59)
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            (error.stage, error.code.as_str()),
+            ("inference", "ambiguous_output")
+        );
+        assert!(!resolved.get());
+        assert!(gate.acquire().is_ok());
+    }
+
+    #[test]
     fn gate_is_busy_only_during_inference_and_releases_after_all_outcomes() {
         let gate = InferenceGate::default();
         let held = gate.acquire().unwrap();

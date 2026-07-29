@@ -183,12 +183,28 @@ pub fn validate_output(scores: &[f32]) -> Result<usize, AnalysisError> {
             "El modelo devolvió valores no finitos.",
         ));
     }
-    scores
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(index, _)| index)
-        .ok_or_else(|| error("empty_output", "El modelo no devolvió predicciones."))
+    let (first, remaining) = scores
+        .split_first()
+        .ok_or_else(|| error("empty_output", "El modelo no devolvió predicciones."))?;
+    let mut winner = 0;
+    let mut maximum = *first;
+    let mut ambiguous = false;
+    for (index, score) in remaining.iter().enumerate() {
+        if *score > maximum {
+            winner = index + 1;
+            maximum = *score;
+            ambiguous = false;
+        } else if *score == maximum {
+            ambiguous = true;
+        }
+    }
+    if ambiguous {
+        return Err(error(
+            "ambiguous_output",
+            "El modelo no distinguió una clase ganadora.",
+        ));
+    }
+    Ok(winner)
 }
 
 #[derive(Debug, Default)]
@@ -608,6 +624,23 @@ mod tests {
             validate_output(&scores).unwrap_err().code,
             "invalid_output_value"
         );
+    }
+
+    #[test]
+    fn requires_one_exact_winning_score() {
+        assert_eq!(
+            validate_output(&vec![0.25; CLASS_COUNT]).unwrap_err().code,
+            "ambiguous_output"
+        );
+
+        let mut tied = vec![-2.0; CLASS_COUNT];
+        tied[17] = 0.75;
+        tied[301] = 0.75;
+        assert_eq!(validate_output(&tied).unwrap_err().code, "ambiguous_output");
+
+        let mut negative = vec![-10.0; CLASS_COUNT];
+        negative[208] = -0.5;
+        assert_eq!(validate_output(&negative).unwrap(), 208);
     }
 
     #[test]
