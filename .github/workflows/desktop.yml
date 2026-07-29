@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "src-tauri/**"
+      - "rust-toolchain.toml"
       - ".github/workflows/desktop.yml"
       - "docs/desktop-maest-foundation.md"
   workflow_dispatch:
@@ -12,6 +13,28 @@ permissions:
   contents: read
 
 jobs:
+  msrv-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Configure Rust 1.89.0
+        run: rustup toolchain install 1.89.0 --profile minimal
+
+      - name: Check desktop crate MSRV
+        run: cargo +1.89.0 check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+
   desktop-check:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -28,10 +51,10 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - name: Configure Rust
+      - name: Configure Rust 1.97.1
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt
-          rustup default stable
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustup default 1.97.1
 
       - name: Check formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
