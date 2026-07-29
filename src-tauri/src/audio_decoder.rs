@@ -39,7 +39,22 @@ pub(crate) fn decode_audio(
     source: Box<dyn MediaSource>,
     max_samples: usize,
 ) -> Result<DecodedAudio, AudioDecodeError> {
-    if max_samples == 0 || source.byte_len() == Some(0) {
+    if max_samples == 0 {
+        return Err(AudioDecodeError::new(INVALID_SOURCE));
+    }
+
+    decode_audio_with_rate_limit(source, move |_| Ok(max_samples))
+}
+
+/// Decodes with a limit derived once from the validated sample rate of the first audio packet.
+pub(crate) fn decode_audio_with_rate_limit<F>(
+    source: Box<dyn MediaSource>,
+    limit_for_rate: F,
+) -> Result<DecodedAudio, AudioDecodeError>
+where
+    F: FnOnce(u32) -> Result<usize, &'static str>,
+{
+    if source.byte_len() == Some(0) {
         return Err(AudioDecodeError::new(INVALID_SOURCE));
     }
 
@@ -54,8 +69,10 @@ pub(crate) fn decode_audio(
         .map_err(map_probe_error)?;
 
     let (track_id, mut decoder) = select_audio_track(format.as_ref())?;
-    let mut output = Vec::with_capacity(max_samples.min(32_768));
+    let mut output = Vec::new();
     let mut sample_rate = None;
+    let mut max_samples = None;
+    let mut limit_for_rate = Some(limit_for_rate);
 
     loop {
         let packet = match format.next_packet() {
@@ -76,10 +93,28 @@ pub(crate) fn decode_audio(
         if sample_rate.replace(rate).is_some_and(|known| known != rate) {
             return Err(AudioDecodeError::new(INVALID_SAMPLE_RATE));
         }
+        let limit = match max_samples {
+            Some(limit) => limit,
+            None => {
+                let limit =
+                    limit_for_rate
+                        .take()
+                        .expect("sample limit policy is evaluated once")(rate)
+                    .map_err(AudioDecodeError::new)?;
+                if limit == 0 {
+                    return Err(AudioDecodeError::new(INVALID_SOURCE));
+                }
+                output
+                    .try_reserve_exact(limit.min(32_768))
+                    .map_err(|_| AudioDecodeError::new(DECODE_FAILED))?;
+                max_samples = Some(limit);
+                limit
+            }
+        };
 
         let mut interleaved = vec![0.0_f32; decoded.samples_interleaved()];
         decoded.copy_to_slice_interleaved(&mut interleaved);
-        if append_mono(&interleaved, channels, max_samples, &mut output)? {
+        if append_mono(&interleaved, channels, limit, &mut output)? {
             return Ok(DecodedAudio {
                 samples: output,
                 sample_rate: rate,

@@ -63,11 +63,11 @@ La salida respeta un límite explícito y solo marca truncamiento cuando el clip
 
 ## Pipeline interno validado
 
-El orquestador reutiliza sin duplicarlos `audio_decoder`, `audio_resampler` y `maest_preprocessing`. Su límite predeterminado de decodificación es 1 440 001 muestras mono: treinta segundos a 48 kHz más una muestra para detectar una fuente más larga. El remuestreador retiene exactamente 480 000 muestras; una entrada corta se rechaza sin completar con silencio y un límite de decodificación agotado antes de obtenerlas se distingue de ese caso.
+El orquestador reutiliza sin duplicarlos `audio_decoder`, `audio_resampler` y `maest_preprocessing`. Tras sondear y validar la frecuencia real, calcula el límite como `frecuencia × 30 + 1` mediante operaciones comprobadas. Admite hasta 192 kHz (5 760 001 muestras decodificadas como máximo) y rechaza frecuencias superiores con un error estable. Así no trunca prematuramente 88,2, 96 o 192 kHz ni decodifica minutos innecesarios a frecuencias bajas. El remuestreador retiene exactamente 480 000 muestras; una entrada corta se rechaza sin completar con silencio y un límite configurado insuficiente se distingue de ese caso.
 
 El error unificado conserva la etapa estable (`decode`, `resample` o `preprocess`) y el código de causa. Los fixtures Base64 son tonos sintéticos deterministas WAV/PCM a 16 kHz y FLAC a 44,1 kHz, ambos de treinta segundos y detectados por contenido. Las pruebas comprueban las 180 096 salidas finitas, determinismo, entrada corta, fuente inválida y límite insuficiente.
 
-Los vectores PCM de decodificación y remuestreo pueden coexistir únicamente durante el remuestreo. Sus payloads `f32` quedan acotados a 7 680 004 bytes (1 440 001 + 480 000 muestras); después se libera el PCM original antes de reservar el tensor de 720 384 bytes. Esta cifra documenta los payloads de los vectores del pipeline y no incluye overhead del asignador, bytes comprimidos de la fuente ni buffers internos acotados de Symphonia, Rubato y FFT.
+Los vectores PCM de decodificación y remuestreo pueden coexistir únicamente durante el remuestreo. En el máximo admitido de 192 kHz, sus payloads `f32` quedan acotados a 24 960 004 bytes, aproximadamente 23,80 MiB (5 760 001 + 480 000 muestras). Después se libera el PCM original antes de reservar el tensor de 720 384 bytes. El límite excluye expresamente overhead del asignador, fuente comprimida y buffers internos acotados de Symphonia, Rubato y FFT; el tensor tampoco forma parte de ese pico porque se reserva después de liberar el PCM original.
 
 ## Pendiente
 

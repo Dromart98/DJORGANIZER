@@ -193,9 +193,10 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   OGG/Vorbis; las pruebas directas actuales cubren WAV/PCM y FLAC. El remuestreo
   interno, determinista y acotado desde PCM mono finito a 16 kHz también está
   implementado con identidad exacta cuando la entrada ya está a 16 kHz. El
-  pipeline interno conecta las tres capas, exige 480 000 muestras remuestreadas
-  sin relleno y produce 180 096 valores finitos y deterministas. Esta base todavía
-  no constituye un analizador completo de canciones.
+  pipeline interno conecta las tres capas, deriva de la frecuencia real una
+  ventana de 30 segundos hasta un máximo explícito de 192 kHz, exige 480 000
+  muestras remuestreadas sin relleno y produce 180 096 valores finitos y
+  deterministas. Esta base todavía no constituye un analizador completo de canciones.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
 - [ ] Completar la clasificación local de escritorio con MAEST: conectar el
   tensor del pipeline a ONNX e integrar por pista y con Biblioteca y UI, con
