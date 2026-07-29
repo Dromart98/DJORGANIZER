@@ -2,7 +2,7 @@
 
 ## Estado de esta rama
 
-**Runtime MAEST implementado y validado con el ONNX oficial, incluido el instalador Windows x64; análisis de audio pendiente.** La rama descarga y verifica el artefacto fijado, carga una sesión reutilizable de ONNX Runtime, acepta el tensor preprocesado oficial y obtiene una salida finita de 519 clases. Windows enlaza ONNX Runtime estáticamente y el instalador NSIS se ha construido, instalado e inspeccionado. La decodificación, el preprocesamiento equivalente y la integración por pista siguen fuera de alcance.
+**Runtime y preprocesamiento MAEST desde PCM mono `f32` a 16 kHz implementados y validados; análisis de archivos pendiente.** La rama conserva el runtime ONNX ya validado y añade una transformación Rust pura hasta el tensor plano `1876 × 96`. La decodificación, el remuestreo, la integración por pista, los lotes y la persistencia siguen fuera de alcance.
 
 ## Confirmado con la metadata oficial
 
@@ -41,14 +41,18 @@ Se construyó un instalador NSIS x64 sin publicarlo, se instaló de forma silenc
 
 Las comprobaciones específicas de los instaladores macOS y Linux no forman parte de esta base orientada al entorno Windows principal y deberán ejecutarse antes de una distribución oficial para esas plataformas.
 
-## Preprocesamiento pendiente de equivalencia
+## Preprocesamiento validado
 
-Las fuentes oficiales relacionan `TensorflowPredictMAEST` con `TensorflowInputMusiCNN`: 16 kHz, 96 bandas Mel, FFT 512, hop 256, `max_length` 1876, compresión `logC` y normalización con media `2.06755686098554` y desviación `1.268292820667291`; el patch hop predeterminado es 1875. Estos datos todavía no constituyen una implementación Rust: antes hay que inspeccionar el código oficial completo y demostrar equivalencia numérica con Essentia. No se reutilizará el Mel de Discogs-EffNet por aproximación.
+La implementación Rust reproduce el contrato de `TensorflowPredictMAEST` y `TensorflowInputMusiCNN` de Essentia fijado en `b9fa6cb674ca43dfb94d28d293aeda441c6745db`: `FrameCutter` centrado (`startFromZero=false`) con ceros en los bordes, Hann simétrica no normalizada con fase cero, espectro de magnitud de 512 puntos, 96 filtros Slaney Mel de 0 a 8 kHz aplicados sobre potencia y normalizados por el área triangular teórica, `log10(1 + 10000·x)` y normalización posterior. Se conserva el orden tiempo × banda consumido por `run_preprocessed`.
+
+La referencia binaria se generó con los bindings oficiales de Essentia tras verificar que los algoritmos usados coinciden con ese commit y la señal pseudoaleatoria determinista descrita en `src-tauri/tests/fixtures/generate-maest-reference.py`. La prueba compara los 180 096 valores con tolerancias fijadas antes del resultado: diferencia máxima `≤ 2e-5` y media `≤ 1e-6`. Essentia se usa únicamente para generar el fixture de prueba y no se distribuye ni se incorpora como dependencia.
+
+La función rechaza entrada vacía, muestras no finitas y señales con menos de 480 000 muestras mediante códigos estables. Procesa un frame cada vez y solo materializa el tensor de salida, el búfer FFT y el banco de filtros. El caso de silencio usa el resultado matemático exacto del extractor (Mel cero antes de la normalización) y permanece determinista; no replica la inyección aleatoria de ruido para silencios del `FrameCutter` *streaming*, que no forma parte de `TensorflowInputMusiCNN` y es irrelevante para el tensor matemático fijado.
 
 ## Pendiente
 
-- Implementar y validar decodificación, remuestreo y preprocesamiento equivalente.
+- Implementar y validar decodificación y remuestreo; conectar el preprocesamiento validado al futuro flujo de archivos.
 - Integrar análisis por pista, propuestas de género/subgénero y persistencia segura.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado y su empaquetado Windows están implementados y validados. El analizador de canciones completo permanece pendiente hasta cerrar preprocesamiento e integración.
+El runtime aislado, su empaquetado Windows y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El analizador de canciones completo permanece pendiente de decodificación, remuestreo e integración.
