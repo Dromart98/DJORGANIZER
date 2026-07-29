@@ -79,8 +79,7 @@ pub(crate) fn decode_audio(
 
         let mut interleaved = vec![0.0_f32; decoded.samples_interleaved()];
         decoded.copy_to_slice_interleaved(&mut interleaved);
-        append_mono(&interleaved, channels, max_samples, &mut output)?;
-        if output.len() == max_samples {
+        if append_mono(&interleaved, channels, max_samples, &mut output)? {
             return Ok(DecodedAudio {
                 samples: output,
                 sample_rate: rate,
@@ -152,7 +151,7 @@ fn append_mono(
     channels: usize,
     limit: usize,
     output: &mut Vec<f32>,
-) -> Result<(), AudioDecodeError> {
+) -> Result<bool, AudioDecodeError> {
     validate_audio_metadata(1, channels)?;
     if interleaved.len() % channels != 0 {
         return Err(AudioDecodeError::new(DECODE_FAILED));
@@ -160,22 +159,28 @@ fn append_mono(
 
     for frame in interleaved.chunks_exact(channels) {
         if output.len() == limit {
-            break;
+            validate_finite_frame(frame)?;
+            return Ok(true);
         }
-        let mut sum = 0.0_f64;
-        for &sample in frame {
-            if !sample.is_finite() {
-                return Err(AudioDecodeError::new(NON_FINITE_SAMPLE));
-            }
-            sum += f64::from(sample);
-        }
+        let sum = validate_finite_frame(frame)?;
         let mono = (sum / channels as f64) as f32;
         if !mono.is_finite() {
             return Err(AudioDecodeError::new(NON_FINITE_SAMPLE));
         }
         output.push(mono);
     }
-    Ok(())
+    Ok(false)
+}
+
+fn validate_finite_frame(frame: &[f32]) -> Result<f64, AudioDecodeError> {
+    let mut sum = 0.0_f64;
+    for &sample in frame {
+        if !sample.is_finite() {
+            return Err(AudioDecodeError::new(NON_FINITE_SAMPLE));
+        }
+        sum += f64::from(sample);
+    }
+    Ok(sum)
 }
 
 #[cfg(test)]
@@ -238,6 +243,17 @@ mod tests {
         let result = decode(wav(1, 1, 8_000, 16, &data), 3).unwrap();
         assert_eq!(result.samples.len(), 3);
         assert!(result.truncated);
+    }
+
+    #[test]
+    fn does_not_truncate_when_input_exactly_matches_the_limit() {
+        let data: Vec<u8> = [0_i16, 1, 2]
+            .into_iter()
+            .flat_map(i16::to_le_bytes)
+            .collect();
+        let result = decode(wav(1, 1, 8_000, 16, &data), 3).unwrap();
+        assert_eq!(result.samples.len(), 3);
+        assert!(!result.truncated);
     }
 
     #[test]
