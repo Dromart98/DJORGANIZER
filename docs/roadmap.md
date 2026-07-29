@@ -187,14 +187,17 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   de ONNX Runtime e inferencia real en Linux y Windows. El instalador NSIS x64
   enlaza ONNX Runtime estáticamente y se instaló e inspeccionó en CI. El
   preprocesamiento puro desde PCM mono `f32` a 16 kHz hasta `1876 × 96` también
-  está reproducido y validado numéricamente frente a Essentia; esta fase todavía
-  no decodifica ni analiza archivos de audio.
+  está reproducido y validado numéricamente frente a Essentia. La decodificación
+  interna, por contenido y acotada a PCM mono `f32` conserva la frecuencia
+  original y está configurada para MP3, FLAC, WAV/PCM, AAC en M4A/MP4 y
+  OGG/Vorbis; las pruebas directas actuales cubren WAV/PCM y FLAC. Esta base
+  todavía no constituye un analizador completo de archivos de audio.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
-- [ ] Completar la clasificación local de escritorio con MAEST: decodificar y
-  remuestrear audio, conectar el preprocesamiento oficial ya validado, limitar
-  memoria, permitir cancelación, integrar propuestas revisables por pista y
-  conservar audio y rutas exclusivamente en el dispositivo. Comparar CPU y
-  aceleración disponible antes de habilitar análisis masivo.
+- [ ] Completar la clasificación local de escritorio con MAEST: remuestrear a
+  16 kHz, conectar decodificación → remuestreo → preprocesamiento MAEST e
+  integrar por pista con cancelación, lotes, propuestas revisables y
+  persistencia segura. Conservar audio y rutas exclusivamente en el dispositivo
+  y comparar CPU y aceleración disponible antes de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
 - [x] Verificar y documentar la licencia de `discogs-effnet-bs64-1`: modelo y
   derivados bajo CC BY-NC-SA 4.0, con atribución separada, ShareAlike y uso
@@ -350,4 +353,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados; la decodificación, el remuestreo, la integración por pista y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST, la decodificación interna y acotada por contenido a PCM mono `f32` en la frecuencia original, y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El remuestreo, el analizador completo de archivos, la integración por pista y con Biblioteca, y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
