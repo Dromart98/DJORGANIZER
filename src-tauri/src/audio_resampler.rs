@@ -1,4 +1,4 @@
-use rubato::{audioadapter_buffers::direct::InterleavedSlice, Fft, FixedSync, Resampler};
+use rubato::{audioadapter_buffers::direct::InterleavedSlice, Fft, FixedSync, Indexing, Resampler};
 
 const TARGET_SAMPLE_RATE: u32 = 16_000;
 const EMPTY_INPUT: &str = "empty_input";
@@ -7,6 +7,8 @@ const INVALID_SAMPLE_LIMIT: &str = "invalid_sample_limit";
 const NON_FINITE_SAMPLE: &str = "non_finite_sample";
 const SIZE_OVERFLOW: &str = "size_overflow";
 const RESAMPLER_FAILED: &str = "resampler_failed";
+const RESAMPLER_CHUNK_FRAMES: usize = 64;
+const MAX_TEMP_OUTPUT_FRAMES: usize = 16_384;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct ResampledAudio {
@@ -44,61 +46,154 @@ pub(crate) fn resample_mono_to_16khz(
     }
 
     let expected_output_len = expected_output_len(input.len(), input_sample_rate)?;
-    let chunk_size = input.len().min(4_096);
+    let resampler = bounded_resampler(input_sample_rate)?;
+    if expected_output_len <= max_output_samples {
+        resample_complete(input, expected_output_len, resampler)
+    } else {
+        resample_truncated(input, max_output_samples, resampler).map(|(audio, _)| audio)
+    }
+}
+
+fn bounded_resampler(input_sample_rate: u32) -> Result<Fft<f32>, AudioResampleError> {
     let mut resampler = Fft::<f32>::new(
         input_sample_rate as usize,
         TARGET_SAMPLE_RATE as usize,
-        chunk_size,
+        RESAMPLER_CHUNK_FRAMES,
         1,
         FixedSync::Input,
     )
     .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
+    if resampler.output_frames_max() > MAX_TEMP_OUTPUT_FRAMES {
+        resampler = Fft::<f32>::new(
+            input_sample_rate as usize,
+            TARGET_SAMPLE_RATE as usize,
+            1,
+            1,
+            FixedSync::Input,
+        )
+        .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
+    }
+    if resampler.output_frames_max() > MAX_TEMP_OUTPUT_FRAMES {
+        return Err(AudioResampleError::new(RESAMPLER_FAILED));
+    }
+    Ok(resampler)
+}
 
-    // Rubato trims the FFT delay after a complete processing chunk. Padding very short clips
-    // through that path also ensures their leading samples are not returned as startup silence.
-    let processing_len = input.len().max(
-        resampler
-            .input_frames_next()
-            .checked_add(1)
-            .ok_or_else(|| AudioResampleError::new(SIZE_OVERFLOW))?,
-    );
-    let mut padded_input = Vec::new();
-    let processing_input = if processing_len == input.len() {
-        input
-    } else {
-        padded_input
-            .try_reserve_exact(processing_len)
-            .map_err(|_| AudioResampleError::new(SIZE_OVERFLOW))?;
-        padded_input.extend_from_slice(input);
-        padded_input.resize(processing_len, 0.0);
-        &padded_input
-    };
-
-    let output_capacity = resampler.process_all_needed_output_len(processing_len);
+fn resample_complete(
+    input: &[f32],
+    expected_output_len: usize,
+    mut resampler: Fft<f32>,
+) -> Result<ResampledAudio, AudioResampleError> {
+    let output_capacity = resampler.process_all_needed_output_len(input.len());
     if output_capacity < expected_output_len {
         return Err(AudioResampleError::new(SIZE_OVERFLOW));
     }
-    let input_adapter = InterleavedSlice::new(processing_input, 1, processing_len)
+    let input_adapter = InterleavedSlice::new(input, 1, input.len())
         .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
-    let mut output = vec![0.0_f32; output_capacity];
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(output_capacity)
+        .map_err(|_| AudioResampleError::new(SIZE_OVERFLOW))?;
+    output.resize(output_capacity, 0.0_f32);
     let mut output_adapter = InterleavedSlice::new_mut(&mut output, 1, output_capacity)
         .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
     let (_, produced) = resampler
-        .process_all_into_buffer(&input_adapter, &mut output_adapter, processing_len, None)
+        .process_all_into_buffer(&input_adapter, &mut output_adapter, input.len(), None)
         .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
-    if produced < expected_output_len {
+    if produced != expected_output_len {
         return Err(AudioResampleError::new(RESAMPLER_FAILED));
     }
     if output[..produced].iter().any(|sample| !sample.is_finite()) {
         return Err(AudioResampleError::new(RESAMPLER_FAILED));
     }
-    output.truncate(expected_output_len.min(max_output_samples));
+    output.truncate(expected_output_len);
 
     Ok(ResampledAudio {
         samples: output,
         sample_rate: TARGET_SAMPLE_RATE,
-        truncated: expected_output_len > max_output_samples,
+        truncated: false,
     })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct TruncatedBufferStats {
+    retained_samples: usize,
+    output_chunk_samples: usize,
+    input_frames_consumed: usize,
+}
+
+fn resample_truncated(
+    input: &[f32],
+    max_output_samples: usize,
+    mut resampler: Fft<f32>,
+) -> Result<(ResampledAudio, TruncatedBufferStats), AudioResampleError> {
+    let target_samples = max_output_samples
+        .checked_add(1)
+        .ok_or_else(|| AudioResampleError::new(SIZE_OVERFLOW))?;
+    let output_chunk_samples = resampler.output_frames_max();
+    if output_chunk_samples == 0 || output_chunk_samples > MAX_TEMP_OUTPUT_FRAMES {
+        return Err(AudioResampleError::new(RESAMPLER_FAILED));
+    }
+
+    let input_adapter = InterleavedSlice::new(input, 1, input.len())
+        .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
+    let mut chunk = Vec::new();
+    chunk
+        .try_reserve_exact(output_chunk_samples)
+        .map_err(|_| AudioResampleError::new(SIZE_OVERFLOW))?;
+    chunk.resize(output_chunk_samples, 0.0_f32);
+    let mut retained = Vec::new();
+    retained
+        .try_reserve_exact(target_samples)
+        .map_err(|_| AudioResampleError::new(SIZE_OVERFLOW))?;
+
+    let mut input_offset = 0;
+    let mut delay_left = resampler.output_delay();
+    while retained.len() < target_samples {
+        let input_frames = resampler.input_frames_next();
+        let remaining = input.len().saturating_sub(input_offset);
+        let valid_input = remaining.min(input_frames);
+        let indexing = Indexing {
+            input_offset,
+            output_offset: 0,
+            partial_len: (valid_input < input_frames).then_some(valid_input),
+            active_channels_mask: None,
+        };
+        let produced = {
+            let mut chunk_adapter = InterleavedSlice::new_mut(&mut chunk, 1, output_chunk_samples)
+                .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
+            let (_, produced) = resampler
+                .process_into_buffer(&input_adapter, &mut chunk_adapter, Some(&indexing))
+                .map_err(|_| AudioResampleError::new(RESAMPLER_FAILED))?;
+            produced
+        };
+        input_offset = input_offset
+            .checked_add(valid_input)
+            .ok_or_else(|| AudioResampleError::new(SIZE_OVERFLOW))?;
+        if chunk[..produced].iter().any(|sample| !sample.is_finite()) {
+            return Err(AudioResampleError::new(RESAMPLER_FAILED));
+        }
+
+        let skip = delay_left.min(produced);
+        delay_left -= skip;
+        let useful = &chunk[skip..produced];
+        let needed = target_samples - retained.len();
+        retained.extend_from_slice(&useful[..useful.len().min(needed)]);
+    }
+
+    retained.truncate(max_output_samples);
+    Ok((
+        ResampledAudio {
+            samples: retained,
+            sample_rate: TARGET_SAMPLE_RATE,
+            truncated: true,
+        },
+        TruncatedBufferStats {
+            retained_samples: target_samples,
+            output_chunk_samples,
+            input_frames_consumed: input_offset,
+        },
+    ))
 }
 
 fn validate_input(
@@ -196,6 +291,38 @@ mod tests {
             resample(&input, 48_000, 16_000),
             resample(&input, 48_000, 16_000)
         );
+    }
+
+    #[test]
+    fn truncated_output_matches_the_complete_output_prefix() {
+        let input = tone(48_000, 997.0, 1);
+        let complete = resample(&input, 48_000, 16_000);
+        let truncated = resample(&input, 48_000, 1_001);
+        assert_eq!(truncated.samples, complete.samples[..1_001]);
+        assert!(truncated.truncated);
+    }
+
+    #[test]
+    fn long_input_with_a_small_limit_stops_after_confirming_truncation() {
+        let input = tone(48_000, 440.0, 20);
+        let resampler = bounded_resampler(48_000).unwrap();
+        let (result, stats) = resample_truncated(&input, 32, resampler).unwrap();
+        assert_eq!(result.samples.len(), 32);
+        assert!(result.truncated);
+        assert!(stats.input_frames_consumed < input.len());
+        assert_eq!(stats.retained_samples, 33);
+        assert!(stats.output_chunk_samples <= MAX_TEMP_OUTPUT_FRAMES);
+    }
+
+    #[test]
+    fn extreme_upsampling_keeps_temporary_buffers_bounded() {
+        let input = vec![0.25_f32; 100];
+        let resampler = bounded_resampler(1).unwrap();
+        let (result, stats) = resample_truncated(&input, 8, resampler).unwrap();
+        assert_eq!(result.samples.len(), 8);
+        assert_eq!(stats.retained_samples, 9);
+        assert!(stats.output_chunk_samples <= MAX_TEMP_OUTPUT_FRAMES);
+        assert!(stats.retained_samples + stats.output_chunk_samples <= 9 + 16_384);
     }
 
     #[test]
