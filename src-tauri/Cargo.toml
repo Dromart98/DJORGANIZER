@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "DJOrganizer desktop shell"
 authors = ["DJOrganizer contributors"]
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 
 [lib]
 name = "djorganizer_desktop_lib"

@@ -29,11 +29,11 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - name: Configure Rust 1.85.0
-        run: rustup toolchain install 1.85.0 --profile minimal
+      - name: Configure Rust 1.89.0
+        run: rustup toolchain install 1.89.0 --profile minimal
 
       - name: Check desktop crate MSRV
-        run: cargo +1.85.0 check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+        run: cargo +1.89.0 check --locked --manifest-path src-tauri/Cargo.toml --all-targets
 
   desktop-check:
     runs-on: ubuntu-24.04

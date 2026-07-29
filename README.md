@@ -381,11 +381,11 @@ no editan `database.xml`.
 El roadmap vivo está en [`docs/roadmap.md`](docs/roadmap.md).
 
 El desarrollo y empaquetado del escritorio usan Rust `1.97.1`, fijado en
-`rust-toolchain.toml`; el MSRV declarado y comprobado por CI es Rust `1.85`.
+`rust-toolchain.toml`; el MSRV declarado y comprobado por CI es Rust `1.89`.
 Para validar el núcleo Rust:
 
 ```bash
-cargo +1.85.0 check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+cargo +1.89.0 check --locked --manifest-path src-tauri/Cargo.toml --all-targets
 cargo +1.97.1 fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo +1.97.1 check --locked --manifest-path src-tauri/Cargo.toml --all-targets
 cargo +1.97.1 test --locked --manifest-path src-tauri/Cargo.toml
