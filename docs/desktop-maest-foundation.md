@@ -2,7 +2,7 @@
 
 ## Estado de esta rama
 
-**Runtime, decodificación acotada y preprocesamiento MAEST implementados y validados; análisis de archivos pendiente.** La capa interna de escritorio está configurada para decodificar por contenido MP3, FLAC, WAV/PCM, AAC en M4A/MP4 y OGG/Vorbis a PCM mono `f32` finito, conservando la frecuencia original. Las pruebas de decodificación ejercitan WAV/PCM y FLAC; el remuestreo, la conexión entre decodificación y preprocesamiento, la integración por pista, los lotes y la persistencia siguen fuera de alcance.
+**Runtime, decodificación acotada, remuestreo a 16 kHz y preprocesamiento MAEST implementados y validados; análisis de archivos pendiente.** La capa interna de escritorio está configurada para decodificar por contenido MP3, FLAC, WAV/PCM, AAC en M4A/MP4 y OGG/Vorbis a PCM mono `f32` finito, conservando la frecuencia original. Las pruebas de decodificación ejercitan WAV/PCM y FLAC; la conexión entre decodificación, remuestreo y preprocesamiento, la integración por pista, los lotes y la persistencia siguen fuera de alcance.
 
 ## Confirmado con la metadata oficial
 
@@ -55,10 +55,16 @@ La capa Rust interna recibe una fuente multimedia confiable, sondea únicamente 
 
 Cada frame se convierte a `f32`, se valida como finito y se mezcla a mono mediante la media de sus canales en precisión `f64`. La salida conserva la frecuencia original, se detiene exactamente al alcanzar el límite explícito de muestras y comunica si se alcanzó ese límite. Los errores internos usan códigos estables para fuente inválida, formato no reconocido, pista ausente, frecuencia o canales inválidos, fallo de decodificación y valores no finitos. Las pruebas cubren PCM entero mono, PCM flotante estéreo, límite exacto y un fixture FLAC sintético detectado sin extensión.
 
+## Remuestreo validado
+
+La capa Rust interna remuestrea clips completos de PCM mono `f32` finito desde una frecuencia positiva a 16 kHz con el remuestreador síncrono FFT de Rubato `4.0.0`. La dependencia deshabilita sus features por defecto y habilita únicamente `fft_resampler`, sin `log`. `process_all_into_buffer` dimensiona y procesa el clip, elimina el retardo inicial y conserva la cola; la ruta 16 kHz → 16 kHz es una identidad exacta.
+
+La salida respeta un límite explícito y solo marca truncamiento cuando el clip produciría muestras adicionales. Los cálculos de tamaño son comprobados y los errores usan códigos estables para entrada vacía, frecuencia o límite cero, muestras no finitas, desbordamiento y fallo del remuestreador. No se normaliza ni modifica la amplitud. Las pruebas cubren 8, 16, 44,1 y 48 kHz, conservación de un tono, señal corta, determinismo y los límites exacto y excedido.
+
 ## Pendiente
 
-- Implementar y validar el remuestreo; conectar la decodificación y el preprocesamiento validados al futuro flujo de archivos.
+- Conectar la decodificación, el remuestreo y el preprocesamiento validados al futuro flujo de archivos.
 - Integrar análisis por pista, propuestas de género/subgénero y persistencia segura.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado, su empaquetado Windows, la decodificación acotada a PCM mono en la frecuencia original y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El analizador de canciones completo permanece pendiente de remuestreo e integración.
+El runtime aislado, su empaquetado Windows, la decodificación acotada a PCM mono en la frecuencia original, el remuestreo interno a 16 kHz y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El analizador de canciones completo permanece pendiente de integración.
