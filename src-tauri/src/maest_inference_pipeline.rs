@@ -103,6 +103,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::maest::{load_session, verify_model};
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::{cell::Cell, io::Cursor, path::Path};
 
@@ -334,12 +335,13 @@ mod tests {
     fn runs_audio_through_onnx_and_resolves_a_valid_discogs_class() {
         let path = std::env::var_os("DJORGANIZER_MAEST_MODEL")
             .expect("set DJORGANIZER_MAEST_MODEL to the verified official ONNX");
-        let session = ort::session::Session::builder()
-            .unwrap()
-            .with_intra_threads(1)
-            .unwrap()
-            .commit_from_file(Path::new(&path))
-            .unwrap();
+        let path = Path::new(&path);
+        assert!(
+            verify_model(path).expect("the official model artifact must be readable"),
+            "DJORGANIZER_MAEST_MODEL must match the pinned size and SHA-256"
+        );
+        let session = load_session(path)
+            .expect("the official model must satisfy the pinned input and output contract");
         let result = analyze_media_source(
             &session,
             &InferenceGate::default(),

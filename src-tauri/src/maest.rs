@@ -266,7 +266,7 @@ fn verify_artifact(
     Ok(count == expected_bytes && format!("{:x}", hasher.finalize()) == expected_sha256)
 }
 
-fn verify_model(path: &Path) -> Result<bool, AnalysisError> {
+pub(crate) fn verify_model(path: &Path) -> Result<bool, AnalysisError> {
     verify_artifact(path, MODEL.bytes, MODEL.sha256)
 }
 
@@ -308,7 +308,7 @@ fn validate_session(session: &Session) -> Result<(), AnalysisError> {
     Ok(())
 }
 
-fn load_session(path: &Path) -> Result<Session, AnalysisError> {
+pub(crate) fn load_session(path: &Path) -> Result<Session, AnalysisError> {
     let session = Session::builder()
         .and_then(|builder| builder.with_intra_threads(1))
         .and_then(|builder| builder.commit_from_file(path))
