@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-07-28.
+Actualizado: 2026-07-29.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -202,10 +202,14 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   inferencia mediante un gate liberado por RAII. Esta base todavía no constituye
   un analizador completo de canciones.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
+- [x] Exponer el análisis MAEST seguro de una única pista confirmada por la
+  sesión nativa de escaneo. El comando resuelve `sessionId + scanId` dentro de
+  Rust, revalida el archivo antes y después, exige el modelo ya preparado y
+  devuelve una propuesta revisable que no se aplica ni persiste.
 - [ ] Completar la clasificación local de escritorio con MAEST: integrar el
-  orquestador interno ya conectado a ONNX por pista y con Biblioteca y UI, con
-  cancelación, lotes, propuestas revisables y
-  persistencia segura. Conservar audio y rutas exclusivamente en el dispositivo
+  comando por pista con Biblioteca y UI, aplicación y persistencia segura,
+  escritura de etiquetas, ventanas múltiples, cancelación, progreso y lotes.
+  Conservar audio y rutas exclusivamente en el dispositivo
   y comparar CPU y aceleración disponible antes de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
 - [x] Verificar y documentar la licencia de `discogs-effnet-bs64-1`: modelo y

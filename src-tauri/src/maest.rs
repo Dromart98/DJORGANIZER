@@ -108,6 +108,18 @@ pub struct MaestState {
     session: Mutex<Option<Session>>,
 }
 
+impl MaestState {
+    pub(crate) fn with_ready_session<T>(
+        &self,
+        run: impl FnOnce(&Session, &InferenceGate) -> T,
+    ) -> Option<T> {
+        let session = self.session.lock().ok()?;
+        session
+            .as_ref()
+            .map(|session| run(session, &self.inference))
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareModelResult {

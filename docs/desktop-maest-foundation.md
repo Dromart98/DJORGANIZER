@@ -2,7 +2,9 @@
 
 ## Estado de esta rama
 
-**Pipeline e inferencia interna implementados; analizador de canciones pendiente.** La capa interna de escritorio conecta una fuente multimedia confiable con decodificación por contenido, remuestreo exacto a 480 000 muestras a 16 kHz, preprocesamiento MAEST hasta un tensor plano `1876 × 96`, inferencia ONNX de 519 scores y una propuesta Discogs de género/subgénero. No expone un comando Tauri de análisis ni integra Biblioteca, UI, pistas o persistencia.
+**Pipeline, inferencia y análisis seguro de una pista confirmada implementados; flujo de Biblioteca pendiente.** La capa interna de escritorio conecta una fuente multimedia confiable con decodificación por contenido, remuestreo exacto a 480 000 muestras a 16 kHz, preprocesamiento MAEST hasta un tensor plano `1876 × 96`, inferencia ONNX de 519 scores y una propuesta Discogs de género/subgénero. El comando Tauri `analyze_scanned_track` acepta exclusivamente `sessionId` y `scanId`, resuelve el archivo dentro de la sesión nativa activa y devuelve una propuesta revisable sin persistirla ni aplicarla.
+
+Antes de abrir el archivo, el comando verifica raíz confirmada, ruta relativa, ausencia de enlaces simbólicos, tipo regular, tamaño y versión (incluida la fecha de modificación). Abre la fuente desde Rust, libera previamente el mutex del escaneo, ejecuta decodificación e inferencia mediante `spawn_blocking` y repite las comprobaciones tras el análisis para descartar cualquier resultado si el archivo cambió. Requiere una sesión ONNX ya preparada y nunca inicia una descarga del modelo.
 
 ## Confirmado con la metadata oficial
 
@@ -79,8 +81,9 @@ Las pruebas normales inyectan una función determinista que recibe el tensor por
 
 ## Pendiente
 
-- Integrar análisis por pista, Biblioteca, UI, propuestas de género/subgénero y persistencia segura.
+- Integrar el comando por pista con Biblioteca y UI, y añadir revisión, aplicación y persistencia segura de las propuestas.
+- Añadir escritura de etiquetas y soporte seguro para ventanas múltiples.
 - Añadir selección de ventanas, cancelación y procesamiento por lotes en sus fases aprobadas.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado, su empaquetado Windows y el pipeline interno desde una fuente multimedia hasta una propuesta Discogs están implementados y validados. El analizador por pista y su integración con Biblioteca, UI y persistencia permanecen pendientes.
+El runtime aislado, su empaquetado Windows, el pipeline interno y el análisis seguro de una pista confirmada están implementados. La salida no modifica el archivo ni la Biblioteca. UI, revisión y aplicación de cambios, escritura de etiquetas, persistencia, ventanas múltiples, lotes, progreso y cancelación permanecen pendientes; por tanto, el flujo completo de clasificación de Biblioteca no está terminado.
