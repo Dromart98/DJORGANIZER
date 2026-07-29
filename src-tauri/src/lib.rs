@@ -1,3 +1,4 @@
+mod audio_decoder;
 mod maest;
 mod maest_preprocessing;
 

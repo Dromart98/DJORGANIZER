@@ -2,7 +2,7 @@
 
 ## Estado de esta rama
 
-**Runtime y preprocesamiento MAEST desde PCM mono `f32` a 16 kHz implementados y validados; análisis de archivos pendiente.** La rama conserva el runtime ONNX ya validado y añade una transformación Rust pura hasta el tensor plano `1876 × 96`. La decodificación, el remuestreo, la integración por pista, los lotes y la persistencia siguen fuera de alcance.
+**Runtime, decodificación acotada y preprocesamiento MAEST implementados y validados; análisis de archivos pendiente.** La capa interna de escritorio está configurada para decodificar por contenido MP3, FLAC, WAV/PCM, AAC en M4A/MP4 y OGG/Vorbis a PCM mono `f32` finito, conservando la frecuencia original. Las pruebas de decodificación ejercitan WAV/PCM y FLAC; el remuestreo, la conexión entre decodificación y preprocesamiento, la integración por pista, los lotes y la persistencia siguen fuera de alcance.
 
 ## Confirmado con la metadata oficial
 
@@ -49,10 +49,16 @@ La referencia binaria se generó con los bindings oficiales de Essentia tras ver
 
 La función rechaza entrada vacía, muestras no finitas y señales con menos de 480 000 muestras mediante códigos estables. Procesa un frame cada vez y solo materializa el tensor de salida, el búfer FFT y el banco de filtros. El caso de silencio usa el resultado matemático exacto del extractor (Mel cero antes de la normalización) y permanece determinista; no replica la inyección aleatoria de ruido para silencios del `FrameCutter` *streaming*, que no forma parte de `TensorflowInputMusiCNN` y es irrelevante para el tensor matemático fijado.
 
+## Decodificación validada
+
+La capa Rust interna recibe una fuente multimedia confiable, sondea únicamente su contenido y elige de forma determinista la primera pista de audio decodificable por identificador. Symphonia `0.6.0` se compila sin features por defecto y solo con `mp3`, `flac`, `wav`, `pcm`, `aac`, `isomp4`, `ogg` y `vorbis`; Lofty conserva en exclusiva la lectura y escritura de etiquetas.
+
+Cada frame se convierte a `f32`, se valida como finito y se mezcla a mono mediante la media de sus canales en precisión `f64`. La salida conserva la frecuencia original, se detiene exactamente al alcanzar el límite explícito de muestras y comunica si se alcanzó ese límite. Los errores internos usan códigos estables para fuente inválida, formato no reconocido, pista ausente, frecuencia o canales inválidos, fallo de decodificación y valores no finitos. Las pruebas cubren PCM entero mono, PCM flotante estéreo, límite exacto y un fixture FLAC sintético detectado sin extensión.
+
 ## Pendiente
 
-- Implementar y validar decodificación y remuestreo; conectar el preprocesamiento validado al futuro flujo de archivos.
+- Implementar y validar el remuestreo; conectar la decodificación y el preprocesamiento validados al futuro flujo de archivos.
 - Integrar análisis por pista, propuestas de género/subgénero y persistencia segura.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado, su empaquetado Windows y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El analizador de canciones completo permanece pendiente de decodificación, remuestreo e integración.
+El runtime aislado, su empaquetado Windows, la decodificación acotada a PCM mono en la frecuencia original y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El analizador de canciones completo permanece pendiente de remuestreo e integración.
