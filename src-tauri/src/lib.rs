@@ -130,6 +130,19 @@ mod scanned_track_analysis_tests {
         }
     }
 
+    fn replace_preserving_size_and_modified(path: &Path) {
+        let metadata = fs::metadata(path).unwrap();
+        let modified = metadata.modified().unwrap();
+        let size = metadata.len() as usize;
+        let old = path.with_extension("old");
+        fs::rename(path, old).unwrap();
+        let replacement = File::create(path).unwrap();
+        replacement.set_len(size as u64).unwrap();
+        replacement
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+    }
+
     #[test]
     fn valid_track_uses_server_file_releases_mutex_and_returns_minimal_proposal() {
         let (root, state, request, expected) = fixture();
@@ -280,6 +293,45 @@ mod scanned_track_analysis_tests {
         fs::remove_dir_all(root2).unwrap();
     }
 
+    #[test]
+    fn rejects_identity_change_between_validation_and_open_without_executing() {
+        let (root, state, request, _) = fixture();
+        let path = root.join("track.wav");
+        let executed = std::cell::Cell::new(false);
+        let error = analyze_confirmed_track_with_open(
+            &state,
+            request,
+            |confirmed| {
+                replace_preserving_size_and_modified(confirmed);
+                File::open(confirmed)
+            },
+            |_, at| {
+                executed.set(true);
+                Ok(proposal(at))
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "track_changed");
+        assert!(!executed.get());
+        assert!(!serde_json::to_string(&error)
+            .unwrap()
+            .contains(path.to_str().unwrap()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_same_size_and_modified_identity_change_during_analysis() {
+        let (root, state, request, _) = fixture();
+        let path = root.join("track.wav");
+        let error = analyze_confirmed_track_with(&state, request, |_, at| {
+            replace_preserving_size_and_modified(&path);
+            Ok(proposal(at))
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "track_changed");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_symlink() {
@@ -295,6 +347,30 @@ mod scanned_track_analysis_tests {
             "track_unavailable"
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_intermediate_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let (root, state, request, _) = fixture();
+        let outside = root.with_extension("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let outside_track = outside.join("track.wav");
+        fs::rename(root.join("track.wav"), &outside_track).unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+        {
+            let mut guard = state.scan_session.lock().unwrap();
+            let session = guard.as_mut().unwrap();
+            let track = session.tracks.get_mut(&request.scan_id).unwrap();
+            track.absolute_path = root.join("linked/track.wav");
+            track.track.relative_path = "linked/track.wav".into();
+        }
+        let error =
+            analyze_confirmed_track_with(&state, request, |_, at| Ok(proposal(at))).unwrap_err();
+        assert_eq!(error.code, "track_unavailable");
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
     }
 
     #[test]
@@ -448,6 +524,30 @@ struct ConfirmedAnalysisTrack {
     relative_path: PathBuf,
     expected_size: u64,
     expected_version: FileVersion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AnalysisFileIdentity {
+    first: u64,
+    second: u64,
+}
+
+#[cfg(unix)]
+fn analysis_file_identity(metadata: &fs::Metadata) -> Option<AnalysisFileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    Some(AnalysisFileIdentity {
+        first: metadata.dev(),
+        second: metadata.ino(),
+    })
+}
+
+#[cfg(windows)]
+fn analysis_file_identity(metadata: &fs::Metadata) -> Option<AnalysisFileIdentity> {
+    use std::os::windows::fs::MetadataExt;
+    Some(AnalysisFileIdentity {
+        first: metadata.volume_serial_number()? as u64,
+        second: metadata.file_index()?,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -2220,7 +2320,7 @@ fn resolve_analysis_track(
 
 fn validate_analysis_track(
     track: &ConfirmedAnalysisTrack,
-) -> Result<fs::Metadata, AnalyzeScannedTrackError> {
+) -> Result<AnalysisFileIdentity, AnalyzeScannedTrackError> {
     if !track.absolute_path.is_absolute() || !track.root.is_absolute() {
         return Err(analysis_error(
             "track_unavailable",
@@ -2242,6 +2342,23 @@ fn validate_analysis_track(
             "La identidad local de la pista no coincide.",
         ));
     }
+    let canonical_root = fs::canonicalize(&track.root).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La carpeta confirmada no está disponible.",
+        )
+    })?;
+    if !fs::metadata(&canonical_root)
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false)
+    {
+        return Err(analysis_error(
+            "track_unavailable",
+            None,
+            "La carpeta confirmada no es válida.",
+        ));
+    }
     let metadata = fs::symlink_metadata(&track.absolute_path).map_err(|_| {
         analysis_error(
             "track_unavailable",
@@ -2256,6 +2373,20 @@ fn validate_analysis_track(
             "La pista confirmada no es un archivo regular.",
         ));
     }
+    let canonical_path = fs::canonicalize(&track.absolute_path).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no está disponible.",
+        )
+    })?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err(analysis_error(
+            "track_unavailable",
+            None,
+            "La pista ya no está dentro de la carpeta confirmada.",
+        ));
+    }
     let actual = file_version(&metadata);
     if track.expected_version.modified_nanos.is_none()
         || actual.modified_nanos.is_none()
@@ -2268,20 +2399,72 @@ fn validate_analysis_track(
             "La pista cambió desde el escaneo.",
         ));
     }
-    Ok(metadata)
+    analysis_file_identity(&metadata).ok_or_else(|| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "No se pudo confirmar la identidad de la pista.",
+        )
+    })
 }
 
-fn analyze_confirmed_track_with<E>(
+fn validate_analysis_descriptor(
+    file: &File,
+    track: &ConfirmedAnalysisTrack,
+    identity: AnalysisFileIdentity,
+) -> Result<(), AnalyzeScannedTrackError> {
+    let metadata = file.metadata().map_err(|_| {
+        analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió durante el análisis.",
+        )
+    })?;
+    let actual_version = file_version(&metadata);
+    if !metadata.is_file()
+        || metadata.len() != track.expected_size
+        || actual_version.modified_nanos.is_none()
+        || actual_version != track.expected_version
+        || analysis_file_identity(&metadata) != Some(identity)
+    {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió durante el análisis.",
+        ));
+    }
+    Ok(())
+}
+
+fn analyze_confirmed_track_with_open<O, E>(
     state: &DesktopState,
     request: AnalyzeScannedTrackRequest,
+    open: O,
     execute: E,
 ) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError>
 where
+    O: FnOnce(&Path) -> std::io::Result<File>,
     E: FnOnce(File, &str) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
 {
     let track = resolve_analysis_track(state, &request)?;
-    validate_analysis_track(&track)?;
-    let file = File::open(&track.absolute_path).map_err(|_| {
+    let validated_identity = validate_analysis_track(&track)?;
+    let file = open(&track.absolute_path).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no se pudo abrir.",
+        )
+    })?;
+    validate_analysis_descriptor(&file, &track, validated_identity)?;
+    let path_identity = validate_analysis_track(&track)?;
+    if path_identity != validated_identity {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió antes del análisis.",
+        ));
+    }
+    let analysis_file = file.try_clone().map_err(|_| {
         analysis_error(
             "track_unavailable",
             None,
@@ -2299,12 +2482,31 @@ where
         })?
         .as_millis()
         .to_string();
-    let analysis = execute(file, &analyzed_at)?;
-    validate_analysis_track(&track)?;
+    let analysis = execute(analysis_file, &analyzed_at)?;
+    validate_analysis_descriptor(&file, &track, validated_identity)?;
+    let final_path_identity = validate_analysis_track(&track)?;
+    if final_path_identity != validated_identity {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió durante el análisis.",
+        ));
+    }
     Ok(AnalyzeScannedTrackResult {
         scan_id: track.scan_id,
         analysis,
     })
+}
+
+fn analyze_confirmed_track_with<E>(
+    state: &DesktopState,
+    request: AnalyzeScannedTrackRequest,
+    execute: E,
+) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError>
+where
+    E: FnOnce(File, &str) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
+{
+    analyze_confirmed_track_with_open(state, request, |path| File::open(path), execute)
 }
 
 fn map_analysis_task_result<T, E>(result: Result<T, E>) -> Result<T, AnalyzeScannedTrackError> {
