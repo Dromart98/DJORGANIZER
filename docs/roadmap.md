@@ -185,11 +185,13 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   `discogs-maest-30s-pw-519l`: manifiesto fijado, descarga confirmada, tamaño y
   SHA-256 verificados, catálogo oficial ordenado de 519 clases, sesión reutilizable
   de ONNX Runtime e inferencia real en Linux y Windows. El instalador NSIS x64
-  enlaza ONNX Runtime estáticamente y se instaló e inspeccionó en CI. Esta fase
-  todavía no analiza archivos de audio.
+  enlaza ONNX Runtime estáticamente y se instaló e inspeccionó en CI. El
+  preprocesamiento puro desde PCM mono `f32` a 16 kHz hasta `1876 × 96` también
+  está reproducido y validado numéricamente frente a Essentia; esta fase todavía
+  no decodifica ni analiza archivos de audio.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
 - [ ] Completar la clasificación local de escritorio con MAEST: decodificar y
-  remuestrear audio, reproducir numéricamente el preprocesamiento oficial, limitar
+  remuestrear audio, conectar el preprocesamiento oficial ya validado, limitar
   memoria, permitir cancelación, integrar propuestas revisables por pista y
   conservar audio y rutas exclusivamente en el dispositivo. Comparar CPU y
   aceleración disponible antes de habilitar análisis masivo.
@@ -348,4 +350,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST está implementada y validada; el preprocesamiento de audio, la integración por pista y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados; la decodificación, el remuestreo, la integración por pista y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.

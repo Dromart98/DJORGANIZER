@@ -1,4 +1,5 @@
 mod maest;
+mod maest_preprocessing;
 
 use lofty::{
     config::{ParseOptions, WriteOptions},
