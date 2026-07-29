@@ -192,12 +192,15 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   original y está configurada para MP3, FLAC, WAV/PCM, AAC en M4A/MP4 y
   OGG/Vorbis; las pruebas directas actuales cubren WAV/PCM y FLAC. El remuestreo
   interno, determinista y acotado desde PCM mono finito a 16 kHz también está
-  implementado con identidad exacta cuando la entrada ya está a 16 kHz. Esta base
-  todavía no constituye un analizador completo de archivos de audio.
+  implementado con identidad exacta cuando la entrada ya está a 16 kHz. El
+  pipeline interno conecta las tres capas, deriva de la frecuencia real una
+  ventana de 30 segundos hasta un máximo explícito de 192 kHz, exige 480 000
+  muestras remuestreadas sin relleno y produce 180 096 valores finitos y
+  deterministas. Esta base todavía no constituye un analizador completo de canciones.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
-- [ ] Completar la clasificación local de escritorio con MAEST: conectar
-  decodificación → remuestreo → preprocesamiento MAEST e
-  integrar por pista con cancelación, lotes, propuestas revisables y
+- [ ] Completar la clasificación local de escritorio con MAEST: conectar el
+  tensor del pipeline a ONNX e integrar por pista y con Biblioteca y UI, con
+  cancelación, lotes, propuestas revisables y
   persistencia segura. Conservar audio y rutas exclusivamente en el dispositivo
   y comparar CPU y aceleración disponible antes de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
@@ -355,4 +358,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST, la decodificación interna y acotada por contenido a PCM mono `f32` en la frecuencia original, el remuestreo interno determinista y acotado a 16 kHz, y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El analizador completo de archivos, la conexión del pipeline, la integración por pista y con Biblioteca, y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz y preprocesamiento a `1876 × 96`— están implementados y validados. ONNX dentro del pipeline, el analizador por pista, Biblioteca, UI, persistencia y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.

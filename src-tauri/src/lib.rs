@@ -1,6 +1,7 @@
 mod audio_decoder;
 mod audio_resampler;
 mod maest;
+mod maest_pipeline;
 mod maest_preprocessing;
 
 use lofty::{

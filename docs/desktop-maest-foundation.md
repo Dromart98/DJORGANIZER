@@ -2,7 +2,7 @@
 
 ## Estado de esta rama
 
-**Runtime, decodificación acotada, remuestreo a 16 kHz y preprocesamiento MAEST implementados y validados; análisis de archivos pendiente.** La capa interna de escritorio está configurada para decodificar por contenido MP3, FLAC, WAV/PCM, AAC en M4A/MP4 y OGG/Vorbis a PCM mono `f32` finito, conservando la frecuencia original. Las pruebas de decodificación ejercitan WAV/PCM y FLAC; la conexión entre decodificación, remuestreo y preprocesamiento, la integración por pista, los lotes y la persistencia siguen fuera de alcance.
+**Pipeline matemático interno implementado y validado; analizador de canciones pendiente.** La capa interna de escritorio conecta una fuente multimedia confiable con decodificación por contenido, remuestreo exacto a 480 000 muestras a 16 kHz y preprocesamiento MAEST hasta un tensor plano `1876 × 96`. No expone comandos Tauri ni integra todavía ONNX, Biblioteca, UI, pistas o persistencia.
 
 ## Confirmado con la metadata oficial
 
@@ -61,10 +61,18 @@ La capa Rust interna remuestrea clips completos de PCM mono `f32` finito desde u
 
 La salida respeta un límite explícito y solo marca truncamiento cuando el clip produciría muestras adicionales. Los cálculos de tamaño son comprobados y los errores usan códigos estables para entrada vacía, frecuencia o límite cero, muestras no finitas, desbordamiento y fallo del remuestreador. No se normaliza ni modifica la amplitud. Las pruebas cubren 8, 16, 44,1 y 48 kHz, conservación de un tono, señal corta, determinismo y los límites exacto y excedido.
 
+## Pipeline interno validado
+
+El orquestador reutiliza sin duplicarlos `audio_decoder`, `audio_resampler` y `maest_preprocessing`. Tras sondear y validar la frecuencia real, calcula el límite como `frecuencia × 30 + 1` mediante operaciones comprobadas. Admite hasta 192 kHz (5 760 001 muestras decodificadas como máximo) y rechaza frecuencias superiores con un error estable. Así no trunca prematuramente 88,2, 96 o 192 kHz ni decodifica minutos innecesarios a frecuencias bajas. El remuestreador retiene exactamente 480 000 muestras; una entrada corta se rechaza sin completar con silencio y un límite configurado insuficiente se distingue de ese caso.
+
+El error unificado conserva la etapa estable (`decode`, `resample` o `preprocess`) y el código de causa. Los fixtures Base64 son tonos sintéticos deterministas WAV/PCM a 16 kHz y FLAC a 44,1 kHz, ambos de treinta segundos y detectados por contenido. Las pruebas comprueban las 180 096 salidas finitas, determinismo, entrada corta, fuente inválida y límite insuficiente.
+
+Los vectores PCM de decodificación y remuestreo pueden coexistir únicamente durante el remuestreo. En el máximo admitido de 192 kHz, sus payloads `f32` quedan acotados a 24 960 004 bytes, aproximadamente 23,80 MiB (5 760 001 + 480 000 muestras). Después se libera el PCM original antes de reservar el tensor de 720 384 bytes. El límite excluye expresamente overhead del asignador, fuente comprimida y buffers internos acotados de Symphonia, Rubato y FFT; el tensor tampoco forma parte de ese pico porque se reserva después de liberar el PCM original.
+
 ## Pendiente
 
-- Conectar la decodificación, el remuestreo y el preprocesamiento validados al futuro flujo de archivos.
-- Integrar análisis por pista, propuestas de género/subgénero y persistencia segura.
+- Conectar el tensor producido con ONNX dentro del futuro analizador de canciones.
+- Integrar análisis por pista, Biblioteca, UI, propuestas de género/subgénero y persistencia segura.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado, su empaquetado Windows, la decodificación acotada a PCM mono en la frecuencia original, el remuestreo interno a 16 kHz y el preprocesamiento desde PCM mono a 16 kHz están implementados y validados. El analizador de canciones completo permanece pendiente de integración.
+El runtime aislado, su empaquetado Windows y el pipeline matemático desde una fuente multimedia hasta el tensor MAEST están implementados y validados. ONNX dentro del flujo, el analizador por pista y su integración con Biblioteca, UI y persistencia permanecen pendientes.
