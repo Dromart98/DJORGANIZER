@@ -47,7 +47,7 @@ jobs:
         run: npm ci
 
       - name: Configure Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.97.1
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
