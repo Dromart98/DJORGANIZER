@@ -196,10 +196,14 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   pipeline interno conecta las tres capas, deriva de la frecuencia real una
   ventana de 30 segundos hasta un máximo explícito de 192 kHz, exige 480 000
   muestras remuestreadas sin relleno y produce 180 096 valores finitos y
-  deterministas. Esta base todavía no constituye un analizador completo de canciones.
+  deterministas. El orquestador interno mueve ese tensor a ONNX, valida los 519
+  scores y resuelve una propuesta Discogs de género/subgénero con score bruto,
+  identidad y compatibility key; conserva las etapas de error y limita la
+  inferencia mediante un gate liberado por RAII. Esta base todavía no constituye
+  un analizador completo de canciones.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
-- [ ] Completar la clasificación local de escritorio con MAEST: conectar el
-  tensor del pipeline a ONNX e integrar por pista y con Biblioteca y UI, con
+- [ ] Completar la clasificación local de escritorio con MAEST: integrar el
+  orquestador interno ya conectado a ONNX por pista y con Biblioteca y UI, con
   cancelación, lotes, propuestas revisables y
   persistencia segura. Conservar audio y rutas exclusivamente en el dispositivo
   y comparar CPU y aceleración disponible antes de habilitar análisis masivo.
@@ -358,4 +362,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz y preprocesamiento a `1876 × 96`— están implementados y validados. ONNX dentro del pipeline, el analizador por pista, Biblioteca, UI, persistencia y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores y propuesta Discogs— están implementados y validados. El analizador por pista, la selección de ventanas, cancelación, lotes, Biblioteca, UI, persistencia y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.

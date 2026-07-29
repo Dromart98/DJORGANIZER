@@ -2,7 +2,7 @@
 
 ## Estado de esta rama
 
-**Pipeline matemático interno implementado y validado; analizador de canciones pendiente.** La capa interna de escritorio conecta una fuente multimedia confiable con decodificación por contenido, remuestreo exacto a 480 000 muestras a 16 kHz y preprocesamiento MAEST hasta un tensor plano `1876 × 96`. No expone comandos Tauri ni integra todavía ONNX, Biblioteca, UI, pistas o persistencia.
+**Pipeline e inferencia interna implementados; analizador de canciones pendiente.** La capa interna de escritorio conecta una fuente multimedia confiable con decodificación por contenido, remuestreo exacto a 480 000 muestras a 16 kHz, preprocesamiento MAEST hasta un tensor plano `1876 × 96`, inferencia ONNX de 519 scores y una propuesta Discogs de género/subgénero. No expone un comando Tauri de análisis ni integra Biblioteca, UI, pistas o persistencia.
 
 ## Confirmado con la metadata oficial
 
@@ -69,10 +69,18 @@ El error unificado conserva la etapa estable (`decode`, `resample` o `preprocess
 
 Los vectores PCM de decodificación y remuestreo pueden coexistir únicamente durante el remuestreo. En el máximo admitido de 192 kHz, sus payloads `f32` quedan acotados a 24 960 004 bytes, aproximadamente 23,80 MiB (5 760 001 + 480 000 muestras). Después se libera el PCM original antes de reservar el tensor de 720 384 bytes. El límite excluye expresamente overhead del asignador, fuente comprimida y buffers internos acotados de Symphonia, Rubato y FFT; el tensor tampoco forma parte de ese pico porque se reserva después de liberar el PCM original.
 
+## Inferencia interna desde audio
+
+El orquestador interno encadena la fuente multimedia, el tensor validado, `run_preprocessed`, la validación de los 519 scores y el catálogo Discogs sin duplicar esos algoritmos. Adquiere `InferenceGate` justo antes de invocar ONNX y lo libera por RAII tras éxito o error. El `Vec<f32>` de 180 096 valores se mueve al runtime sin clonarlo; el resultado Rust añade solo 519 scores (2 076 bytes). ONNX Runtime puede reservar memoria interna adicional que no queda controlada por estos payloads Rust.
+
+La clase con el score máximo produce campos internos `genre` y `subgenre`, ambos `completed`, de fuente `automatic`, con el mismo score bruto finito. No se interpreta como probabilidad, no se normaliza y no se aplican top-k, umbrales, calibración ni ventanas múltiples. El resultado conserva identidad, versión, compatibility key, fecha aportada por el llamador y una lista de errores parciales vacía. Los fallos mantienen las etapas `decode`, `resample`, `preprocess`, `inference` y `taxonomy`.
+
+Las pruebas normales inyectan una función determinista que recibe el tensor por valor. Una prueba ignorada recorre audio → tensor → ONNX → clase válida cuando `DJORGANIZER_MAEST_MODEL` apunta al artefacto oficial ya verificado; la suite normal no descarga pesos.
+
 ## Pendiente
 
-- Conectar el tensor producido con ONNX dentro del futuro analizador de canciones.
 - Integrar análisis por pista, Biblioteca, UI, propuestas de género/subgénero y persistencia segura.
+- Añadir selección de ventanas, cancelación y procesamiento por lotes en sus fases aprobadas.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado, su empaquetado Windows y el pipeline matemático desde una fuente multimedia hasta el tensor MAEST están implementados y validados. ONNX dentro del flujo, el analizador por pista y su integración con Biblioteca, UI y persistencia permanecen pendientes.
+El runtime aislado, su empaquetado Windows y el pipeline interno desde una fuente multimedia hasta una propuesta Discogs están implementados y validados. El analizador por pista y su integración con Biblioteca, UI y persistencia permanecen pendientes.
