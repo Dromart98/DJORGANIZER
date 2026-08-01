@@ -212,9 +212,14 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
 - [x] Permitir aplicar explícitamente una propuesta MAEST válida al formulario de
   edición. Solo se copian valores no vacíos, nunca se guarda automáticamente y el
   usuario puede revisar o modificar género/subgénero antes de usar `Guardar cambios`.
-- [ ] Completar la clasificación local de escritorio con MAEST: persistencia
-  específica de evidencia/procedencia MAEST, escritura de etiquetas, ventanas
-  múltiples, cancelación, progreso y lotes.
+- [x] Persistir de forma segura la evidencia/procedencia MAEST por campo cuando
+  una propuesta aplicada se guarda: identidad y versión del analizador,
+  compatibility key, fecha y score bruto interno. La validación server-side
+  degrada evidencia inválida a edición manual, la edición posterior invalida solo
+  el campo afectado y offline, edición masiva y backups conservan las mismas
+  reglas sin almacenar rutas, IDs de sesión/escaneo ni audio.
+- [ ] Completar la clasificación local de escritorio con MAEST: escritura de
+  etiquetas, ventanas múltiples, cancelación, progreso y lotes.
   Conservar audio y rutas exclusivamente en el dispositivo
   y comparar CPU y aceleración disponible antes de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
@@ -372,4 +377,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera y la aplicación explícita de valores no vacíos al formulario de Biblioteca están implementados; la propuesta nunca se guarda automáticamente. Persistencia específica de evidencia/procedencia MAEST, escritura de etiquetas, selección de ventanas, cancelación, progreso y lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera, la aplicación explícita al formulario y la persistencia validada por campo de identidad/version/compatibility key/fecha/score bruto MAEST están implementados; la propuesta nunca se guarda automáticamente y las ediciones manuales invalidan la evidencia correspondiente. Escritura de etiquetas, selección de ventanas, cancelación, progreso y lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
