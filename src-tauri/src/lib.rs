@@ -5145,7 +5145,7 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::{
         collections::HashMap,
-        fs::{self, File},
+        fs,
         io::Write,
         path::Path,
         time::{SystemTime, UNIX_EPOCH},
@@ -5556,10 +5556,15 @@ mod tests {
         let last = replacement_bytes.len() - 1;
         replacement_bytes[last] ^= 1;
         fs::write(&replacement, replacement_bytes).unwrap();
-        File::open(&replacement)
-            .unwrap()
+        let replacement_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&replacement)
+            .unwrap();
+        replacement_file
             .set_times(fs::FileTimes::new().set_modified(modified))
             .unwrap();
+        drop(replacement_file);
         fs::rename(&file, root.join("old.flac")).unwrap();
         fs::rename(&replacement, &file).unwrap();
         assert_eq!(
