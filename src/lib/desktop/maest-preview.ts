@@ -2,6 +2,8 @@ import type { DesktopMaestResult } from "@/lib/desktop/maest-analysis";
 import {
   DESKTOP_MAEST_ANALYZER,
   DESKTOP_MAEST_COMPATIBILITY_KEY,
+  isDesktopMaestCompatibilityKey,
+  type DesktopMaestCompatibilityKey,
 } from "@/lib/desktop/maest-analysis";
 import type { TauriCore } from "@/lib/desktop/tauri";
 import type { Tables } from "@/types/database";
@@ -39,7 +41,7 @@ export type MaestFieldEvidence = {
   value: string;
   analyzerId: typeof DESKTOP_MAEST_ANALYZER.id;
   analyzerVersion: typeof DESKTOP_MAEST_ANALYZER.version;
-  compatibilityKey: typeof DESKTOP_MAEST_COMPATIBILITY_KEY;
+  compatibilityKey: DesktopMaestCompatibilityKey;
   analyzedAt: string;
   rawScore: number;
 };
@@ -324,7 +326,7 @@ export function maestGenreWriteAvailability(
     track.genre_source === "automatic" &&
     track.genre_analyzer_id === DESKTOP_MAEST_ANALYZER.id &&
     track.genre_analyzer_version === DESKTOP_MAEST_ANALYZER.version &&
-    track.genre_compatibility_key === DESKTOP_MAEST_COMPATIBILITY_KEY &&
+    isDesktopMaestCompatibilityKey(track.genre_compatibility_key) &&
     typeof track.genre_analyzed_at_ms === "number" &&
     Number.isSafeInteger(track.genre_analyzed_at_ms) &&
     track.genre_analyzed_at_ms >= 0 &&

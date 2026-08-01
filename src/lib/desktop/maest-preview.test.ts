@@ -25,6 +25,7 @@ import {
 import {
   DESKTOP_MAEST_ANALYZER,
   DESKTOP_MAEST_COMPATIBILITY_KEY,
+  DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY,
 } from "./maest-analysis";
 
 const publicResult: MaestPublicResult = {
@@ -348,6 +349,14 @@ describe("MAEST library preview contract", () => {
       genre_raw_score: 0.8,
     } as Parameters<typeof maestGenreWriteAvailability>[0];
     expect(maestGenreWriteAvailability(track, "Electronic", true)).toBe("available");
+    expect(maestGenreWriteAvailability({
+      ...track,
+      genre_compatibility_key: DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY,
+    }, "Electronic", true)).toBe("available");
+    expect(maestGenreWriteAvailability({
+      ...track,
+      genre_compatibility_key: "arbitrary",
+    }, "Electronic", true)).toBe("unavailable");
     expect(maestGenreWriteAvailability(track, "House", true)).toBe("needs-save");
     expect(maestGenreWriteAvailability({ ...track, genre_source: "manual" }, "Electronic", true)).toBe("unavailable");
     expect(maestGenreWriteAvailability({ ...track, genre_raw_score: null }, "Electronic", true)).toBe("unavailable");

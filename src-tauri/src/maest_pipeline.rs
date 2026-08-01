@@ -88,19 +88,33 @@ pub(crate) fn window_offsets(duration_seconds: Option<f64>) -> Vec<Time> {
 /// `preprocess_media_window` before the next source is opened; only bounded tensors survive.
 pub(crate) fn preprocess_media_windows<F>(
     duration_seconds: Option<f64>,
-    mut source: F,
+    source: F,
 ) -> Result<Vec<Vec<f32>>, MaestPipelineError>
 where
     F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
 {
+    preprocess_media_windows_with(duration_seconds, source, preprocess_media_window)
+}
+
+fn preprocess_media_windows_with<F, P>(
+    duration_seconds: Option<f64>,
+    mut source: F,
+    mut preprocess: P,
+) -> Result<Vec<Vec<f32>>, MaestPipelineError>
+where
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+    P: FnMut(Box<dyn MediaSource>, Time) -> Result<Vec<f32>, MaestPipelineError>,
+{
     let offsets = window_offsets(duration_seconds);
     let mut tensors = Vec::with_capacity(offsets.len());
     for (index, offset) in offsets.into_iter().enumerate() {
-        let prepared = source().and_then(|source| preprocess_media_window(source, offset));
+        let prepared = source().and_then(|source| preprocess(source, offset));
         match prepared {
             Ok(tensor) => tensors.push(tensor),
             // A format that cannot safely seek retains the established first-window behaviour.
-            Err(_) if index > 0 => {
+            Err(error)
+                if index > 0 && error.stage == "decode" && error.code == "seek_unsupported" =>
+            {
                 tensors.truncate(1);
                 break;
             }
@@ -326,5 +340,50 @@ mod tests {
         assert!(tensors
             .iter()
             .all(|tensor| tensor.len() == INPUT_FRAMES * INPUT_BANDS));
+    }
+
+    fn controlled_windows(
+        failure: Option<(usize, &'static str, &'static str)>,
+    ) -> Result<Vec<Vec<f32>>, MaestPipelineError> {
+        let mut index = 0;
+        preprocess_media_windows_with(
+            Some(90.0),
+            || Ok(Box::new(Cursor::new(vec![1_u8])) as Box<dyn MediaSource>),
+            move |_, _| {
+                let current = index;
+                index += 1;
+                if let Some((failed, stage, code)) = failure {
+                    if current == failed {
+                        return Err(MaestPipelineError::new(stage, code));
+                    }
+                }
+                Ok(vec![current as f32])
+            },
+        )
+    }
+
+    #[test]
+    fn only_seek_unsupported_on_a_later_window_falls_back_to_the_first() {
+        assert_eq!(
+            controlled_windows(Some((1, "decode", "seek_unsupported"))).unwrap(),
+            vec![vec![0.0]]
+        );
+        assert_eq!(
+            controlled_windows(Some((2, "decode", "seek_unsupported"))).unwrap(),
+            vec![vec![0.0]]
+        );
+    }
+
+    #[test]
+    fn later_decode_and_preprocess_errors_are_propagated_without_discarding_context() {
+        for failure in [
+            (1, "decode", "decode_failed"),
+            (1, "preprocess", "invalid_tensor"),
+            (2, "decode", "non_finite_sample"),
+        ] {
+            let error = controlled_windows(Some(failure)).unwrap_err();
+            assert_eq!((error.stage, error.code.as_str()), (failure.1, failure.2));
+        }
+        assert_eq!(controlled_windows(None).unwrap().len(), 3);
     }
 }

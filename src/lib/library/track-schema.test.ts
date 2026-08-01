@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DESKTOP_MAEST_COMPATIBILITY_KEY,
+  DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY,
+} from "@/lib/desktop/maest-analysis";
+import {
   toTrackInsert,
   toTrackUpdate,
   maestEvidenceFromFormData,
@@ -185,10 +189,10 @@ describe("trackFormSchema", () => {
       value: "House",
       analyzerId: "djorganizer.desktop.genre.maest" as const,
       analyzerVersion: "discogs-maest-30s-pw-519l@2" as const,
-      compatibilityKey: "maest-519l|mel-16000-1876x96-f32|v2" as const,
+      compatibilityKey: DESKTOP_MAEST_COMPATIBILITY_KEY,
       analyzedAt: "1785542400000",
       rawScore: 0.812345,
-    };
+    } as const;
     const update = toTrackUpdate(
       { ...editableValues, genre: "House", subgenre: "Deep House" },
       persistedAnalysis,
@@ -206,6 +210,22 @@ describe("trackFormSchema", () => {
       subgenre_confidence: null,
       subgenre_raw_score: 0.712345,
     });
+  });
+
+  it.each([
+    DESKTOP_MAEST_COMPATIBILITY_KEY,
+    DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY,
+  ])("accepts current and legacy MAEST evidence without rewriting %s", (compatibilityKey) => {
+    const formData = new FormData();
+    formData.set("maest_evidence", JSON.stringify({ genre: {
+      value: "House",
+      analyzerId: "djorganizer.desktop.genre.maest",
+      analyzerVersion: "discogs-maest-30s-pw-519l@2",
+      compatibilityKey,
+      analyzedAt: "1785542400000",
+      rawScore: 0.8,
+    } }));
+    expect(maestEvidenceFromFormData(formData).genre?.compatibilityKey).toBe(compatibilityKey);
   });
 
   it.each([

@@ -190,7 +190,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::maest::{load_session, verify_model};
+    use crate::maest::{load_session, verify_model, LEGACY_COMPATIBILITY_KEY};
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::{cell::Cell, io::Cursor, path::Path};
 
@@ -257,6 +257,7 @@ mod tests {
         assert_eq!(result.analyzer.id, ANALYZER_ID);
         assert_eq!(result.analyzer.version, ANALYZER_VERSION);
         assert_eq!(result.compatibility_key, COMPATIBILITY_KEY);
+        assert_ne!(result.compatibility_key, LEGACY_COMPATIBILITY_KEY);
         assert_eq!(result.genre.field, "genre");
         assert_eq!(result.genre.status, "completed");
         assert_eq!(result.genre.source, "automatic");
