@@ -4,6 +4,7 @@ import { AuthStatus } from "@/components/auth/auth-status";
 import { LocaleProvider } from "@/components/i18n/locale-provider";
 import { AppShell } from "@/components/layout/app-shell";
 import { ConnectivityStatus } from "@/components/pwa/connectivity-status";
+import { DesktopScanSessionProvider } from "@/components/desktop/scan-session-provider";
 import { OfflineSyncManager } from "@/components/pwa/offline-sync-manager";
 import { PwaRegistration } from "@/components/pwa/pwa-registration";
 import { DiagnosticsCapture } from "@/components/settings/privacy-diagnostics";
@@ -43,9 +44,11 @@ export default async function RootLayout({
           <DiagnosticsCapture />
           <ConnectivityStatus />
           <OfflineSyncManager />
-          <AppShell authStatus={<AuthStatus locale={locale} />} locale={locale}>
-            {children}
-          </AppShell>
+          <DesktopScanSessionProvider>
+            <AppShell authStatus={<AuthStatus locale={locale} />} locale={locale}>
+              {children}
+            </AppShell>
+          </DesktopScanSessionProvider>
         </LocaleProvider>
       </body>
     </html>

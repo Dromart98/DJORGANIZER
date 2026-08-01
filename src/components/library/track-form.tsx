@@ -10,6 +10,7 @@ import {
 } from "@/app/library/actions";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import type { Tables } from "@/types/database";
+import { MaestPreview } from "@/components/library/maest-preview";
 
 const INITIAL_TRACK_ACTION_STATE = {
   status: "idle",
@@ -68,6 +69,8 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           {state.message}
         </p>
       ) : null}
+
+      {mode === "update" && track ? <MaestPreview trackId={track.id} /> : null}
 
       <div className="form-grid">
         <label className="field field--wide">

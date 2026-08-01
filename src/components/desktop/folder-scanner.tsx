@@ -24,10 +24,8 @@ import {
   resolveLinkedScanIds,
 } from "@/lib/desktop/export-request";
 import type { Locale } from "@/lib/i18n/i18n";
-
-interface TauriCore {
-  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
-}
+import { getTauriCore, type TauriCore } from "@/lib/desktop/tauri";
+import { useDesktopScanSession } from "@/components/desktop/scan-session-provider";
 
 interface FolderScanResult {
   sessionId: string;
@@ -188,18 +186,6 @@ function metadataDisplayValue(locale: Locale, value: string | null) {
   return value?.trim() || (locale === "en" ? "empty" : "vacío");
 }
 
-function getTauriCore(): TauriCore | undefined {
-  if (typeof window === "undefined") return undefined;
-
-  return (
-    window as Window & {
-      __TAURI__?: {
-        core?: TauriCore;
-      };
-    }
-  ).__TAURI__?.core;
-}
-
 function commandErrorMessage(_error: unknown, fallback: string) {
   return fallback;
 }
@@ -247,6 +233,7 @@ function formatTrackIdentity(track: ScannedAudioFile) {
 
 export function DesktopFolderScanner() {
   const { format, locale, t } = useTranslator();
+  const { clearTrackLinks, replaceTrackLinks } = useDesktopScanSession();
   const [desktopAvailable, setDesktopAvailable] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [incrementalScanning, setIncrementalScanning] = useState(false);
@@ -347,6 +334,7 @@ export function DesktopFolderScanner() {
 
   const linkLibraryTracks = useCallback(
     async (core: TauriCore, scanResult: FolderScanResult) => {
+      clearTrackLinks();
       setLibraryLinkMessage(
         locale === "en"
           ? "Comparing with your DJOrganizer library…"
@@ -372,6 +360,7 @@ export function DesktopFolderScanner() {
           },
         );
         setLinkedScanIds(new Set(linkResult.links.map((link) => link.scanId)));
+        replaceTrackLinks(scanResult.sessionId, linkResult.links);
         const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
         if (rawRequest) {
           sessionStorage.removeItem(DESKTOP_EXPORT_REQUEST_KEY);
@@ -417,7 +406,7 @@ export function DesktopFolderScanner() {
         );
       }
     },
-    [locale, t],
+    [clearTrackLinks, locale, replaceTrackLinks, t],
   );
 
   async function chooseAndScan() {
@@ -438,6 +427,7 @@ export function DesktopFolderScanner() {
       }
 
       setResult(nextResult);
+      clearTrackLinks();
       setWatchingFolder(false);
       setIncrementalMessage(null);
       setQuery("");
