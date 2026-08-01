@@ -144,21 +144,33 @@ select is((select count(*)::integer from public.crate_tracks), 0, 'B cannot see 
 select is((select count(*)::integer from public.integration_syncs), 0, 'B cannot see A syncs');
 select is((select count(*)::integer from public.ai_analysis_events), 0, 'B cannot see A AI events');
 
-select is(
+update public.tracks
+set genre = 'Electronic', genre_source = 'automatic',
+  genre_analyzer_id = 'djorganizer.desktop.genre.maest',
+  genre_analyzer_version = 'discogs-maest-30s-pw-519l@2',
+  genre_compatibility_key = 'maest-519l|mel-16000-1876x96-f32|v2',
+  genre_analyzed_at_ms = 1785542400000, genre_raw_score = 0.8
+where id = '11000000-0000-4000-8000-000000000001';
+
+select set_config(
+  'request.jwt.claim.sub',
+  '10000000-0000-4000-8000-000000000001',
+  true
+);
+
+select ok(
   (
-    with changed as (
-      update public.tracks
-      set genre = 'Electronic', genre_source = 'automatic',
-        genre_analyzer_id = 'djorganizer.desktop.genre.maest',
-        genre_analyzer_version = 'discogs-maest-30s-pw-519l@2',
-        genre_compatibility_key = 'maest-519l|mel-16000-1876x96-f32|v2',
-        genre_analyzed_at_ms = 1785542400000, genre_raw_score = 0.8
-      where id = '11000000-0000-4000-8000-000000000001'
-      returning id
-    ) select count(*)::integer from changed
+    select genre_analyzer_id is null
+    from public.tracks
+    where id = '11000000-0000-4000-8000-000000000001'
   ),
-  0,
   'B cannot modify MAEST evidence on A tracks'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  '20000000-0000-4000-8000-000000000002',
+  true
 );
 
 insert into public.tracks (id, user_id, title, artist, bpm, musical_key)
