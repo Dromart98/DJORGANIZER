@@ -52,6 +52,17 @@ describe("offline mutation queue", () => {
     });
   });
 
+  it("preserves the compact MAEST evidence field in an offline track update", () => {
+    const formData = new FormData();
+    const evidence = JSON.stringify({ genre: { value: "Electronic", rawScore: 0.8 } });
+    formData.set("maest_evidence", evidence);
+    formData.set("genre", "Electronic");
+    expect(formDataToOfflinePayload(formData)).toMatchObject({
+      genre: "Electronic",
+      maest_evidence: evidence,
+    });
+  });
+
   it("creates stable relation identities for queued assignments", () => {
     expect(
       offlineEntityForAction(

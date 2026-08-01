@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { TauriCore } from "./tauri";
 import {
   applyMaestFormProposal,
+  editMaestFormField,
   invokeMaestPreview,
   initialTrackClassification,
   isCurrentMaestRequest,
@@ -28,8 +29,8 @@ const publicResult: MaestPublicResult = {
     analyzer: DESKTOP_MAEST_ANALYZER,
     compatibilityKey: DESKTOP_MAEST_COMPATIBILITY_KEY,
     partialErrors: [],
-    genre: { field: "genre", status: "completed", source: "automatic", proposedValue: "Electronic", score: 0.812345 },
-    subgenre: { field: "subgenre", status: "completed", source: "automatic", proposedValue: "Techno", score: 0.812345 },
+    genre: { field: "genre", status: "completed", source: "automatic", proposedValue: "Electronic", score: 0.812345, analyzedAt: "1785542400000" },
+    subgenre: { field: "subgenre", status: "completed", source: "automatic", proposedValue: "Techno", score: 0.712345, analyzedAt: "1785542400000" },
   },
 };
 
@@ -111,10 +112,8 @@ describe("MAEST preview UI state controller", () => {
     const fields = { genre: "House manual", subgenre: "Deep manual" };
     const state = succeeded(prepared(start(createMaestPreviewState(link))));
     expect(fields).toEqual({ genre: "House manual", subgenre: "Deep manual" });
-    expect(maestFormProposal(state.proposal)).toEqual({
-      genre: "Electronic",
-      subgenre: "Techno",
-    });
+    expect(maestFormProposal(state.proposal)?.genre?.value).toBe("Electronic");
+    expect(maestFormProposal(state.proposal)?.subgenre?.value).toBe("Techno");
   });
 
   it("applies both proposed fields only after the explicit merge", () => {
@@ -122,10 +121,10 @@ describe("MAEST preview UI state controller", () => {
     expect(proposal).not.toBeNull();
     expect(
       applyMaestFormProposal(
-        { genre: "House manual", subgenre: "Deep manual" },
+        { genre: "House manual", subgenre: "Deep manual", evidence: {} },
         proposal!,
       ),
-    ).toEqual({ genre: "Electronic", subgenre: "Techno" });
+    ).toMatchObject({ genre: "Electronic", subgenre: "Techno" });
   });
 
   it("does not erase manual values with null, missing or blank proposals", () => {
@@ -140,35 +139,59 @@ describe("MAEST preview UI state controller", () => {
     expect(maestFormProposal(incomplete)).toBeNull();
     expect(
       applyMaestFormProposal(
-        { genre: "House manual", subgenre: "Deep manual" },
-        { genre: null, subgenre: "Tech House" },
+        { genre: "House manual", subgenre: "Deep manual", evidence: {} },
+        { genre: null, subgenre: { ...maestFormProposal(publicResult)!.subgenre!, value: "Tech House" } },
       ),
-    ).toEqual({ genre: "House manual", subgenre: "Tech House" });
+    ).toMatchObject({ genre: "House manual", subgenre: "Tech House" });
   });
 
   it("keeps applied fields independent from later analysis and discard state", () => {
     const fields = applyMaestFormProposal(
-      { genre: "House manual", subgenre: "Deep manual" },
+      { genre: "House manual", subgenre: "Deep manual", evidence: {} },
       maestFormProposal(publicResult)!,
     );
     const analyzedAgain = start(succeeded(start(createMaestPreviewState(link))), 2);
     const discarded = reduceMaestPreviewState(analyzedAgain, { type: "discard" });
-    expect(fields).toEqual({ genre: "Electronic", subgenre: "Techno" });
+    expect(fields).toMatchObject({ genre: "Electronic", subgenre: "Techno" });
     expect(discarded.proposal).toBeNull();
+  });
+
+  it("invalidates evidence per manually edited field and only explicit apply restores it", () => {
+    const applied = applyMaestFormProposal(
+      { genre: "House", subgenre: "Deep House", evidence: {} },
+      maestFormProposal(publicResult)!,
+    );
+    const genreEdited = editMaestFormField(applied, "genre", "House");
+    expect(genreEdited.evidence.genre).toBeUndefined();
+    expect(genreEdited.evidence.subgenre?.value).toBe("Techno");
+    const typedBack = editMaestFormField(genreEdited, "genre", "Electronic");
+    expect(typedBack.evidence.genre).toBeUndefined();
+    expect(applyMaestFormProposal(typedBack, maestFormProposal(publicResult)!).evidence.genre?.value).toBe("Electronic");
+  });
+
+  it("reset and track initialization contain no ephemeral MAEST evidence", () => {
+    const applied = applyMaestFormProposal(
+      initialTrackClassification("update", "House", "Deep House"),
+      maestFormProposal(publicResult)!,
+    );
+    expect(applied.evidence.genre).toBeDefined();
+    expect(initialTrackClassification("update", "House", "Deep House").evidence).toEqual({});
+    expect(initialTrackClassification("update", "Rock", "Indie").evidence).toEqual({});
   });
 
   it("resets create classification fields to their initial empty values", () => {
     const initial = initialTrackClassification("create");
     const changed = applyMaestFormProposal(initial, {
-      genre: "Electronic",
-      subgenre: "Techno",
+      genre: maestFormProposal(publicResult)!.genre,
+      subgenre: maestFormProposal(publicResult)!.subgenre,
     });
 
-    expect(initial).toEqual({ genre: "", subgenre: "" });
-    expect(changed).toEqual({ genre: "Electronic", subgenre: "Techno" });
+    expect(initial).toEqual({ genre: "", subgenre: "", evidence: {} });
+    expect(changed).toMatchObject({ genre: "Electronic", subgenre: "Techno" });
     expect(initialTrackClassification("create")).toEqual({
       genre: "",
       subgenre: "",
+      evidence: {},
     });
   });
 
@@ -180,15 +203,15 @@ describe("MAEST preview UI state controller", () => {
       persisted.subgenre,
     );
     const changed = applyMaestFormProposal(initial, {
-      genre: "Electronic",
-      subgenre: "Techno",
+      genre: maestFormProposal(publicResult)!.genre,
+      subgenre: maestFormProposal(publicResult)!.subgenre,
     });
 
-    expect(initial).toEqual(persisted);
-    expect(changed).toEqual({ genre: "Electronic", subgenre: "Techno" });
+    expect(initial).toMatchObject(persisted);
+    expect(changed).toMatchObject({ genre: "Electronic", subgenre: "Techno" });
     expect(
       initialTrackClassification("update", persisted.genre, persisted.subgenre),
-    ).toEqual(persisted);
+    ).toMatchObject(persisted);
   });
 
   it("discards the current proposal", () => {
@@ -341,6 +364,12 @@ describe("MAEST library preview contract", () => {
     expect(serialized).not.toMatch(/absolutePath|relativePath|path|pcm|audio|tensor|scores|modelLocation/i);
     expect(publicResult.analysis.genre.score).toBe(0.812345);
     expect(publicResult.analysis.genre.score?.toString()).not.toContain("%");
+  });
+
+  it("creates compact field evidence without local or request identities", () => {
+    const serialized = JSON.stringify(maestFormProposal(publicResult));
+    expect(serialized).toContain("rawScore");
+    expect(serialized).not.toMatch(/sessionId|scanId|trackId|path|file|audio|pcm|tensor|scores/i);
   });
 
   it("rejects stale responses after track, session, scan or request changes", () => {

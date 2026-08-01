@@ -1,4 +1,8 @@
 import type { DesktopMaestResult } from "@/lib/desktop/maest-analysis";
+import {
+  DESKTOP_MAEST_ANALYZER,
+  DESKTOP_MAEST_COMPATIBILITY_KEY,
+} from "@/lib/desktop/maest-analysis";
 import type { TauriCore } from "@/lib/desktop/tauri";
 
 export type MaestPublicResult = {
@@ -27,11 +31,26 @@ export type MaestPreviewState = {
 export type MaestFormFields = {
   genre: string;
   subgenre: string;
+  evidence: MaestFormEvidence;
+};
+
+export type MaestFieldEvidence = {
+  value: string;
+  analyzerId: typeof DESKTOP_MAEST_ANALYZER.id;
+  analyzerVersion: typeof DESKTOP_MAEST_ANALYZER.version;
+  compatibilityKey: typeof DESKTOP_MAEST_COMPATIBILITY_KEY;
+  analyzedAt: string;
+  rawScore: number;
+};
+
+export type MaestFormEvidence = {
+  genre?: MaestFieldEvidence;
+  subgenre?: MaestFieldEvidence;
 };
 
 export type MaestFormProposal = {
-  genre: string | null;
-  subgenre: string | null;
+  genre: MaestFieldEvidence | null;
+  subgenre: MaestFieldEvidence | null;
 };
 
 export function initialTrackClassification(
@@ -40,10 +59,11 @@ export function initialTrackClassification(
   subgenre?: string | null,
 ): MaestFormFields {
   return mode === "create"
-    ? { genre: "", subgenre: "" }
+    ? { genre: "", subgenre: "", evidence: {} }
     : {
         genre: genre ?? "",
         subgenre: subgenre ?? "",
+        evidence: {},
       };
 }
 
@@ -95,13 +115,42 @@ function nonEmptyProposal(value: string | null | undefined) {
   return normalized ? normalized : null;
 }
 
+function fieldEvidence(
+  result: MaestPublicResult,
+  field: "genre" | "subgenre",
+): MaestFieldEvidence | null {
+  const analysis = result.analysis;
+  const candidate = analysis[field];
+  const value = nonEmptyProposal(candidate.proposedValue);
+  if (
+    analysis.analyzer.id !== DESKTOP_MAEST_ANALYZER.id ||
+    analysis.analyzer.version !== DESKTOP_MAEST_ANALYZER.version ||
+    analysis.compatibilityKey !== DESKTOP_MAEST_COMPATIBILITY_KEY ||
+    candidate.status !== "completed" ||
+    !value ||
+    typeof candidate.score !== "number" ||
+    !Number.isFinite(candidate.score) ||
+    typeof candidate.analyzedAt !== "string" ||
+    !/^(?:0|[1-9]\d*)$/.test(candidate.analyzedAt) ||
+    !Number.isSafeInteger(Number(candidate.analyzedAt))
+  ) return null;
+  return {
+    value,
+    analyzerId: DESKTOP_MAEST_ANALYZER.id,
+    analyzerVersion: DESKTOP_MAEST_ANALYZER.version,
+    compatibilityKey: DESKTOP_MAEST_COMPATIBILITY_KEY,
+    analyzedAt: candidate.analyzedAt,
+    rawScore: candidate.score,
+  };
+}
+
 export function maestFormProposal(
   result: MaestPublicResult | null,
 ): MaestFormProposal | null {
   if (!result) return null;
   const proposal = {
-    genre: nonEmptyProposal(result.analysis.genre.proposedValue),
-    subgenre: nonEmptyProposal(result.analysis.subgenre.proposedValue),
+    genre: fieldEvidence(result, "genre"),
+    subgenre: fieldEvidence(result, "subgenre"),
   };
   return proposal.genre || proposal.subgenre ? proposal : null;
 }
@@ -111,9 +160,24 @@ export function applyMaestFormProposal(
   proposal: MaestFormProposal,
 ): MaestFormFields {
   return {
-    genre: nonEmptyProposal(proposal.genre) ?? current.genre,
-    subgenre: nonEmptyProposal(proposal.subgenre) ?? current.subgenre,
+    genre: proposal.genre?.value ?? current.genre,
+    subgenre: proposal.subgenre?.value ?? current.subgenre,
+    evidence: {
+      ...current.evidence,
+      ...(proposal.genre ? { genre: proposal.genre } : {}),
+      ...(proposal.subgenre ? { subgenre: proposal.subgenre } : {}),
+    },
   };
+}
+
+export function editMaestFormField(
+  current: MaestFormFields,
+  field: "genre" | "subgenre",
+  value: string,
+): MaestFormFields {
+  const evidence = { ...current.evidence };
+  delete evidence[field];
+  return { ...current, [field]: value, evidence };
 }
 
 function requestMatchesState(
