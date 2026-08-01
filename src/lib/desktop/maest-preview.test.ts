@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { TauriCore } from "./tauri";
 import {
   invokeMaestPreview,
   isCurrentMaestRequest,
   maestAnalyzeArguments,
   maestErrorMessage,
+  createMaestPreviewState,
+  reduceMaestPreviewState,
+  type MaestLinkIdentity,
+  type MaestPreviewState,
   type MaestPublicResult,
 } from "./maest-preview";
 import {
@@ -27,6 +33,160 @@ function coreReturning(result = publicResult) {
   const invoke = vi.fn(async (command: string) => command === "analyze_scanned_track" ? result : { ready: true });
   return { core: { invoke } as TauriCore, invoke };
 }
+
+const link: MaestLinkIdentity = {
+  trackId: "track-opaque",
+  sessionId: "session-opaque",
+  scanId: "scan-opaque",
+};
+
+function start(state: MaestPreviewState, requestId = 1) {
+  return reduceMaestPreviewState(state, { type: "start", requestId });
+}
+
+function prepared(state: MaestPreviewState) {
+  return reduceMaestPreviewState(state, {
+    type: "prepared",
+    request: state.activeRequest!,
+  });
+}
+
+function succeeded(state: MaestPreviewState, result = publicResult) {
+  return reduceMaestPreviewState(state, {
+    type: "succeeded",
+    request: state.activeRequest!,
+    result,
+  });
+}
+
+describe("MAEST preview UI state controller", () => {
+  it("does not start without a local link", () => {
+    const state = createMaestPreviewState(null);
+    expect(start(state)).toBe(state);
+    expect(state.activeRequest).toBeNull();
+  });
+
+  it("starts a linked track in preparing state", () => {
+    const state = start(createMaestPreviewState(link));
+    expect(state.phase).toBe("preparing");
+    expect(state.activeRequest).toEqual({ ...link, requestId: 1 });
+  });
+
+  it("accepts only one start while busy", () => {
+    const first = start(createMaestPreviewState(link), 1);
+    const second = start(first, 2);
+    expect(second).toBe(first);
+    expect(second.activeRequest?.requestId).toBe(1);
+  });
+
+  it("moves from preparation to analysis for the active request", () => {
+    expect(prepared(start(createMaestPreviewState(link))).phase).toBe("analyzing");
+  });
+
+  it("stores a successful proposal and returns to idle", () => {
+    const state = succeeded(prepared(start(createMaestPreviewState(link))));
+    expect(state.phase).toBe("idle");
+    expect(state.proposal).toBe(publicResult);
+    expect(state.activeRequest).toBeNull();
+  });
+
+  it("discards the current proposal", () => {
+    const proposed = succeeded(start(createMaestPreviewState(link)));
+    const discarded = reduceMaestPreviewState(proposed, { type: "discard" });
+    expect(discarded.proposal).toBeNull();
+  });
+
+  it("a new successful analysis replaces the previous proposal", () => {
+    const old = succeeded(start(createMaestPreviewState(link)));
+    const replacement = {
+      ...publicResult,
+      analysis: {
+        ...publicResult.analysis,
+        genre: { ...publicResult.analysis.genre, proposedValue: "Rock", score: 0.4 },
+      },
+    };
+    const next = succeeded(start(old, 2), replacement);
+    expect(next.proposal).toBe(replacement);
+    expect(next.proposal).not.toBe(publicResult);
+  });
+
+  it("a safe error clears an older proposal", () => {
+    const old = succeeded(start(createMaestPreviewState(link)));
+    const active = start(old, 2);
+    const failed = reduceMaestPreviewState(active, {
+      type: "failed",
+      request: active.activeRequest!,
+      error: "El analizador está ocupado. Reinténtalo.",
+    });
+    expect(failed.proposal).toBeNull();
+    expect(failed.error).toContain("ocupado");
+  });
+
+  it.each([
+    ["trackId", { ...link, trackId: "track-new" }],
+    ["sessionId", { ...link, sessionId: "session-new" }],
+    ["scanId", { ...link, scanId: "scan-new" }],
+  ] as const)("a %s change invalidates the request and proposal", (_field, identity) => {
+    const proposed = succeeded(start(createMaestPreviewState(link)));
+    const active = start(proposed, 2);
+    const changed = reduceMaestPreviewState(active, { type: "linkChanged", identity });
+    expect(changed.identity).toEqual(identity);
+    expect(changed.proposal).toBeNull();
+    expect(changed.activeRequest).toBeNull();
+    expect(changed.phase).toBe("idle");
+  });
+
+  it("ignores a response from an older requestId", () => {
+    const active = start(createMaestPreviewState(link), 2);
+    const stale = reduceMaestPreviewState(active, {
+      type: "succeeded",
+      request: { ...link, requestId: 1 },
+      result: publicResult,
+    });
+    expect(stale).toBe(active);
+    expect(stale.proposal).toBeNull();
+  });
+
+  it("ignores a result carrying another scanId", () => {
+    const active = start(createMaestPreviewState(link));
+    const stale = reduceMaestPreviewState(active, {
+      type: "succeeded",
+      request: active.activeRequest!,
+      result: { ...publicResult, scanId: "scan-other" },
+    });
+    expect(stale).toBe(active);
+  });
+
+  it("never applies a stale response to the current track", () => {
+    const old = start(createMaestPreviewState(link));
+    const current = reduceMaestPreviewState(old, {
+      type: "linkChanged",
+      identity: { ...link, trackId: "track-current" },
+    });
+    const stale = reduceMaestPreviewState(current, {
+      type: "succeeded",
+      request: old.activeRequest!,
+      result: publicResult,
+    });
+    expect(stale).toBe(current);
+    expect(stale.proposal).toBeNull();
+    expect(stale.identity?.trackId).toBe("track-current");
+  });
+
+  it("the real component keeps the required read-only actions and states", () => {
+    const component = readFileSync(
+      fileURLToPath(new URL("../../components/library/maest-preview.tsx", import.meta.url)),
+      "utf8",
+    );
+    expect(component).toContain("Analizar localmente");
+    expect(component).toContain("Preparando analizador…");
+    expect(component).toContain("Analizando pista…");
+    expect(component).toContain("Volver a analizar");
+    expect(component).toContain("Descartar propuesta");
+    expect(component).toContain("<dt>Score</dt>");
+    expect(component).not.toMatch(/Aplicar propuesta|Guardar propuesta|Escribir etiquetas/);
+  });
+});
 
 describe("MAEST library preview contract", () => {
   it("prepares only after the explicit invocation and then analyzes", async () => {

@@ -4,15 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useDesktopScanSession } from "@/components/desktop/scan-session-provider";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import {
+  createMaestPreviewState,
   invokeMaestPreview,
-  isCurrentMaestRequest,
   maestErrorMessage,
-  type MaestPublicResult,
-  type MaestRequestIdentity,
+  reduceMaestPreviewState,
+  sameMaestLink,
+  type MaestLinkIdentity,
+  type MaestPreviewAction,
 } from "@/lib/desktop/maest-preview";
 import { getTauriCore } from "@/lib/desktop/tauri";
-
-type Phase = "idle" | "preparing" | "analyzing";
 
 export function MaestPreview({ trackId }: { trackId: string }) {
   const { getTrackLink } = useDesktopScanSession();
@@ -20,75 +20,66 @@ export function MaestPreview({ trackId }: { trackId: string }) {
   const link = getTrackLink(trackId);
   const sessionId = link?.sessionId ?? null;
   const scanId = link?.scanId ?? null;
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [proposal, setProposal] = useState<MaestPublicResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const identity: MaestLinkIdentity | null =
+    sessionId && scanId ? { scanId, sessionId, trackId } : null;
+  const [state, setState] = useState(() => createMaestPreviewState(identity));
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const requestCounter = useRef(0);
-  const activeRequest = useRef<MaestRequestIdentity | null>(null);
-  const busy = useRef(false);
-  const currentLink = useRef({ scanId, sessionId, trackId });
-  currentLink.current = { scanId, sessionId, trackId };
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
 
-  function requestStillMatches(request: MaestRequestIdentity) {
-    const current = currentLink.current;
-    return (
-      current.trackId === request.trackId &&
-      current.sessionId === request.sessionId &&
-      current.scanId === request.scanId &&
-      activeRequest.current !== null &&
-      isCurrentMaestRequest(request, activeRequest.current)
-    );
+  function transition(action: MaestPreviewAction) {
+    const synchronized = reduceMaestPreviewState(stateRef.current, {
+      type: "linkChanged",
+      identity: currentIdentity.current,
+    });
+    const next = reduceMaestPreviewState(synchronized, action);
+    stateRef.current = next;
+    setState(next);
+    return next;
   }
 
   useEffect(() => {
-    requestCounter.current += 1;
-    activeRequest.current = null;
-    busy.current = false;
-    setPhase("idle");
-    setProposal(null);
-    setError(null);
+    transition({ type: "linkChanged", identity });
+    // `identity` is deliberately represented by its opaque primitive parts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanId, sessionId, trackId]);
 
   async function analyze() {
-    if (!sessionId || !scanId || busy.current) return;
+    if (!sessionId || !scanId) return;
+    const requestId = ++requestCounter.current;
+    const started = transition({ type: "start", requestId });
+    const request = started.activeRequest;
+    if (!request || request.requestId !== requestId || started.phase !== "preparing") return;
     const core = getTauriCore();
     if (!core) {
-      setError(locale === "en" ? "Local analysis is available in the desktop app." : "El análisis local está disponible en la aplicación de escritorio.");
+      transition({
+        type: "failed",
+        request,
+        error: locale === "en" ? "Local analysis is available in the desktop app." : "El análisis local está disponible en la aplicación de escritorio.",
+      });
       return;
     }
 
-    busy.current = true;
-    setError(null);
-    setPhase("preparing");
-    const request = {
-      requestId: ++requestCounter.current,
-      trackId,
-      sessionId,
-      scanId,
-    };
-    activeRequest.current = request;
-
     try {
       const result = await invokeMaestPreview(core, sessionId, scanId, () => {
-        if (requestStillMatches(request)) {
-          setPhase("analyzing");
-        }
+        transition({ type: "prepared", request });
       });
-      if (!requestStillMatches(request)) return;
-      if (result.scanId !== scanId) return;
-      setProposal(result);
+      transition({ type: "succeeded", request, result });
     } catch (caught) {
-      if (!requestStillMatches(request)) return;
-      setProposal(null);
-      setError(maestErrorMessage(caught, locale));
-    } finally {
-      if (requestStillMatches(request)) {
-        busy.current = false;
-        setPhase("idle");
-      }
+      transition({
+        type: "failed",
+        request,
+        error: maestErrorMessage(caught, locale),
+      });
     }
   }
 
+  const visibleState = sameMaestLink(state.identity, identity)
+    ? state
+    : createMaestPreviewState(identity);
+  const { error, phase, proposal } = visibleState;
   const isBusy = phase !== "idle";
   const genre = proposal?.analysis.genre;
   const subgenre = proposal?.analysis.subgenre;
@@ -133,7 +124,7 @@ export function MaestPreview({ trackId }: { trackId: string }) {
             <div><dt>{locale === "en" ? "Proposed subgenre" : "Subgénero propuesto"}</dt><dd>{subgenre?.proposedValue ?? "—"}</dd></div>
             <div><dt>Score</dt><dd>{score == null ? "—" : score.toString()}</dd></div>
           </dl>
-          <button className="button button--secondary button--small" onClick={() => setProposal(null)} type="button">
+          <button className="button button--secondary button--small" onClick={() => transition({ type: "discard" })} type="button">
             {locale === "en" ? "Discard proposal" : "Descartar propuesta"}
           </button>
         </div>

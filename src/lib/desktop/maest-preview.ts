@@ -13,6 +13,111 @@ export type MaestRequestIdentity = {
   scanId: string;
 };
 
+export type MaestLinkIdentity = Omit<MaestRequestIdentity, "requestId">;
+export type MaestPreviewPhase = "idle" | "preparing" | "analyzing";
+export type MaestPreviewState = {
+  identity: MaestLinkIdentity | null;
+  phase: MaestPreviewPhase;
+  proposal: MaestPublicResult | null;
+  error: string | null;
+  activeRequest: MaestRequestIdentity | null;
+};
+
+export type MaestPreviewAction =
+  | { type: "linkChanged"; identity: MaestLinkIdentity | null }
+  | { type: "start"; requestId: number }
+  | { type: "prepared"; request: MaestRequestIdentity }
+  | { type: "succeeded"; request: MaestRequestIdentity; result: MaestPublicResult }
+  | { type: "failed"; request: MaestRequestIdentity; error: string }
+  | { type: "discard" }
+  | { type: "invalidate" };
+
+export function sameMaestLink(
+  left: MaestLinkIdentity | null,
+  right: MaestLinkIdentity | null,
+) {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.trackId === right.trackId &&
+      left.sessionId === right.sessionId &&
+      left.scanId === right.scanId)
+  );
+}
+
+export function createMaestPreviewState(
+  identity: MaestLinkIdentity | null,
+): MaestPreviewState {
+  return {
+    identity,
+    phase: "idle",
+    proposal: null,
+    error: null,
+    activeRequest: null,
+  };
+}
+
+function requestMatchesState(
+  state: MaestPreviewState,
+  request: MaestRequestIdentity,
+) {
+  return (
+    state.activeRequest !== null &&
+    isCurrentMaestRequest(request, state.activeRequest) &&
+    sameMaestLink(state.identity, request)
+  );
+}
+
+export function reduceMaestPreviewState(
+  state: MaestPreviewState,
+  action: MaestPreviewAction,
+): MaestPreviewState {
+  switch (action.type) {
+    case "linkChanged":
+      return sameMaestLink(state.identity, action.identity)
+        ? state
+        : createMaestPreviewState(action.identity);
+    case "start":
+      if (!state.identity || state.phase !== "idle") return state;
+      return {
+        ...state,
+        phase: "preparing",
+        error: null,
+        activeRequest: { ...state.identity, requestId: action.requestId },
+      };
+    case "prepared":
+      return requestMatchesState(state, action.request)
+        ? { ...state, phase: "analyzing" }
+        : state;
+    case "succeeded":
+      return requestMatchesState(state, action.request) &&
+        action.result.scanId === action.request.scanId
+        ? {
+            ...state,
+            phase: "idle",
+            proposal: action.result,
+            error: null,
+            activeRequest: null,
+          }
+        : state;
+    case "failed":
+      return requestMatchesState(state, action.request)
+        ? {
+            ...state,
+            phase: "idle",
+            proposal: null,
+            error: action.error,
+            activeRequest: null,
+          }
+        : state;
+    case "discard":
+      return state.proposal ? { ...state, proposal: null } : state;
+    case "invalidate":
+      return createMaestPreviewState(state.identity);
+  }
+}
+
 export function maestAnalyzeArguments(sessionId: string, scanId: string) {
   return { request: { sessionId, scanId } } as const;
 }
