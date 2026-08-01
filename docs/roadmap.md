@@ -206,9 +206,12 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   sesión nativa de escaneo. El comando resuelve `sessionId + scanId` dentro de
   Rust, revalida el archivo antes y después, exige el modelo ya preparado y
   devuelve una propuesta revisable que no se aplica ni persiste.
-- [ ] Completar la clasificación local de escritorio con MAEST: integrar el
-  comando por pista con Biblioteca y UI, aplicación y persistencia segura,
-  escritura de etiquetas, ventanas múltiples, cancelación, progreso y lotes.
+- [x] Integrar el análisis MAEST por pista con la edición de Biblioteca como
+  previsualización efímera de género y subgénero, disponible solo
+  para vínculos de la sesión de escaneo activa y sin persistencia ni escritura.
+- [ ] Completar la clasificación local de escritorio con MAEST: aplicación y
+  persistencia segura de propuestas, escritura de etiquetas, ventanas múltiples,
+  cancelación, progreso y lotes.
   Conservar audio y rutas exclusivamente en el dispositivo
   y comparar CPU y aceleración disponible antes de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
@@ -366,4 +369,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores y propuesta Discogs— están implementados y validados. El analizador por pista, la selección de ventanas, cancelación, lotes, Biblioteca, UI, persistencia y la automatización de género/subgénero siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista y su previsualización efímera de género/subgénero en Biblioteca están implementados; aplicar la propuesta, persistirla, escribir etiquetas, seleccionar ventanas, cancelar, mostrar progreso y procesar lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.

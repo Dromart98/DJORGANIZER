@@ -136,6 +136,26 @@ pub struct PrepareModelResult {
     pub reused: bool,
 }
 
+fn prepared_result_if_loaded<T>(
+    session: &Mutex<Option<Arc<T>>>,
+) -> Result<Option<PrepareModelResult>, AnalysisError> {
+    let loaded = session
+        .lock()
+        .map_err(|_| {
+            error(
+                "model_state_error",
+                "El estado del analizador no está disponible.",
+            )
+        })?
+        .is_some();
+    Ok(loaded.then_some(PrepareModelResult {
+        model_id: MODEL.model_id,
+        version: MODEL.version,
+        ready: true,
+        reused: true,
+    }))
+}
+
 fn error(code: &str, message: &str) -> AnalysisError {
     AnalysisError {
         code: code.into(),
@@ -499,6 +519,9 @@ pub async fn prepare_maest_model(
     app: AppHandle,
     state: State<'_, MaestState>,
 ) -> Result<PrepareModelResult, AnalysisError> {
+    if let Some(prepared) = prepared_result_if_loaded(&state.session)? {
+        return Ok(prepared);
+    }
     let _permit = acquire_preparation(&state.preparing)?;
     let directory = app
         .path()
@@ -561,6 +584,25 @@ pub async fn prepare_maest_model(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loaded_session_returns_reused_result_without_model_io() {
+        let session = Mutex::new(Some(Arc::new(7_u8)));
+
+        let result = prepared_result_if_loaded(&session).unwrap().unwrap();
+
+        assert_eq!(result.model_id, MODEL.model_id);
+        assert_eq!(result.version, MODEL.version);
+        assert!(result.ready);
+        assert!(result.reused);
+    }
+
+    #[test]
+    fn missing_session_continues_to_initial_model_preparation() {
+        let session = Mutex::<Option<Arc<u8>>>::new(None);
+
+        assert!(prepared_result_if_loaded(&session).unwrap().is_none());
+    }
 
     #[test]
     fn cloned_ready_value_does_not_hold_its_mutex_while_consumed() {

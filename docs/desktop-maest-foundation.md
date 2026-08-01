@@ -2,7 +2,9 @@
 
 ## Estado de esta rama
 
-**Pipeline, inferencia y análisis seguro de una pista confirmada implementados; flujo de Biblioteca pendiente.** La capa interna de escritorio conecta una fuente multimedia confiable con decodificación por contenido, remuestreo exacto a 480 000 muestras a 16 kHz, preprocesamiento MAEST hasta un tensor plano `1876 × 96`, inferencia ONNX de 519 scores y una propuesta Discogs de género/subgénero. El comando Tauri `analyze_scanned_track` acepta exclusivamente `sessionId` y `scanId`, resuelve el archivo dentro de la sesión nativa activa y devuelve una propuesta revisable sin persistirla ni aplicarla.
+**Pipeline, inferencia, análisis seguro por pista y previsualización efímera en Biblioteca implementados.** La capa interna de escritorio conecta una fuente multimedia confiable con decodificación por contenido, remuestreo exacto a 480 000 muestras a 16 kHz, preprocesamiento MAEST hasta un tensor plano `1876 × 96`, inferencia ONNX de 519 scores y una propuesta Discogs de género/subgénero. El comando Tauri `analyze_scanned_track` acepta exclusivamente `sessionId` y `scanId`, resuelve el archivo dentro de la sesión nativa activa y devuelve una propuesta revisable sin persistirla ni aplicarla.
+
+La edición real de una pista de Biblioteca ofrece la acción solo dentro de Tauri y cuando esa pista está vinculada a la sesión de escaneo activa. Una acción explícita prepara el modelo mediante `prepare_maest_model` y después analiza mediante `analyze_scanned_track`; nunca se prepara al cargar, seleccionar o escanear. La UI mantiene únicamente la propuesta visible de género/subgénero en memoria; el score bruto permanece como dato técnico interno. Permite descartar o volver a analizar e invalida el resultado al cambiar la identidad opaca de pista, sesión o vínculo. No llama a Supabase, acciones de escritura ni metadata de archivos.
 
 Antes de abrir el archivo, el comando verifica raíz confirmada y canónica, ruta relativa, ausencia de enlaces simbólicos, tipo regular, tamaño y versión (incluida la fecha de modificación). Vincula la ruta validada con el descriptor abierto mediante identidad de dispositivo/inode en Unix o volumen/índice de archivo obtenido desde el descriptor con la API estable del sistema en Windows; `file_versions` conserva la ruta relativa como clave para ser compatible con el escaneo incremental. Mantiene el descriptor durante el análisis y repite las comprobaciones para descartar cualquier resultado si el archivo fue sustituido o cambió. Abre la fuente desde Rust, libera previamente el mutex del escaneo y clona un `Arc` de la sesión ONNX antes de ejecutar decodificación e inferencia mediante `spawn_blocking`; así `InferenceGate` sigue siendo la única autoridad de concurrencia y puede devolver `analyzer_busy`. Requiere una sesión ONNX ya preparada y nunca inicia una descarga del modelo.
 
@@ -81,9 +83,9 @@ Las pruebas normales inyectan una función determinista que recibe el tensor por
 
 ## Pendiente
 
-- Integrar el comando por pista con Biblioteca y UI, y añadir revisión, aplicación y persistencia segura de las propuestas.
+- Aplicar propuestas y persistir de forma segura género/subgénero.
 - Añadir escritura de etiquetas y soporte seguro para ventanas múltiples.
-- Añadir selección de ventanas, cancelación y procesamiento por lotes en sus fases aprobadas.
+- Añadir selección de ventanas, cancelación, progreso y procesamiento por lotes en sus fases aprobadas.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado, su empaquetado Windows, el pipeline interno y el análisis seguro de una pista confirmada están implementados. La salida no modifica el archivo ni la Biblioteca. UI, revisión y aplicación de cambios, escritura de etiquetas, persistencia, ventanas múltiples, lotes, progreso y cancelación permanecen pendientes; por tanto, el flujo completo de clasificación de Biblioteca no está terminado.
+El runtime aislado, su empaquetado Windows, el pipeline interno, el análisis seguro de una pista confirmada y su previsualización en Biblioteca están implementados. La salida no modifica el archivo ni la Biblioteca. Aplicar cambios, escribir etiquetas, persistir, ventanas múltiples, lotes, progreso y cancelación permanecen pendientes; por tanto, el flujo completo de clasificación de Biblioteca no está terminado.
