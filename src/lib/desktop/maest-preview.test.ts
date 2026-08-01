@@ -3,10 +3,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { TauriCore } from "./tauri";
 import {
+  applyMaestFormProposal,
   invokeMaestPreview,
   isCurrentMaestRequest,
   maestAnalyzeArguments,
   maestErrorMessage,
+  maestFormProposal,
   maestSurfaceVisibility,
   createMaestPreviewState,
   reduceMaestPreviewState,
@@ -104,6 +106,56 @@ describe("MAEST preview UI state controller", () => {
     expect(state.activeRequest).toBeNull();
   });
 
+  it("finishing analysis only stores a proposal and does not change form fields", () => {
+    const fields = { genre: "House manual", subgenre: "Deep manual" };
+    const state = succeeded(prepared(start(createMaestPreviewState(link))));
+    expect(fields).toEqual({ genre: "House manual", subgenre: "Deep manual" });
+    expect(maestFormProposal(state.proposal)).toEqual({
+      genre: "Electronic",
+      subgenre: "Techno",
+    });
+  });
+
+  it("applies both proposed fields only after the explicit merge", () => {
+    const proposal = maestFormProposal(publicResult);
+    expect(proposal).not.toBeNull();
+    expect(
+      applyMaestFormProposal(
+        { genre: "House manual", subgenre: "Deep manual" },
+        proposal!,
+      ),
+    ).toEqual({ genre: "Electronic", subgenre: "Techno" });
+  });
+
+  it("does not erase manual values with null, missing or blank proposals", () => {
+    const incomplete = {
+      ...publicResult,
+      analysis: {
+        ...publicResult.analysis,
+        genre: { ...publicResult.analysis.genre, proposedValue: null },
+        subgenre: { ...publicResult.analysis.subgenre, proposedValue: "  " },
+      },
+    };
+    expect(maestFormProposal(incomplete)).toBeNull();
+    expect(
+      applyMaestFormProposal(
+        { genre: "House manual", subgenre: "Deep manual" },
+        { genre: null, subgenre: "Tech House" },
+      ),
+    ).toEqual({ genre: "House manual", subgenre: "Tech House" });
+  });
+
+  it("keeps applied fields independent from later analysis and discard state", () => {
+    const fields = applyMaestFormProposal(
+      { genre: "House manual", subgenre: "Deep manual" },
+      maestFormProposal(publicResult)!,
+    );
+    const analyzedAgain = start(succeeded(start(createMaestPreviewState(link))), 2);
+    const discarded = reduceMaestPreviewState(analyzedAgain, { type: "discard" });
+    expect(fields).toEqual({ genre: "Electronic", subgenre: "Techno" });
+    expect(discarded.proposal).toBeNull();
+  });
+
   it("discards the current proposal", () => {
     const proposed = succeeded(start(createMaestPreviewState(link)));
     const discarded = reduceMaestPreviewState(proposed, { type: "discard" });
@@ -187,9 +239,13 @@ describe("MAEST preview UI state controller", () => {
     expect(stale.identity?.trackId).toBe("track-current");
   });
 
-  it("the real component keeps the required read-only actions and states", () => {
+  it("the real components expose only an explicit, non-submitting form application", () => {
     const component = readFileSync(
       fileURLToPath(new URL("../../components/library/maest-preview.tsx", import.meta.url)),
+      "utf8",
+    );
+    const form = readFileSync(
+      fileURLToPath(new URL("../../components/library/track-form.tsx", import.meta.url)),
       "utf8",
     );
     expect(component).toContain("Analizar localmente");
@@ -197,10 +253,22 @@ describe("MAEST preview UI state controller", () => {
     expect(component).toContain("Analizando pista…");
     expect(component).toContain("Volver a analizar");
     expect(component).toContain("Descartar propuesta");
+    expect(component).toContain("Aplicar al formulario");
+    expect(component).toContain("Revísala antes de guardar los cambios.");
+    expect(component).toMatch(/formProposal \? \([\s\S]*Aplicar al formulario/);
+    expect(component).toMatch(/onClick=\{applyToForm\} type="button"/);
+    expect(component).not.toMatch(/document\.|querySelector|requestSubmit|type="submit"/);
     expect(component).toContain("setDesktopAvailable(Boolean(getTauriCore()))");
     expect(component).toContain('if (surface === "hidden") return null');
     expect(component).not.toMatch(/<dt>Score<\/dt>|confidence|confianza|%|0\.812345/);
-    expect(component).not.toMatch(/Aplicar propuesta|Guardar propuesta|Escribir etiquetas/);
+    expect(component).not.toMatch(/Guardar propuesta|Escribir etiquetas|supabase|updateTrackAction/);
+    expect(form).toContain("value={classification.genre}");
+    expect(form).toContain("value={classification.subgenre}");
+    expect(form).toContain("applyMaestFormProposal(current, proposal)");
+    expect(form).toMatch(/<MaestPreview onApply=\{applyMaestProposal\} trackId=\{track\.id\} \/>/);
+    expect(form).toMatch(/<SaveButton mode=\{mode\} \/>/);
+    expect(form).toContain('mode === "create" ? createTrackAction : updateTrackAction');
+    expect(form).not.toMatch(/document\.|querySelector/);
   });
 });
 

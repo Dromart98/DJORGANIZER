@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   createTrackAction,
@@ -11,6 +11,10 @@ import {
 import { useTranslator } from "@/components/i18n/locale-provider";
 import type { Tables } from "@/types/database";
 import { MaestPreview } from "@/components/library/maest-preview";
+import {
+  applyMaestFormProposal,
+  type MaestFormProposal,
+} from "@/lib/desktop/maest-preview";
 
 const INITIAL_TRACK_ACTION_STATE = {
   status: "idle",
@@ -53,6 +57,21 @@ export function TrackForm({ mode, track }: TrackFormProps) {
     INITIAL_TRACK_ACTION_STATE,
   );
   const { t } = useTranslator();
+  const [classification, setClassification] = useState(() => ({
+    genre: track?.genre ?? "",
+    subgenre: track?.subgenre ?? "",
+  }));
+
+  useEffect(() => {
+    setClassification({
+      genre: track?.genre ?? "",
+      subgenre: track?.subgenre ?? "",
+    });
+  }, [track?.id, track?.genre, track?.subgenre]);
+
+  function applyMaestProposal(proposal: MaestFormProposal) {
+    setClassification((current) => applyMaestFormProposal(current, proposal));
+  }
 
   return (
     <form
@@ -70,7 +89,9 @@ export function TrackForm({ mode, track }: TrackFormProps) {
         </p>
       ) : null}
 
-      {mode === "update" && track ? <MaestPreview trackId={track.id} /> : null}
+      {mode === "update" && track ? (
+        <MaestPreview onApply={applyMaestProposal} trackId={track.id} />
+      ) : null}
 
       <div className="form-grid">
         <label className="field field--wide">
@@ -100,12 +121,32 @@ export function TrackForm({ mode, track }: TrackFormProps) {
         </label>
         <label className="field">
           <span>{t("Género")}</span>
-          <input defaultValue={track?.genre ?? ""} maxLength={120} name="genre" />
+          <input
+            maxLength={120}
+            name="genre"
+            onChange={(event) =>
+              setClassification((current) => ({
+                ...current,
+                genre: event.target.value,
+              }))
+            }
+            value={classification.genre}
+          />
           <FieldError errors={state.fieldErrors} name="genre" />
         </label>
         <label className="field">
           <span>{t("Subgénero")}</span>
-          <input defaultValue={track?.subgenre ?? ""} maxLength={120} name="subgenre" />
+          <input
+            maxLength={120}
+            name="subgenre"
+            onChange={(event) =>
+              setClassification((current) => ({
+                ...current,
+                subgenre: event.target.value,
+              }))
+            }
+            value={classification.subgenre}
+          />
           <FieldError errors={state.fieldErrors} name="subgenre" />
         </label>
         <label className="field">
