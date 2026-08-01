@@ -61,14 +61,37 @@ export function parseBulkTrackUpdate(input: unknown): BulkTrackUpdate {
         ...common,
         update: { album: optionalText(300).parse(parsed.value) },
       };
-    case "genre":
+    case "genre": {
+      const genre = optionalText(120).parse(parsed.value);
       return {
         ...common,
-        update: (() => { const genre = optionalText(120).parse(parsed.value); return { genre, genre_confidence: null, genre_source: genre ? "manual" : null }; })(),
+        update: {
+          genre,
+          genre_analyzed_at_ms: null,
+          genre_analyzer_id: null,
+          genre_analyzer_version: null,
+          genre_compatibility_key: null,
+          genre_confidence: null,
+          genre_raw_score: null,
+          genre_source: genre ? "manual" : null,
+        },
       };
+    }
     case "subgenre": {
       const subgenre = optionalText(120).parse(parsed.value);
-      return { ...common, update: { subgenre, subgenre_confidence: null, subgenre_source: subgenre ? "manual" : null } };
+      return {
+        ...common,
+        update: {
+          subgenre,
+          subgenre_analyzed_at_ms: null,
+          subgenre_analyzer_id: null,
+          subgenre_analyzer_version: null,
+          subgenre_compatibility_key: null,
+          subgenre_confidence: null,
+          subgenre_raw_score: null,
+          subgenre_source: subgenre ? "manual" : null,
+        },
+      };
     }
     case "bpm": {
       const bpm = nullableNumber(20, 300).parse(parsed.value);

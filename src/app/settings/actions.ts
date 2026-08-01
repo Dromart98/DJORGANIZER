@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/user";
 import { createBackup, parseBackup } from "@/lib/backup/backup-format";
+import { trackRowsForRestore } from "@/lib/backup/track-restore";
 import { createClient } from "@/lib/supabase/server";
 import type { TablesInsert } from "@/types/database";
 
@@ -172,50 +173,7 @@ export async function restoreBackupAction(
     return { message: "La copia supera el límite de seguridad.", ok: false };
   }
 
-  const tracks = records(backup.data.tracks).map((row) =>
-    pick(
-      row,
-      [
-        "acoustic_fingerprint",
-        "album",
-        "analysis_status",
-        "artist",
-        "artwork_url",
-        "bpm",
-        "bpm_confidence",
-        "bpm_explanation",
-        "bpm_source",
-        "camelot_key",
-        "comments",
-        "created_at",
-        "duration_seconds",
-        "energy",
-        "energy_confidence",
-        "energy_source",
-        "file_fingerprint",
-        "file_name",
-        "file_size",
-        "file_type",
-        "genre",
-        "genre_confidence",
-        "genre_source",
-        "subgenre",
-        "subgenre_confidence",
-        "subgenre_source",
-        "id",
-        "key_confidence",
-        "key_explanation",
-        "key_source",
-        "musical_key",
-        "rating",
-        "release_year",
-        "title",
-        "updated_at",
-        "version_type",
-      ],
-      user.id,
-    ),
-  ) as TablesInsert<"tracks">[];
+  const tracks = trackRowsForRestore(records(backup.data.tracks), user.id);
   let crates: TablesInsert<"crates">[];
   try {
     crates = sortCratesForRestore(
