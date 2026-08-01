@@ -9,6 +9,10 @@ import {
   maestFormProposal,
   maestSurfaceVisibility,
   maestErrorMessage,
+  maestGenreWriteAvailability,
+  invokeMaestGenreWrite,
+  invokeMaestGenreWritePreview,
+  metadataWriteErrorMessage,
   reduceMaestPreviewState,
   sameMaestLink,
   type MaestLinkIdentity,
@@ -16,14 +20,18 @@ import {
   type MaestFormProposal,
 } from "@/lib/desktop/maest-preview";
 import { getTauriCore } from "@/lib/desktop/tauri";
+import type { Tables } from "@/types/database";
 
 export function MaestPreview({
+  formGenre,
   onApply,
-  trackId,
+  track,
 }: {
+  formGenre: string;
   onApply: (proposal: MaestFormProposal) => void;
-  trackId: string;
+  track: Tables<"tracks">;
 }) {
+  const trackId = track.id;
   const { getTrackLink } = useDesktopScanSession();
   const { locale } = useTranslator();
   const link = getTrackLink(trackId);
@@ -34,6 +42,15 @@ export function MaestPreview({
     sessionId && scanId ? { scanId, sessionId, trackId } : null;
   const [state, setState] = useState(() => createMaestPreviewState(identity));
   const [applied, setApplied] = useState(false);
+  const [writePreview, setWritePreview] = useState<Awaited<ReturnType<typeof invokeMaestGenreWritePreview>> | null>(null);
+  const [writePhase, setWritePhase] = useState<"idle" | "previewing" | "writing" | "undoing">("idle");
+  const [writeMessage, setWriteMessage] = useState<string | null>(null);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const [writeRunId, setWriteRunId] = useState<string | null>(null);
+  const writeBusyRef = useRef(false);
+  const writeIdentity = `${trackId}\u0000${sessionId ?? ""}\u0000${scanId ?? ""}\u0000${formGenre}`;
+  const writeIdentityRef = useRef(writeIdentity);
+  writeIdentityRef.current = writeIdentity;
   const stateRef = useRef(state);
   stateRef.current = state;
   const requestCounter = useRef(0);
@@ -61,6 +78,13 @@ export function MaestPreview({
     // `identity` is deliberately represented by its opaque primitive parts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanId, sessionId, trackId]);
+
+  useEffect(() => {
+    setWritePreview(null);
+    setWriteMessage(null);
+    setWriteError(null);
+    setWriteRunId(null);
+  }, [formGenre, scanId, sessionId, trackId]);
 
   async function analyze() {
     if (!sessionId || !scanId) return;
@@ -108,6 +132,77 @@ export function MaestPreview({
     if (!formProposal) return;
     onApply(formProposal);
     setApplied(true);
+  }
+
+  const writeAvailability = maestGenreWriteAvailability(track, formGenre, Boolean(identity));
+  const writeBusy = writePhase !== "idle";
+
+  async function previewGenreWrite() {
+    if (!sessionId || !scanId || writeAvailability !== "available" || writeBusyRef.current) return;
+    const core = getTauriCore();
+    if (!core) return;
+    const requestedIdentity = writeIdentity;
+    writeBusyRef.current = true;
+    setWritePhase("previewing");
+    setWriteError(null);
+    setWriteMessage(null);
+    try {
+      const next = await invokeMaestGenreWritePreview(core, sessionId, scanId, formGenre);
+      if (writeIdentityRef.current !== requestedIdentity) return;
+      setWritePreview(next);
+      setWriteMessage(next.changed
+        ? locale === "en" ? "Review the current and new genre, then confirm the write." : "Revisa el género actual y el nuevo antes de confirmar la escritura."
+        : locale === "en" ? "The file already has this genre. No backup or write is needed." : "El archivo ya tiene este género. No se necesita copia ni escritura.");
+    } catch (error) {
+      setWritePreview(null);
+      setWriteError(metadataWriteErrorMessage(error, locale));
+    } finally {
+      writeBusyRef.current = false;
+      setWritePhase("idle");
+    }
+  }
+
+  async function writeGenre() {
+    if (!sessionId || !scanId || !writePreview?.changed || writeBusyRef.current) return;
+    const core = getTauriCore();
+    if (!core) return;
+    const requestedIdentity = writeIdentity;
+    writeBusyRef.current = true;
+    setWritePhase("writing");
+    setWriteError(null);
+    try {
+      const result = await invokeMaestGenreWrite(core, sessionId, scanId, formGenre);
+      if (writeIdentityRef.current !== requestedIdentity) return;
+      setWritePreview(null);
+      setWriteRunId(result.runId);
+      setWriteMessage(locale === "en" ? "Genre written and verified." : "Género escrito y verificado.");
+    } catch (error) {
+      setWriteError(metadataWriteErrorMessage(error, locale));
+    } finally {
+      writeBusyRef.current = false;
+      setWritePhase("idle");
+    }
+  }
+
+  async function undoGenreWrite() {
+    if (!sessionId || !writeRunId || writeBusyRef.current) return;
+    const core = getTauriCore();
+    if (!core) return;
+    const requestedIdentity = writeIdentity;
+    writeBusyRef.current = true;
+    setWritePhase("undoing");
+    setWriteError(null);
+    try {
+      await core.invoke("undo_maest_genre_write", { sessionId, runId: writeRunId });
+      if (writeIdentityRef.current !== requestedIdentity) return;
+      setWriteRunId(null);
+      setWriteMessage(locale === "en" ? "The file was restored from its backup." : "El archivo se restauró desde su copia de seguridad.");
+    } catch (error) {
+      setWriteError(metadataWriteErrorMessage(error, locale));
+    } finally {
+      writeBusyRef.current = false;
+      setWritePhase("idle");
+    }
   }
 
   return (
@@ -166,6 +261,33 @@ export function MaestPreview({
             ? "Proposal applied to the form. Review it before saving changes."
             : "Propuesta aplicada al formulario. Revísala antes de guardar los cambios."}
         </p>
+      ) : null}
+      {writeAvailability !== "unavailable" ? (
+        <section aria-labelledby="maest-genre-write-title" className="maest-proposal">
+          <h3 id="maest-genre-write-title">{locale === "en" ? "Genre in local file" : "Género en el archivo local"}</h3>
+          {writeAvailability === "needs-save" ? (
+            <p className="organization-muted" role="status">{locale === "en" ? "Save the form changes before writing the persisted genre." : "Guarda primero los cambios del formulario para escribir el género persistido."}</p>
+          ) : (
+            <div className="form-actions">
+              <button className="button button--secondary button--small" disabled={writeBusy} onClick={previewGenreWrite} type="button">
+                {writePhase === "previewing" ? (locale === "en" ? "Previewing…" : "Previsualizando…") : (locale === "en" ? "Preview write" : "Previsualizar escritura")}
+              </button>
+              {writePreview?.changed ? (
+                <button className="button button--primary button--small" disabled={writeBusy} onClick={writeGenre} type="button">
+                  {writePhase === "writing" ? (locale === "en" ? "Writing…" : "Escribiendo…") : (locale === "en" ? "Write genre to file" : "Escribir género en archivo")}
+                </button>
+              ) : null}
+              {writeRunId ? (
+                <button className="button button--secondary button--small" disabled={writeBusy} onClick={undoGenreWrite} type="button">
+                  {writePhase === "undoing" ? (locale === "en" ? "Undoing…" : "Deshaciendo…") : (locale === "en" ? "Undo write" : "Deshacer escritura")}
+                </button>
+              ) : null}
+            </div>
+          )}
+          {writePreview?.changed ? <dl><div><dt>{locale === "en" ? "Current genre" : "Género actual"}</dt><dd>{writePreview.before ?? "—"}</dd></div><div><dt>{locale === "en" ? "New genre" : "Género nuevo"}</dt><dd>{writePreview.after}</dd></div></dl> : null}
+          {writeMessage ? <p aria-live="polite" className="form-message form-message--success" role="status">{writeMessage}</p> : null}
+          {writeError ? <p className="form-message form-message--error" role="alert">{writeError}</p> : null}
+        </section>
       ) : null}
     </section>
   );

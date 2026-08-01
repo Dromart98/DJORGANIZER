@@ -35,6 +35,12 @@ const MAX_METADATA_WRITE_TRACKS: usize = 25;
 const MAX_REKORDBOX_CRATES: usize = 200;
 const MAX_REKORDBOX_XML_BYTES: usize = 20_000_000;
 const METADATA_BACKUP_DIRECTORY: &str = ".djorganizer-backups";
+const MAX_PENDING_MAEST_GENRE_PREVIEWS: usize = 64;
+const LIBRARY_FILE_ALIASES_VERSION: u8 = 1;
+const MAX_LIBRARY_FILE_ALIAS_TRACKS: usize = 10_000;
+const MAX_LIBRARY_FILE_ALIASES_PER_TRACK: usize = 8;
+const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+const LIBRARY_FILE_ALIASES_NAME: &str = "library-file-aliases.json";
 
 #[derive(Debug, Default, PartialEq)]
 struct AudioMetadata {
@@ -592,8 +598,23 @@ struct IncrementalScanResult {
 #[derive(Debug, Default)]
 struct DesktopState {
     metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
+    pending_maest_genre_previews: Mutex<HashMap<MaestGenrePreviewKey, MaestGenrePreviewReceipt>>,
     reorganization_history: Mutex<Vec<ReorganizationRun>>,
     scan_session: Mutex<Option<ScanSession>>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct MaestGenrePreviewKey {
+    session_id: String,
+    scan_id: String,
+    genre: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MaestGenrePreviewReceipt {
+    file_identity: AnalysisFileIdentity,
+    file_version: FileVersion,
+    fingerprint: [u8; 32],
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -834,6 +855,44 @@ struct MetadataWriteHistoryItem {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MaestGenreWriteRequest {
+    session_id: String,
+    scan_id: String,
+    genre: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MaestGenreWritePreview {
+    scan_id: String,
+    field: &'static str,
+    before: Option<String>,
+    after: String,
+    changed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MaestGenreWriteResult {
+    applied_files: usize,
+    run_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SafeMetadataWriteError {
+    code: &'static str,
+    message: &'static str,
+}
+
+impl SafeMetadataWriteError {
+    fn new(code: &'static str, message: &'static str) -> Self {
+        Self { code, message }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct VirtualDjCrateInput {
     hierarchy: Vec<String>,
     name: String,
@@ -907,6 +966,36 @@ struct LibraryLinkCandidate {
     file_fingerprint: String,
     file_size: u64,
     track_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LocalFileIdentity {
+    fingerprint: String,
+    size: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LocalTrackAliases {
+    anchor: LocalFileIdentity,
+    aliases: Vec<LocalFileIdentity>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LocalLibraryFileAliases {
+    version: u8,
+    tracks: BTreeMap<String, LocalTrackAliases>,
+}
+
+impl Default for LocalLibraryFileAliases {
+    fn default() -> Self {
+        Self {
+            version: LIBRARY_FILE_ALIASES_VERSION,
+            tracks: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1038,6 +1127,10 @@ fn read_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
 
 fn hash_file(path: &Path, expected_size: u64) -> Result<[u8; 32], String> {
     let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    hash_open_file(&file, expected_size)
+}
+
+fn hash_open_file(file: &File, expected_size: u64) -> Result<[u8; 32], String> {
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
@@ -1980,6 +2073,133 @@ fn ensure_metadata_writable(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn confirmed_maest_genre_preview(
+    session: &ScanSession,
+    request: &MaestGenreWriteRequest,
+) -> Result<
+    (
+        MaestGenreWritePreview,
+        SessionTrack,
+        MaestGenrePreviewReceipt,
+    ),
+    SafeMetadataWriteError,
+> {
+    let genre = normalized_metadata_text(&request.genre, "El género", 120)
+        .map_err(|_| SafeMetadataWriteError::new("invalid_genre", "El género no es válido."))?
+        .ok_or_else(|| SafeMetadataWriteError::new("invalid_genre", "El género no es válido."))?;
+    if request.scan_id.is_empty() || request.scan_id.len() > 128 {
+        return Err(SafeMetadataWriteError::new(
+            "track_not_in_session",
+            "La pista no pertenece al escaneo activo.",
+        ));
+    }
+    if !session
+        .library_links
+        .values()
+        .any(|scan_id| scan_id == &request.scan_id)
+    {
+        return Err(SafeMetadataWriteError::new(
+            "track_not_in_session",
+            "La pista no está vinculada a la biblioteca.",
+        ));
+    }
+    let track = session
+        .tracks
+        .get(&request.scan_id)
+        .cloned()
+        .ok_or_else(|| {
+            SafeMetadataWriteError::new("track_unavailable", "La pista ya no está disponible.")
+        })?;
+    let file = File::open(&track.absolute_path).map_err(|_| {
+        SafeMetadataWriteError::new("track_unavailable", "El archivo ya no está disponible.")
+    })?;
+    let current = file.metadata().map_err(|_| {
+        SafeMetadataWriteError::new("track_unavailable", "El archivo ya no está disponible.")
+    })?;
+    if !current.is_file() {
+        return Err(SafeMetadataWriteError::new(
+            "track_unavailable",
+            "La pista ya no es un archivo regular.",
+        ));
+    }
+    let expected = session
+        .file_versions
+        .get(&track.track.relative_path)
+        .ok_or_else(|| {
+            SafeMetadataWriteError::new("track_changed", "El archivo cambió desde el escaneo.")
+        })?;
+    if file_version(&current) != *expected {
+        return Err(SafeMetadataWriteError::new(
+            "track_changed",
+            "El archivo cambió desde el escaneo.",
+        ));
+    }
+    if current.permissions().readonly() {
+        return Err(SafeMetadataWriteError::new(
+            "file_not_writable",
+            "El archivo no se puede escribir.",
+        ));
+    }
+    ensure_metadata_writable(&track.absolute_path).map_err(|_| {
+        SafeMetadataWriteError::new(
+            "tag_not_writable",
+            "El formato no admite escritura de etiquetas.",
+        )
+    })?;
+    let file_identity = analysis_file_identity(&file).ok_or_else(|| {
+        SafeMetadataWriteError::new("track_changed", "No se pudo confirmar el archivo.")
+    })?;
+    let fingerprint = hash_open_file(&file, current.len()).map_err(|_| {
+        SafeMetadataWriteError::new("track_changed", "El archivo cambió al previsualizar.")
+    })?;
+    let before = track.track.genre.clone();
+    Ok((
+        MaestGenreWritePreview {
+            scan_id: request.scan_id.clone(),
+            field: "genre",
+            changed: before.as_deref() != Some(genre.as_str()),
+            before,
+            after: genre,
+        },
+        track,
+        MaestGenrePreviewReceipt {
+            file_identity,
+            file_version: file_version(&current),
+            fingerprint,
+        },
+    ))
+}
+
+fn write_genre_only(path: &Path, genre: &str) -> Result<AudioMetadata, &'static str> {
+    let before = read_audio_metadata(path).map_err(|_| "write_failed")?;
+    let mut tagged_file = read_from_path(path).map_err(|_| "write_failed")?;
+    let tag_type = tagged_file.primary_tag_type();
+    if !tagged_file.tag_support(tag_type).is_writable() {
+        return Err("tag_not_writable");
+    }
+    if tagged_file.primary_tag().is_none() {
+        tagged_file.insert_tag(Tag::new(tag_type));
+    }
+    tagged_file
+        .primary_tag_mut()
+        .ok_or("tag_not_writable")?
+        .set_genre(genre.to_owned());
+    tagged_file
+        .save_to_path(path, WriteOptions::default())
+        .map_err(|_| "write_failed")?;
+    let after = read_audio_metadata(path).map_err(|_| "verification_failed")?;
+    if after.genre.as_deref() != Some(genre)
+        || after.title != before.title
+        || after.artist != before.artist
+        || after.album != before.album
+        || after.bpm != before.bpm
+        || after.musical_key != before.musical_key
+    {
+        return Err("verification_failed");
+    }
+    Ok(after)
+}
+
 fn build_metadata_write_preview(
     session: &ScanSession,
     request: &MetadataWriteRequest,
@@ -2112,6 +2332,32 @@ fn restore_metadata_backups(backups: &[MetadataBackup]) -> bool {
     restored_all
 }
 
+fn restore_metadata_run(session: &mut ScanSession, backups: &[MetadataBackup]) -> bool {
+    if !restore_metadata_backups(backups) {
+        return false;
+    }
+    for backup in backups {
+        let Ok(metadata) = read_audio_metadata(&backup.original_path) else {
+            return false;
+        };
+        let Ok(file_metadata) = fs::metadata(&backup.original_path) else {
+            return false;
+        };
+        let Ok(updated) = update_session_track_after_write(
+            session,
+            &backup.scan_id,
+            metadata,
+            file_metadata.len(),
+        ) else {
+            return false;
+        };
+        session
+            .file_versions
+            .insert(updated.relative_path, file_version(&file_metadata));
+    }
+    true
+}
+
 fn update_session_track_after_write(
     session: &mut ScanSession,
     scan_id: &str,
@@ -2211,12 +2457,14 @@ fn apply_metadata_write_batch(
         let (metadata, size_bytes) = written_metadata
             .remove(&backup.scan_id)
             .ok_or_else(|| "Falta la verificación de una pista escrita.".to_owned())?;
-        updated_tracks.push(update_session_track_after_write(
-            session,
-            &backup.scan_id,
-            metadata,
-            size_bytes,
-        )?);
+        let updated =
+            update_session_track_after_write(session, &backup.scan_id, metadata, size_bytes)?;
+        let written_file = fs::metadata(&backup.original_path)
+            .map_err(|error| format!("No se pudo actualizar el snapshot escrito: {error}"))?;
+        session
+            .file_versions
+            .insert(updated.relative_path.clone(), file_version(&written_file));
+        updated_tracks.push(updated);
     }
     let created_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2330,9 +2578,275 @@ fn parse_library_fingerprint(value: &str) -> Result<[u8; 32], String> {
     Ok(fingerprint)
 }
 
+fn valid_library_track_id(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
+}
+
+fn valid_local_file_identity(identity: &LocalFileIdentity) -> bool {
+    identity.size <= MAX_SAFE_JSON_INTEGER
+        && identity.fingerprint.len() == 64
+        && identity
+            .fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn validate_local_alias_store(store: &LocalLibraryFileAliases) -> bool {
+    store.version == LIBRARY_FILE_ALIASES_VERSION
+        && store.tracks.len() <= MAX_LIBRARY_FILE_ALIAS_TRACKS
+        && store.tracks.iter().all(|(track_id, record)| {
+            valid_library_track_id(track_id)
+                && valid_local_file_identity(&record.anchor)
+                && record.aliases.len() <= MAX_LIBRARY_FILE_ALIASES_PER_TRACK
+                && record.aliases.iter().all(valid_local_file_identity)
+        })
+}
+
+fn read_local_alias_store(path: &Path) -> LocalLibraryFileAliases {
+    fs::read(path)
+        .ok()
+        .filter(|bytes| bytes.len() <= 4_000_000)
+        .and_then(|bytes| serde_json::from_slice::<LocalLibraryFileAliases>(&bytes).ok())
+        .filter(validate_local_alias_store)
+        .unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+fn replace_local_alias_store(temp: &Path, target: &Path) -> std::io::Result<()> {
+    fs::rename(temp, target)
+}
+
+#[cfg(windows)]
+fn replace_local_alias_store(temp: &Path, target: &Path) -> std::io::Result<()> {
+    use std::{iter, os::windows::ffi::OsStrExt};
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    }
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    let existing = temp
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect::<Vec<_>>();
+    let replacement = target
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: both pointers reference NUL-terminated UTF-16 buffers that remain
+    // alive for the duration of the call.
+    let result = unsafe {
+        MoveFileExW(
+            existing.as_ptr(),
+            replacement.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn write_local_alias_store(path: &Path, store: &LocalLibraryFileAliases) -> Result<(), ()> {
+    if !validate_local_alias_store(store) {
+        return Err(());
+    }
+    let parent = path.parent().ok_or(())?;
+    fs::create_dir_all(parent).map_err(|_| ())?;
+    let temp = parent.join(format!(".{LIBRARY_FILE_ALIASES_NAME}.tmp"));
+    let bytes = serde_json::to_vec(store).map_err(|_| ())?;
+    let mut file = File::create(&temp).map_err(|_| ())?;
+    file.write_all(&bytes).map_err(|_| ())?;
+    file.sync_all().map_err(|_| ())?;
+    drop(file);
+    if replace_local_alias_store(&temp, path).is_err() {
+        let _ = fs::remove_file(&temp);
+        return Err(());
+    }
+    Ok(())
+}
+
+fn fingerprint_text(fingerprint: [u8; 32]) -> String {
+    fingerprint
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn update_alias_anchors(
+    store: &mut LocalLibraryFileAliases,
+    candidates: &[LibraryLinkCandidate],
+    linked_track_ids: impl Iterator<Item = String>,
+) {
+    let by_id = candidates
+        .iter()
+        .map(|candidate| (candidate.track_id.as_str(), candidate))
+        .collect::<HashMap<_, _>>();
+    for track_id in linked_track_ids {
+        if !valid_library_track_id(&track_id) {
+            continue;
+        }
+        let Some(candidate) = by_id.get(track_id.as_str()) else {
+            continue;
+        };
+        let anchor = LocalFileIdentity {
+            fingerprint: candidate.file_fingerprint.to_ascii_lowercase(),
+            size: candidate.file_size,
+        };
+        if !valid_local_file_identity(&anchor) {
+            continue;
+        }
+        let has_capacity = store.tracks.len() < MAX_LIBRARY_FILE_ALIAS_TRACKS;
+        match store.tracks.get_mut(&track_id) {
+            Some(record) if record.anchor != anchor => {
+                *record = LocalTrackAliases {
+                    anchor,
+                    aliases: Vec::new(),
+                };
+            }
+            Some(_) => {}
+            None if has_capacity => {
+                store.tracks.insert(
+                    track_id,
+                    LocalTrackAliases {
+                        anchor,
+                        aliases: Vec::new(),
+                    },
+                );
+            }
+            None => {}
+        }
+    }
+}
+
+fn register_local_alias(
+    store: &mut LocalLibraryFileAliases,
+    track_id: &str,
+    fingerprint: [u8; 32],
+    size: u64,
+) -> bool {
+    let Some(record) = store.tracks.get_mut(track_id) else {
+        return false;
+    };
+    let alias = LocalFileIdentity {
+        fingerprint: fingerprint_text(fingerprint),
+        size,
+    };
+    if !valid_local_file_identity(&alias) || alias == record.anchor {
+        return false;
+    }
+    record.aliases.retain(|existing| existing != &alias);
+    record.aliases.push(alias);
+    if record.aliases.len() > MAX_LIBRARY_FILE_ALIASES_PER_TRACK {
+        let excess = record.aliases.len() - MAX_LIBRARY_FILE_ALIASES_PER_TRACK;
+        record.aliases.drain(..excess);
+    }
+    true
+}
+
+fn persist_local_aliases(path: &Path, aliases: &[(String, [u8; 32], u64)]) -> Result<(), ()> {
+    if aliases.is_empty() {
+        return Ok(());
+    }
+    let mut store = read_local_alias_store(path);
+    for (track_id, fingerprint, size) in aliases {
+        if !register_local_alias(&mut store, track_id, *fingerprint, *size) {
+            let already_known = store.tracks.get(track_id).is_some_and(|record| {
+                let identity = LocalFileIdentity {
+                    fingerprint: fingerprint_text(*fingerprint),
+                    size: *size,
+                };
+                record.anchor == identity || record.aliases.contains(&identity)
+            });
+            if !already_known {
+                return Err(());
+            }
+        }
+    }
+    write_local_alias_store(path, &store)
+}
+
+fn linked_aliases_for_backups(
+    session: &ScanSession,
+    backups: &[MetadataBackup],
+) -> Result<Vec<(String, [u8; 32], u64)>, ()> {
+    let track_by_scan = session
+        .library_links
+        .iter()
+        .map(|(track_id, scan_id)| (scan_id.as_str(), track_id.as_str()))
+        .collect::<HashMap<_, _>>();
+    backups
+        .iter()
+        .filter_map(|backup| {
+            track_by_scan
+                .get(backup.scan_id.as_str())
+                .map(|track_id| (backup, *track_id))
+        })
+        .map(|(backup, track_id)| {
+            let size = fs::metadata(&backup.original_path).map_err(|_| ())?.len();
+            Ok((track_id.to_owned(), backup.written_fingerprint, size))
+        })
+        .collect()
+}
+
+fn aliases_for_candidates(
+    store: &LocalLibraryFileAliases,
+    candidates: &[LibraryLinkCandidate],
+) -> HashMap<(u64, [u8; 32]), String> {
+    let mut aliases: HashMap<(u64, [u8; 32]), Option<String>> = HashMap::new();
+    for candidate in candidates {
+        let Some(record) = store.tracks.get(&candidate.track_id) else {
+            continue;
+        };
+        let anchor_matches = record.anchor.size == candidate.file_size
+            && record
+                .anchor
+                .fingerprint
+                .eq_ignore_ascii_case(&candidate.file_fingerprint);
+        if !anchor_matches {
+            continue;
+        }
+        for alias in &record.aliases {
+            let Ok(fingerprint) = parse_library_fingerprint(&alias.fingerprint) else {
+                continue;
+            };
+            aliases
+                .entry((alias.size, fingerprint))
+                .and_modify(|owner| *owner = None)
+                .or_insert_with(|| Some(candidate.track_id.clone()));
+        }
+    }
+    aliases
+        .into_iter()
+        .filter_map(|(identity, owner)| owner.map(|track_id| (identity, track_id)))
+        .collect()
+}
+
+#[cfg(test)]
 fn link_library_candidates(
     session_tracks: &[SessionTrack],
     candidates: &[LibraryLinkCandidate],
+) -> Result<LibraryLinkMatch, String> {
+    link_library_candidates_with_aliases(
+        session_tracks,
+        candidates,
+        &LocalLibraryFileAliases::default(),
+    )
+}
+
+fn link_library_candidates_with_aliases(
+    session_tracks: &[SessionTrack],
+    candidates: &[LibraryLinkCandidate],
+    alias_store: &LocalLibraryFileAliases,
 ) -> Result<LibraryLinkMatch, String> {
     if candidates.len() > MAX_TRACKS {
         return Err("La vinculación admite hasta 10.000 pistas por sesión.".to_owned());
@@ -2361,12 +2875,19 @@ fn link_library_candidates(
     let mut ordered_tracks = session_tracks.iter().collect::<Vec<_>>();
     ordered_tracks.sort_by_key(|track| track.track.relative_path.to_ascii_lowercase());
     let mut links = HashMap::new();
+    let aliases = aliases_for_candidates(alias_store, candidates);
+    let mut alias_linked_scan_ids = HashSet::new();
     let mut fingerprint_failures = 0;
 
     for session_track in ordered_tracks {
-        let Some(fingerprints) = candidates_by_size.get(&session_track.track.size_bytes) else {
+        let fingerprints = candidates_by_size.get(&session_track.track.size_bytes);
+        if fingerprints.is_none()
+            && !aliases
+                .keys()
+                .any(|(size, _)| *size == session_track.track.size_bytes)
+        {
             continue;
-        };
+        }
         let fingerprint =
             match hash_file(&session_track.absolute_path, session_track.track.size_bytes) {
                 Ok(fingerprint) => fingerprint,
@@ -2375,13 +2896,20 @@ fn link_library_candidates(
                     continue;
                 }
             };
-        let Some(track_ids) = fingerprints.get(&fingerprint) else {
+        if let Some(track_ids) = fingerprints.and_then(|values| values.get(&fingerprint)) {
+            for track_id in track_ids {
+                links
+                    .entry(track_id.clone())
+                    .or_insert_with(|| session_track.track.scan_id.clone());
+            }
             continue;
-        };
-        for track_id in track_ids {
-            links
-                .entry(track_id.clone())
-                .or_insert_with(|| session_track.track.scan_id.clone());
+        }
+        if let Some(track_id) = aliases.get(&(session_track.track.size_bytes, fingerprint)) {
+            if !links.contains_key(track_id)
+                && alias_linked_scan_ids.insert(session_track.track.scan_id.clone())
+            {
+                links.insert(track_id.clone(), session_track.track.scan_id.clone());
+            }
         }
     }
 
@@ -2711,6 +3239,12 @@ fn activate_completed_scan(
         truncated,
         library_links: HashMap::new(),
     });
+    drop(current_session);
+    state
+        .pending_maest_genre_previews
+        .lock()
+        .map_err(|_| "No se pudo invalidar la previsualización anterior.".to_owned())?
+        .clear();
     Ok(completed.result)
 }
 
@@ -2913,6 +3447,12 @@ async fn scan_music_folder_incrementally(
     session.file_versions = completed.file_versions;
     session.tracks = tracks;
     session.truncated = false;
+    drop(current_session);
+    state
+        .pending_maest_genre_previews
+        .lock()
+        .map_err(|_| "No se pudo invalidar la previsualización anterior.".to_owned())?
+        .clear();
 
     Ok(IncrementalScanResult {
         added_scan_ids,
@@ -2928,10 +3468,17 @@ async fn scan_music_folder_incrementally(
 
 #[tauri::command(rename_all = "camelCase")]
 async fn link_library_tracks(
+    app: AppHandle,
     state: State<'_, DesktopState>,
     session_id: String,
     candidates: Vec<LibraryLinkCandidate>,
 ) -> Result<LibraryLinkResult, String> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    let mut alias_store = read_local_alias_store(&alias_path);
     let session_tracks = {
         let current_session = state
             .scan_session
@@ -2946,8 +3493,14 @@ async fn link_library_tracks(
         session.tracks.values().cloned().collect::<Vec<_>>()
     };
 
+    let link_candidates = candidates.clone();
+    let aliases_for_linking = alias_store.clone();
     let matches = tauri::async_runtime::spawn_blocking(move || {
-        link_library_candidates(&session_tracks, &candidates)
+        link_library_candidates_with_aliases(
+            &session_tracks,
+            &link_candidates,
+            &aliases_for_linking,
+        )
     })
     .await
     .map_err(|error| format!("La vinculación local se interrumpió: {error}"))??;
@@ -2962,6 +3515,9 @@ async fn link_library_tracks(
         .collect::<Vec<_>>();
     links.sort_by(|left, right| left.track_id.cmp(&right.track_id));
     let linked_tracks = links.len();
+    update_alias_anchors(&mut alias_store, &candidates, matches.links.keys().cloned());
+    write_local_alias_store(&alias_path, &alias_store)
+        .map_err(|_| "No se pudo guardar el estado local de vínculos.".to_owned())?;
     let mut current_session = state
         .scan_session
         .lock()
@@ -2973,6 +3529,12 @@ async fn link_library_tracks(
             "El escaneo cambió durante la vinculación. Vuelve a seleccionar la carpeta.".to_owned()
         })?;
     session.library_links = matches.links;
+    drop(current_session);
+    state
+        .pending_maest_genre_previews
+        .lock()
+        .map_err(|_| "No se pudo invalidar la previsualización anterior.".to_owned())?
+        .clear();
 
     Ok(LibraryLinkResult {
         fingerprint_failures: matches.fingerprint_failures,
@@ -3000,74 +3562,457 @@ async fn preview_metadata_writes(
     build_metadata_write_preview(session, &request).map(|(preview, _)| preview)
 }
 
-#[tauri::command(rename_all = "camelCase")]
-async fn apply_metadata_writes(
-    state: State<'_, DesktopState>,
-    request: MetadataWriteRequest,
-) -> Result<MetadataWriteResult, String> {
-    let (run, result) = {
-        let mut current_session = state
-            .scan_session
-            .lock()
-            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
-        let session = current_session
-            .as_mut()
-            .filter(|session| session.id == request.session_id)
-            .ok_or_else(|| {
-                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
-            })?;
-        apply_metadata_write_batch(session, &request)?
+fn maest_genre_preview_key(
+    request: &MaestGenreWriteRequest,
+    genre: String,
+) -> MaestGenrePreviewKey {
+    MaestGenrePreviewKey {
+        session_id: request.session_id.clone(),
+        scan_id: request.scan_id.clone(),
+        genre,
+    }
+}
+
+fn store_maest_genre_preview(
+    state: &DesktopState,
+    key: MaestGenrePreviewKey,
+    receipt: Option<MaestGenrePreviewReceipt>,
+) -> Result<(), SafeMetadataWriteError> {
+    let mut pending = state.pending_maest_genre_previews.lock().map_err(|_| {
+        SafeMetadataWriteError::new(
+            "preview_failed",
+            "No se pudo registrar la previsualización.",
+        )
+    })?;
+    pending.retain(|existing, _| {
+        existing.session_id != key.session_id || existing.scan_id != key.scan_id
+    });
+    if let Some(receipt) = receipt {
+        if pending.len() >= MAX_PENDING_MAEST_GENRE_PREVIEWS {
+            if let Some(oldest) = pending.keys().next().cloned() {
+                pending.remove(&oldest);
+            }
+        }
+        pending.insert(key, receipt);
+    }
+    Ok(())
+}
+
+fn preview_maest_genre_write_state(
+    state: &DesktopState,
+    request: &MaestGenreWriteRequest,
+) -> Result<MaestGenreWritePreview, SafeMetadataWriteError> {
+    let current_session = state.scan_session.lock().map_err(|_| {
+        SafeMetadataWriteError::new("scan_session_unavailable", "El escaneo no está disponible.")
+    })?;
+    let session = current_session
+        .as_ref()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            SafeMetadataWriteError::new(
+                "scan_session_unavailable",
+                "El escaneo no está disponible.",
+            )
+        })?;
+    let (preview, _, receipt) = confirmed_maest_genre_preview(session, request)?;
+    let key = maest_genre_preview_key(request, preview.after.clone());
+    store_maest_genre_preview(state, key, preview.changed.then_some(receipt))?;
+    Ok(preview)
+}
+
+fn restore_maest_genre_backup(
+    session: &mut ScanSession,
+    track: &SessionTrack,
+    backup_path: &Path,
+) -> bool {
+    if fs::copy(backup_path, &track.absolute_path).is_err() {
+        return false;
+    }
+    let Ok(metadata) = read_audio_metadata(&track.absolute_path) else {
+        return true;
     };
-    state
+    let Ok(file_metadata) = fs::metadata(&track.absolute_path) else {
+        return true;
+    };
+    if let Ok(updated) = update_session_track_after_write(
+        session,
+        &track.track.scan_id,
+        metadata,
+        file_metadata.len(),
+    ) {
+        session
+            .file_versions
+            .insert(updated.relative_path, file_version(&file_metadata));
+    }
+    true
+}
+
+fn restored_write_error(
+    restored: bool,
+    code: &'static str,
+    message: &'static str,
+) -> SafeMetadataWriteError {
+    if restored {
+        SafeMetadataWriteError::new(code, message)
+    } else {
+        SafeMetadataWriteError::new(
+            "restore_failed",
+            "No se pudo restaurar automáticamente el archivo original.",
+        )
+    }
+}
+
+fn apply_maest_genre_write_state_with<W, P>(
+    state: &DesktopState,
+    request: MaestGenreWriteRequest,
+    alias_path: &Path,
+    writer: W,
+    persist_aliases: P,
+) -> Result<MaestGenreWriteResult, SafeMetadataWriteError>
+where
+    W: FnOnce(&Path, &str) -> Result<AudioMetadata, &'static str>,
+    P: FnOnce(&Path, &[(String, [u8; 32], u64)]) -> Result<(), ()>,
+{
+    let normalized_genre = normalized_metadata_text(&request.genre, "El género", 120)
+        .map_err(|_| SafeMetadataWriteError::new("invalid_genre", "El género no es válido."))?
+        .ok_or_else(|| SafeMetadataWriteError::new("invalid_genre", "El género no es válido."))?;
+    let key = maest_genre_preview_key(&request, normalized_genre);
+    let mut current_session = state.scan_session.lock().map_err(|_| {
+        SafeMetadataWriteError::new("scan_session_unavailable", "El escaneo no está disponible.")
+    })?;
+    let session = current_session
+        .as_mut()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            SafeMetadataWriteError::new(
+                "scan_session_unavailable",
+                "El escaneo no está disponible.",
+            )
+        })?;
+    let expected_receipt = state
+        .pending_maest_genre_previews
+        .lock()
+        .map_err(|_| {
+            SafeMetadataWriteError::new("preview_required", "Previsualiza de nuevo la escritura.")
+        })?
+        .remove(&key)
+        .ok_or_else(|| {
+            SafeMetadataWriteError::new("preview_required", "Previsualiza antes de confirmar.")
+        })?;
+    let (preview, track, current_receipt) = confirmed_maest_genre_preview(session, &request)?;
+    if !preview.changed || current_receipt != expected_receipt {
+        return Err(SafeMetadataWriteError::new(
+            "track_changed",
+            "El archivo cambió desde la previsualización.",
+        ));
+    }
+
+    let mut history = state.metadata_write_history.lock().map_err(|_| {
+        SafeMetadataWriteError::new("write_failed", "No se pudo registrar la escritura.")
+    })?;
+    let run_id = operation_id("metadata-write").map_err(|_| {
+        SafeMetadataWriteError::new("backup_failed", "No se pudo preparar la copia.")
+    })?;
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| {
+            SafeMetadataWriteError::new("write_failed", "No se pudo registrar la escritura.")
+        })?
+        .as_secs();
+    let backup_path = session
+        .root
+        .join(METADATA_BACKUP_DIRECTORY)
+        .join(&run_id)
+        .join(Path::new(&track.track.relative_path));
+    if let Some(parent) = backup_path.parent() {
+        fs::create_dir_all(parent).map_err(|_| {
+            SafeMetadataWriteError::new("backup_failed", "No se pudo crear la copia.")
+        })?;
+    }
+    fs::copy(&track.absolute_path, &backup_path)
+        .map_err(|_| SafeMetadataWriteError::new("backup_failed", "No se pudo crear la copia."))?;
+
+    let written = match writer(&track.absolute_path, &preview.after) {
+        Ok(metadata) => metadata,
+        Err(code) => {
+            let restored = restore_maest_genre_backup(session, &track, &backup_path);
+            return Err(restored_write_error(
+                restored,
+                code,
+                "No se pudo escribir y verificar el género; se restauró el original.",
+            ));
+        }
+    };
+    let written_file = match fs::metadata(&track.absolute_path) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            let restored = restore_maest_genre_backup(session, &track, &backup_path);
+            return Err(restored_write_error(
+                restored,
+                "verification_failed",
+                "No se pudo verificar la escritura; se restauró el original.",
+            ));
+        }
+    };
+    let written_size = written_file.len();
+    let written_fingerprint = match hash_file(&track.absolute_path, written_size) {
+        Ok(fingerprint) => fingerprint,
+        Err(_) => {
+            let restored = restore_maest_genre_backup(session, &track, &backup_path);
+            return Err(restored_write_error(
+                restored,
+                "verification_failed",
+                "No se pudo verificar la escritura; se restauró el original.",
+            ));
+        }
+    };
+    let updated =
+        match update_session_track_after_write(session, &request.scan_id, written, written_size) {
+            Ok(updated) => updated,
+            Err(_) => {
+                let restored = restore_maest_genre_backup(session, &track, &backup_path);
+                return Err(restored_write_error(
+                    restored,
+                    "verification_failed",
+                    "No se pudo actualizar la sesión; se restauró el original.",
+                ));
+            }
+        };
+    session
+        .file_versions
+        .insert(updated.relative_path, file_version(&written_file));
+    let aliases = linked_aliases_for_backups(
+        session,
+        &[MetadataBackup {
+            backup_path: backup_path.clone(),
+            original_path: track.absolute_path.clone(),
+            scan_id: request.scan_id.clone(),
+            written_fingerprint,
+        }],
+    )
+    .map_err(|_| {
+        let restored = restore_maest_genre_backup(session, &track, &backup_path);
+        restored_write_error(
+            restored,
+            "link_state_failed",
+            "No se pudo guardar el vínculo local; se restauró el original.",
+        )
+    })?;
+    if persist_aliases(alias_path, &aliases).is_err() {
+        let restored = restore_maest_genre_backup(session, &track, &backup_path);
+        return Err(restored_write_error(
+            restored,
+            "link_state_failed",
+            "No se pudo guardar el vínculo local; se restauró el original.",
+        ));
+    }
+    history.push(MetadataWriteRun {
+        backups: vec![MetadataBackup {
+            backup_path,
+            original_path: track.absolute_path,
+            scan_id: request.scan_id,
+            written_fingerprint,
+        }],
+        created_at,
+        id: run_id.clone(),
+        session_id: request.session_id,
+        undone: false,
+    });
+    Ok(MaestGenreWriteResult {
+        applied_files: 1,
+        run_id: Some(run_id),
+    })
+}
+
+fn apply_maest_genre_write_state(
+    state: &DesktopState,
+    request: MaestGenreWriteRequest,
+    alias_path: &Path,
+) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
+    apply_maest_genre_write_state_with(
+        state,
+        request,
+        alias_path,
+        write_genre_only,
+        persist_local_aliases,
+    )
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn preview_maest_genre_write(
+    state: State<'_, DesktopState>,
+    request: MaestGenreWriteRequest,
+) -> Result<MaestGenreWritePreview, SafeMetadataWriteError> {
+    preview_maest_genre_write_state(&state, &request)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn apply_maest_genre_write(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    request: MaestGenreWriteRequest,
+) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| {
+            SafeMetadataWriteError::new("link_state_failed", "No se pudo abrir el vínculo local.")
+        })?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    apply_maest_genre_write_state(&state, request, &alias_path)
+}
+
+fn apply_metadata_writes_state(
+    state: &DesktopState,
+    request: MetadataWriteRequest,
+    alias_path: &Path,
+) -> Result<MetadataWriteResult, String> {
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    let session = current_session
+        .as_mut()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+        })?;
+    let mut history = state
         .metadata_write_history
         .lock()
-        .map_err(|_| "No se pudo guardar el historial local de metadatos.".to_owned())?
-        .push(run);
+        .map_err(|_| "No se pudo guardar el historial local de metadatos.".to_owned())?;
+    let (run, result) = apply_metadata_write_batch(session, &request)?;
+    let aliases = linked_aliases_for_backups(session, &run.backups).map_err(|_| {
+        if restore_metadata_run(session, &run.backups) {
+            "No se pudo preparar el vínculo local; se restauraron los originales.".to_owned()
+        } else {
+            "No se pudo restaurar automáticamente un archivo original.".to_owned()
+        }
+    })?;
+    if persist_local_aliases(alias_path, &aliases).is_err() {
+        return Err(if restore_metadata_run(session, &run.backups) {
+            "No se pudo guardar el vínculo local; se restauraron los originales.".to_owned()
+        } else {
+            "No se pudo restaurar automáticamente un archivo original.".to_owned()
+        });
+    }
+    history.push(run);
     Ok(result)
 }
 
 #[tauri::command(rename_all = "camelCase")]
-async fn undo_metadata_writes(
+async fn apply_metadata_writes(
+    app: AppHandle,
     state: State<'_, DesktopState>,
+    request: MetadataWriteRequest,
+) -> Result<MetadataWriteResult, String> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    apply_metadata_writes_state(&state, request, &alias_path)
+}
+
+#[derive(Debug)]
+struct UndoMetadataWriteError {
+    code: &'static str,
+    message: String,
+}
+
+impl UndoMetadataWriteError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+fn restore_undo_current(
+    session: &mut ScanSession,
+    current_copies: &[(PathBuf, PathBuf, String)],
+) -> bool {
+    for (current_copy, original_path, _) in current_copies {
+        if fs::copy(current_copy, original_path).is_err() {
+            return false;
+        }
+    }
+    for (_, original_path, scan_id) in current_copies {
+        let Ok(metadata) = read_audio_metadata(original_path) else {
+            return false;
+        };
+        let Ok(file_metadata) = fs::metadata(original_path) else {
+            return false;
+        };
+        let Ok(updated) =
+            update_session_track_after_write(session, scan_id, metadata, file_metadata.len())
+        else {
+            return false;
+        };
+        session
+            .file_versions
+            .insert(updated.relative_path, file_version(&file_metadata));
+    }
+    true
+}
+
+fn undo_metadata_writes_state_with<P>(
+    state: &DesktopState,
     session_id: String,
     run_id: String,
-) -> Result<MetadataWriteResult, String> {
-    let run = {
-        let history = state
-            .metadata_write_history
-            .lock()
-            .map_err(|_| "No se pudo leer el historial local de metadatos.".to_owned())?;
-        history
-            .iter()
-            .find(|run| run.id == run_id && run.session_id == session_id && !run.undone)
-            .cloned()
-            .ok_or_else(|| "La escritura ya no está disponible para deshacer.".to_owned())?
-    };
-
-    let mut current_session = state
-        .scan_session
-        .lock()
-        .map_err(|_| "No se pudo actualizar la sesión local.".to_owned())?;
+    alias_path: &Path,
+    persist: P,
+) -> Result<MetadataWriteResult, UndoMetadataWriteError>
+where
+    P: FnOnce(&Path, &[(String, [u8; 32], u64)]) -> Result<(), ()>,
+{
+    let mut current_session = state.scan_session.lock().map_err(|_| {
+        UndoMetadataWriteError::new("undo_failed", "No se pudo actualizar la sesión local.")
+    })?;
     let session = current_session
         .as_mut()
         .filter(|session| session.id == session_id)
         .ok_or_else(|| {
-            "Este historial pertenece a otro escaneo. Selecciona de nuevo la carpeta original."
-                .to_owned()
+            UndoMetadataWriteError::new("undo_failed", {
+                "Este historial pertenece a otro escaneo. Selecciona de nuevo la carpeta original."
+                    .to_owned()
+            })
+        })?;
+    let mut history = state.metadata_write_history.lock().map_err(|_| {
+        UndoMetadataWriteError::new(
+            "undo_failed",
+            "No se pudo leer el historial local de metadatos.",
+        )
+    })?;
+    let run = history
+        .iter()
+        .find(|run| run.id == run_id && run.session_id == session_id && !run.undone)
+        .cloned()
+        .ok_or_else(|| {
+            UndoMetadataWriteError::new(
+                "undo_failed",
+                "La escritura ya no está disponible para deshacer.",
+            )
         })?;
 
     for backup in &run.backups {
         let current_size = fs::metadata(&backup.original_path)
             .map_err(|_| {
-                "Un archivo editado ya no está disponible; no se deshizo nada.".to_owned()
+                UndoMetadataWriteError::new(
+                    "undo_failed",
+                    "Un archivo editado ya no está disponible; no se deshizo nada.",
+                )
             })?
             .len();
-        let current_fingerprint = hash_file(&backup.original_path, current_size)?;
+        let current_fingerprint = hash_file(&backup.original_path, current_size)
+            .map_err(|message| UndoMetadataWriteError::new("undo_failed", message))?;
         if current_fingerprint != backup.written_fingerprint {
-            return Err(
+            return Err(UndoMetadataWriteError::new(
+                "undo_failed",
                 "Un archivo cambió después de escribir sus etiquetas. No se deshizo nada."
                     .to_owned(),
-            );
+            ));
         }
     }
 
@@ -3080,23 +4025,34 @@ async fn undo_metadata_writes(
     for backup in &run.backups {
         let current_copy = undo_root.join(&backup.scan_id);
         if let Some(parent) = current_copy.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("No se pudo preparar el deshacer: {error}"))?;
+            fs::create_dir_all(parent).map_err(|_| {
+                UndoMetadataWriteError::new("undo_failed", "No se pudo preparar el deshacer.")
+            })?;
         }
-        fs::copy(&backup.original_path, &current_copy)
-            .map_err(|error| format!("No se pudo proteger el estado actual: {error}"))?;
-        current_copies.push((current_copy, backup.original_path.clone()));
+        fs::copy(&backup.original_path, &current_copy).map_err(|_| {
+            UndoMetadataWriteError::new("undo_failed", "No se pudo proteger el estado actual.")
+        })?;
+        current_copies.push((
+            current_copy,
+            backup.original_path.clone(),
+            backup.scan_id.clone(),
+        ));
     }
 
     let mut restored_count = 0;
     for backup in &run.backups {
-        if let Err(error) = fs::copy(&backup.backup_path, &backup.original_path) {
-            for (current_copy, original_path) in &current_copies {
-                let _ = fs::copy(current_copy, original_path);
-            }
-            return Err(format!(
-                "No se pudo completar el deshacer; se restauró el estado previo al intento: {error}"
-            ));
+        if fs::copy(&backup.backup_path, &backup.original_path).is_err() {
+            return Err(if restore_undo_current(session, &current_copies) {
+                UndoMetadataWriteError::new(
+                    "undo_failed",
+                    "No se pudo completar el deshacer; se restauró el estado previo al intento.",
+                )
+            } else {
+                UndoMetadataWriteError::new(
+                    "restore_failed",
+                    "No se pudo recuperar el estado previo al intento de deshacer.",
+                )
+            });
         }
         restored_count += 1;
     }
@@ -3105,41 +4061,109 @@ async fn undo_metadata_writes(
     for backup in &run.backups {
         let metadata = match read_audio_metadata(&backup.original_path) {
             Ok(metadata) => metadata,
-            Err(error) => {
-                for (current_copy, original_path) in &current_copies {
-                    let _ = fs::copy(current_copy, original_path);
-                }
-                return Err(format!(
-                    "No se pudo verificar el archivo restaurado; se revirtió el intento de deshacer: {error}"
-                ));
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo verificar el archivo restaurado; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
             }
         };
         let size_bytes = match fs::metadata(&backup.original_path) {
             Ok(metadata) => metadata.len(),
-            Err(error) => {
-                for (current_copy, original_path) in &current_copies {
-                    let _ = fs::copy(current_copy, original_path);
-                }
-                return Err(format!(
-                    "No se pudo verificar el tamaño restaurado; se revirtió el intento de deshacer: {error}"
-                ));
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo verificar el tamaño restaurado; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
             }
         };
-        restored_metadata.push((backup.scan_id.clone(), metadata, size_bytes));
+        let fingerprint = match hash_file(&backup.original_path, size_bytes) {
+            Ok(fingerprint) => fingerprint,
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo verificar la huella restaurada; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
+            }
+        };
+        restored_metadata.push((backup.scan_id.clone(), metadata, size_bytes, fingerprint));
     }
     let mut updated_tracks = Vec::with_capacity(run.backups.len());
-    for (scan_id, metadata, size_bytes) in restored_metadata {
-        updated_tracks.push(update_session_track_after_write(
+    let mut restored_aliases = Vec::new();
+    for (scan_id, metadata, size_bytes, fingerprint) in restored_metadata {
+        let updated = match update_session_track_after_write(
             session, &scan_id, metadata, size_bytes,
-        )?);
+        ) {
+            Ok(updated) => updated,
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo actualizar la pista restaurada; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
+            }
+        };
+        let restored_file = match session
+            .tracks
+            .get(&scan_id)
+            .and_then(|track| fs::metadata(&track.absolute_path).ok())
+        {
+            Some(restored_file) => restored_file,
+            None => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo actualizar la versión del archivo restaurado; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
+            }
+        };
+        session
+            .file_versions
+            .insert(updated.relative_path.clone(), file_version(&restored_file));
+        if let Some(track_id) =
+            session
+                .library_links
+                .iter()
+                .find_map(|(track_id, linked_scan_id)| {
+                    (linked_scan_id == &scan_id).then(|| track_id.clone())
+                })
+        {
+            restored_aliases.push((track_id, fingerprint, size_bytes));
+        }
+        updated_tracks.push(updated);
+    }
+    if persist(alias_path, &restored_aliases).is_err() {
+        return Err(if restore_undo_current(session, &current_copies) {
+            UndoMetadataWriteError::new(
+                "link_state_failed",
+                "No se pudo conservar el vínculo local; se restauró el estado previo al deshacer.",
+            )
+        } else {
+            UndoMetadataWriteError::new(
+                "restore_failed",
+                "No se pudo recuperar el estado previo al intento de deshacer.",
+            )
+        });
     }
     let _ = fs::remove_dir_all(&undo_root);
-    drop(current_session);
-
-    let mut history = state
-        .metadata_write_history
-        .lock()
-        .map_err(|_| "No se pudo actualizar el historial local de metadatos.".to_owned())?;
     if let Some(entry) = history.iter_mut().find(|entry| entry.id == run_id) {
         entry.undone = true;
     }
@@ -3148,6 +4172,58 @@ async fn undo_metadata_writes(
         run_id: Some(run_id),
         updated_tracks,
     })
+}
+
+fn undo_metadata_writes_state(
+    state: &DesktopState,
+    session_id: String,
+    run_id: String,
+    alias_path: &Path,
+) -> Result<MetadataWriteResult, UndoMetadataWriteError> {
+    undo_metadata_writes_state_with(state, session_id, run_id, alias_path, persist_local_aliases)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn undo_metadata_writes(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    session_id: String,
+    run_id: String,
+) -> Result<MetadataWriteResult, String> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    undo_metadata_writes_state(&state, session_id, run_id, &alias_path)
+        .map_err(|error| error.message)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn undo_maest_genre_write(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    session_id: String,
+    run_id: String,
+) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| {
+            SafeMetadataWriteError::new(
+                "link_state_failed",
+                "No se pudo abrir el estado local de vínculos.",
+            )
+        })?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    undo_metadata_writes_state(&state, session_id, run_id, &alias_path)
+        .map(|result| MaestGenreWriteResult {
+            applied_files: result.applied_files,
+            run_id: result.run_id,
+        })
+        .map_err(|error| {
+            SafeMetadataWriteError::new(error.code, "No se pudo deshacer la escritura.")
+        })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -4017,9 +5093,12 @@ pub fn run() {
             choose_and_scan_music_folder,
             scan_music_folder_incrementally,
             link_library_tracks,
+            preview_maest_genre_write,
+            apply_maest_genre_write,
             preview_metadata_writes,
             apply_metadata_writes,
             undo_metadata_writes,
+            undo_maest_genre_write,
             list_metadata_write_history,
             preview_reorganization_plan,
             apply_reorganization_plan,
@@ -4043,21 +5122,31 @@ mod tests {
     #[cfg(unix)]
     use super::export_path_text;
     use super::{
-        apply_metadata_write_batch, audio_extension, build_metadata_write_preview,
-        build_rekordbox_xml, build_reorganization_plan, build_virtualdj_list_xml,
-        build_virtualdj_m3u8, count_incremental_changes, create_track_path_id,
-        link_library_candidates, parse_bpm, parse_mp4_bpm_value, parse_virtualdj_paths,
-        read_audio_metadata, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
+        apply_maest_genre_write_state, apply_maest_genre_write_state_with,
+        apply_metadata_write_batch, apply_metadata_writes_state, audio_extension,
+        build_metadata_write_preview, build_rekordbox_xml, build_reorganization_plan,
+        build_virtualdj_list_xml, build_virtualdj_m3u8, confirmed_maest_genre_preview,
+        count_incremental_changes, create_track_path_id, file_version, fingerprint_text, hash_file,
+        link_library_candidates, link_library_candidates_with_aliases, parse_bpm,
+        parse_mp4_bpm_value, parse_virtualdj_paths, persist_local_aliases,
+        preview_maest_genre_write_state, read_audio_metadata, read_local_alias_store,
+        register_local_alias, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
         safe_path_segment, scan_music_folder, scan_music_folder_with_previous,
-        write_rekordbox_xml_no_clobber, LibraryLinkCandidate, MetadataEditInput,
+        undo_metadata_writes_state, undo_metadata_writes_state_with, update_alias_anchors,
+        write_genre_only, write_local_alias_store, write_metadata_to_file,
+        write_rekordbox_xml_no_clobber, DesktopState, LibraryLinkCandidate, LocalFileIdentity,
+        LocalLibraryFileAliases, LocalTrackAliases, MaestGenreWriteRequest, MetadataEditInput,
         MetadataWriteRequest, OrganizationScheme, RekordboxCrateInput, ScanSession,
-        ScannedAudioFile, SessionTrack,
+        ScannedAudioFile, SessionTrack, MAX_LIBRARY_FILE_ALIASES_PER_TRACK,
     };
+    const TEST_LIBRARY_TRACK_ID: &str = "11111111-1111-4111-8111-111111111111";
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use lofty::mp4::AtomData;
     use sha2::{Digest, Sha256};
     use std::{
         collections::HashMap,
         fs,
+        io::Write,
         path::Path,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -4093,6 +5182,14 @@ mod tests {
         wav.extend_from_slice(&data_length.to_le_bytes());
         wav.resize((44 + data_length) as usize, 128);
         wav
+    }
+
+    fn tagged_flac_fixture() -> Vec<u8> {
+        STANDARD
+            .decode(include_str!(
+                "../tests/fixtures/audio-decoder-sine.flac.b64"
+            ))
+            .expect("FLAC fixture should decode")
     }
 
     #[test]
@@ -4201,6 +5298,768 @@ mod tests {
             original
         );
         fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    fn maest_genre_fixture(
+        session_id: &str,
+        file_name: &str,
+    ) -> (
+        std::path::PathBuf,
+        std::path::PathBuf,
+        DesktopState,
+        MaestGenreWriteRequest,
+        super::AudioMetadata,
+        Vec<u8>,
+    ) {
+        let root = test_directory();
+        let file = root.join(file_name);
+        fs::write(&file, tagged_flac_fixture()).expect("FLAC fixture should be written");
+        write_metadata_to_file(
+            &file,
+            &MetadataEditInput {
+                album: "Album".into(),
+                artist: "Artist".into(),
+                bpm: Some(128.0),
+                genre: "House".into(),
+                musical_key: "8A".into(),
+                scan_id: "setup".into(),
+                title: "Title".into(),
+            },
+        )
+        .expect("initial metadata should be written");
+        let original_metadata = read_audio_metadata(&file).unwrap();
+        let original_bytes = fs::read(&file).unwrap();
+        let completed =
+            scan_music_folder(&root, session_id.to_owned()).expect("folder should be scanned");
+        let scan_id = completed.result.tracks[0].scan_id.clone();
+        let session = ScanSession {
+            file_versions: completed.file_versions,
+            id: session_id.to_owned(),
+            incremental_scan_active: false,
+            root: root.clone(),
+            tracks: completed
+                .session_tracks
+                .into_iter()
+                .map(|track| (track.track.scan_id.clone(), track))
+                .collect(),
+            truncated: false,
+            library_links: HashMap::from([(TEST_LIBRARY_TRACK_ID.into(), scan_id.clone())]),
+        };
+        let alias_path = root.join("aliases.json");
+        let fingerprint =
+            fingerprint_text(hash_file(&file, fs::metadata(&file).unwrap().len()).unwrap());
+        let mut alias_store = LocalLibraryFileAliases::default();
+        update_alias_anchors(
+            &mut alias_store,
+            &[LibraryLinkCandidate {
+                file_fingerprint: fingerprint,
+                file_size: fs::metadata(&file).unwrap().len(),
+                track_id: TEST_LIBRARY_TRACK_ID.into(),
+            }],
+            [TEST_LIBRARY_TRACK_ID.to_owned()].into_iter(),
+        );
+        write_local_alias_store(&alias_path, &alias_store).unwrap();
+        let state = DesktopState::default();
+        *state.scan_session.lock().unwrap() = Some(session);
+        let request = MaestGenreWriteRequest {
+            session_id: session_id.to_owned(),
+            scan_id,
+            genre: "  Electronic  ".into(),
+        };
+        (
+            root,
+            file,
+            state,
+            request,
+            original_metadata,
+            original_bytes,
+        )
+    }
+
+    #[test]
+    fn maest_genre_preview_creates_a_private_safe_receipt_without_writing() {
+        let (root, file, state, request, _, original_bytes) =
+            maest_genre_fixture("genre-session", "genre-only.flac");
+        let preview = preview_maest_genre_write_state(&state, &request).unwrap();
+        assert_eq!(preview.before.as_deref(), Some("House"));
+        assert_eq!(preview.after, "Electronic");
+        assert!(preview.changed);
+        assert_eq!(fs::read(&file).unwrap(), original_bytes);
+        assert_eq!(state.pending_maest_genre_previews.lock().unwrap().len(), 1);
+        let public = serde_json::to_string(&preview).unwrap();
+        assert!(!public.contains("path"));
+        assert!(!public.contains("fingerprint"));
+        assert!(!public.contains("identity"));
+        assert!(!public.contains("version"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_genre_apply_requires_and_consumes_the_matching_preview() {
+        let (root, file, state, request, original, _) =
+            maest_genre_fixture("genre-session", "genre-only.flac");
+        let missing =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap_err();
+        assert_eq!(missing.code, "preview_required");
+
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let wrong_genre = MaestGenreWriteRequest {
+            genre: "Techno".into(),
+            ..request.clone()
+        };
+        assert_eq!(
+            apply_maest_genre_write_state(&state, wrong_genre, &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "preview_required"
+        );
+        let wrong_scan = MaestGenreWriteRequest {
+            scan_id: "another-scan".into(),
+            ..request.clone()
+        };
+        assert_eq!(
+            apply_maest_genre_write_state(&state, wrong_scan, &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "preview_required"
+        );
+        let wrong_session = MaestGenreWriteRequest {
+            session_id: "another-session".into(),
+            ..request.clone()
+        };
+        assert_eq!(
+            apply_maest_genre_write_state(&state, wrong_session, &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "scan_session_unavailable"
+        );
+
+        let result =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap();
+        let run_id = result.run_id.clone().unwrap();
+        assert_eq!(result.applied_files, 1);
+        let public_result = serde_json::to_string(&result).unwrap();
+        assert!(!public_result.contains("path"));
+        assert!(!public_result.contains("fingerprint"));
+        assert!(!public_result.contains("identity"));
+        assert_eq!(
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "preview_required"
+        );
+        let after = read_audio_metadata(&file).unwrap();
+        assert_eq!(after.genre.as_deref(), Some("Electronic"));
+        assert_eq!(after.title, original.title);
+        assert_eq!(after.artist, original.artist);
+        assert_eq!(after.album, original.album);
+        assert_eq!(after.bpm, original.bpm);
+        assert_eq!(after.musical_key, original.musical_key);
+        let history = state.metadata_write_history.lock().unwrap();
+        let run = history.iter().find(|run| run.id == run_id).unwrap();
+        assert!(run.backups[0].backup_path.exists());
+        assert!(!run.backups[0].backup_path.to_string_lossy().is_empty());
+        drop(history);
+        let session = state.scan_session.lock().unwrap();
+        let track = &session.as_ref().unwrap().tracks[&request.scan_id];
+        assert_eq!(track.track.genre.as_deref(), Some("Electronic"));
+        assert_eq!(
+            session.as_ref().unwrap().file_versions[&track.track.relative_path],
+            file_version(&fs::metadata(&file).unwrap())
+        );
+        drop(session);
+        let alias_store = read_local_alias_store(&root.join("aliases.json"));
+        let record = &alias_store.tracks[TEST_LIBRARY_TRACK_ID];
+        assert_eq!(record.aliases.len(), 1);
+        assert_ne!(
+            record.anchor.fingerprint,
+            fingerprint_text(hash_file(&file, fs::metadata(&file).unwrap().len()).unwrap())
+        );
+        let persisted = serde_json::to_string(&alias_store).unwrap();
+        assert!(!persisted.contains("genre-only"));
+        assert!(!persisted.contains("Electronic"));
+        assert!(!persisted.contains("genre-session"));
+
+        let restarted = scan_music_folder(&root, "restart-session".into()).unwrap();
+        let candidates = vec![LibraryLinkCandidate {
+            file_fingerprint: record.anchor.fingerprint.clone(),
+            file_size: record.anchor.size,
+            track_id: TEST_LIBRARY_TRACK_ID.into(),
+        }];
+        let relinked = link_library_candidates_with_aliases(
+            &restarted.session_tracks,
+            &candidates,
+            &alias_store,
+        )
+        .unwrap();
+        assert!(relinked.links.contains_key(TEST_LIBRARY_TRACK_ID));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_genre_receipt_rejects_file_and_snapshot_changes() {
+        let (root, file, state, request, _, _) =
+            maest_genre_fixture("genre-session", "changed.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let mut bytes = fs::read(&file).unwrap();
+        bytes.push(0);
+        fs::write(&file, bytes).unwrap();
+        assert_eq!(
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "track_changed"
+        );
+        assert!(!root.join(super::METADATA_BACKUP_DIRECTORY).exists());
+        fs::remove_dir_all(&root).unwrap();
+
+        let (root, _, state, request, _, _) =
+            maest_genre_fixture("genre-session-2", "internal.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        {
+            let mut guard = state.scan_session.lock().unwrap();
+            let session = guard.as_mut().unwrap();
+            let track = session.tracks[&request.scan_id].track.clone();
+            let metadata_request = MetadataWriteRequest {
+                session_id: request.session_id.clone(),
+                edits: vec![MetadataEditInput {
+                    title: "Changed internally".into(),
+                    artist: track.artist.unwrap_or_default(),
+                    album: track.album.unwrap_or_default(),
+                    genre: track.genre.unwrap_or_default(),
+                    bpm: track.bpm,
+                    musical_key: track.musical_key.unwrap_or_default(),
+                    scan_id: request.scan_id.clone(),
+                }],
+            };
+            apply_metadata_write_batch(session, &metadata_request).unwrap();
+        }
+        assert_eq!(
+            apply_maest_genre_write_state(&state, request, &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "track_changed"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_genre_receipt_rejects_same_size_mtime_replacement() {
+        let (root, file, state, request, _, original_bytes) =
+            maest_genre_fixture("replacement-session", "replacement.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let modified = fs::metadata(&file).unwrap().modified().unwrap();
+        let replacement = root.join("new.flac");
+        let mut replacement_bytes = original_bytes;
+        let last = replacement_bytes.len() - 1;
+        replacement_bytes[last] ^= 1;
+        fs::write(&replacement, replacement_bytes).unwrap();
+        let replacement_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&replacement)
+            .unwrap();
+        replacement_file
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        drop(replacement_file);
+        fs::rename(&file, root.join("old.flac")).unwrap();
+        fs::rename(&replacement, &file).unwrap();
+        assert_eq!(
+            apply_maest_genre_write_state(&state, request, &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "track_changed"
+        );
+        assert!(!root.join(super::METADATA_BACKUP_DIRECTORY).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_genre_noop_has_no_receipt_or_backup() {
+        let (root, _, state, mut request, _, _) = maest_genre_fixture("noop-session", "noop.flac");
+        request.genre = " House ".into();
+        let preview = preview_maest_genre_write_state(&state, &request).unwrap();
+        assert!(!preview.changed);
+        assert!(state
+            .pending_maest_genre_previews
+            .lock()
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            apply_maest_genre_write_state(&state, request, &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "preview_required"
+        );
+        assert!(!root.join(super::METADATA_BACKUP_DIRECTORY).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_genre_failure_after_modification_restores_backup() {
+        let (root, file, state, request, _, original_bytes) =
+            maest_genre_fixture("rollback-session", "rollback.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let error = apply_maest_genre_write_state_with(
+            &state,
+            request,
+            &root.join("aliases.json"),
+            |path, genre| {
+                write_genre_only(path, genre).unwrap();
+                Err("verification_failed")
+            },
+            persist_local_aliases,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "verification_failed");
+        assert_eq!(fs::read(file).unwrap(), original_bytes);
+        assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_genre_real_undo_restores_and_blocks_external_changes() {
+        let (root, file, state, request, _, original_bytes) =
+            maest_genre_fixture("undo-session", "undo.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let run_id =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap()
+                .run_id
+                .unwrap();
+        undo_metadata_writes_state(
+            &state,
+            request.session_id.clone(),
+            run_id,
+            &root.join("aliases.json"),
+        )
+        .unwrap();
+        assert_eq!(fs::read(&file).unwrap(), original_bytes);
+
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let run_id =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap()
+                .run_id
+                .unwrap();
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all(&[0])
+            .unwrap();
+        assert!(undo_metadata_writes_state(
+            &state,
+            request.session_id,
+            run_id,
+            &root.join("aliases.json"),
+        )
+        .is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_genre_internal_helper_still_preserves_other_tags() {
+        let (root, file, state, request, original, _) =
+            maest_genre_fixture("helper-session", "helper.flac");
+        let session = state.scan_session.lock().unwrap();
+        let (preview, _, _) =
+            confirmed_maest_genre_preview(session.as_ref().unwrap(), &request).unwrap();
+
+        let after = write_genre_only(&file, &preview.after).unwrap();
+        assert_eq!(after.genre.as_deref(), Some("Electronic"));
+        assert_eq!(after.title, original.title);
+        assert_eq!(after.artist, original.artist);
+        assert_eq!(after.album, original.album);
+        assert_eq!(after.bpm, original.bpm);
+        assert_eq!(after.musical_key, original.musical_key);
+        drop(session);
+        fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    fn general_metadata_request(
+        state: &DesktopState,
+        request: &MaestGenreWriteRequest,
+        title: &str,
+    ) -> MetadataWriteRequest {
+        let guard = state.scan_session.lock().unwrap();
+        let track = guard.as_ref().unwrap().tracks[&request.scan_id]
+            .track
+            .clone();
+        MetadataWriteRequest {
+            session_id: request.session_id.clone(),
+            edits: vec![MetadataEditInput {
+                title: title.into(),
+                artist: track.artist.unwrap_or_default(),
+                album: track.album.unwrap_or_default(),
+                genre: track.genre.unwrap_or_default(),
+                bpm: track.bpm,
+                musical_key: track.musical_key.unwrap_or_default(),
+                scan_id: request.scan_id.clone(),
+            }],
+        }
+    }
+
+    #[test]
+    fn local_alias_store_is_strict_bounded_and_anchor_scoped() {
+        let root = test_directory();
+        let path = root.join("aliases.json");
+        fs::write(&path, b"{broken").unwrap();
+        assert!(read_local_alias_store(&path).tracks.is_empty());
+
+        let anchor = LocalFileIdentity {
+            fingerprint: "1".repeat(64),
+            size: 10,
+        };
+        let mut store = LocalLibraryFileAliases::default();
+        store.tracks.insert(
+            TEST_LIBRARY_TRACK_ID.into(),
+            LocalTrackAliases {
+                anchor: anchor.clone(),
+                aliases: Vec::new(),
+            },
+        );
+        for index in 0..12_u8 {
+            register_local_alias(
+                &mut store,
+                TEST_LIBRARY_TRACK_ID,
+                [index; 32],
+                20 + index as u64,
+            );
+        }
+        assert_eq!(store.tracks[TEST_LIBRARY_TRACK_ID].aliases.len(), 8);
+        write_local_alias_store(&path, &store).unwrap();
+        let serialized = fs::read_to_string(&path).unwrap();
+        assert!(!serialized.contains("path"));
+        assert!(!serialized.contains("session"));
+
+        let file = root.join("alias.mp3");
+        fs::write(&file, [11_u8; 3]).unwrap();
+        let tracks = vec![SessionTrack {
+            absolute_path: file,
+            track: ScannedAudioFile {
+                scan_id: "alias-scan".into(),
+                name: "alias.mp3".into(),
+                relative_path: "alias.mp3".into(),
+                extension: "mp3".into(),
+                size_bytes: 3,
+                metadata_read: false,
+                title: None,
+                artist: None,
+                album: None,
+                genre: None,
+                duration_seconds: None,
+                bpm: None,
+                musical_key: None,
+                duplicate_group: None,
+            },
+        }];
+        let alias_fingerprint = format!("{:x}", Sha256::digest([11_u8; 3]));
+        store.tracks.get_mut(TEST_LIBRARY_TRACK_ID).unwrap().aliases = vec![LocalFileIdentity {
+            fingerprint: alias_fingerprint,
+            size: 3,
+        }];
+        let changed_anchor = vec![LibraryLinkCandidate {
+            file_fingerprint: "2".repeat(64),
+            file_size: 10,
+            track_id: TEST_LIBRARY_TRACK_ID.into(),
+        }];
+        assert!(
+            link_library_candidates_with_aliases(&tracks, &changed_anchor, &store)
+                .unwrap()
+                .links
+                .is_empty()
+        );
+        let second_id = "22222222-2222-4222-8222-222222222222";
+        let shared_aliases = store.tracks[TEST_LIBRARY_TRACK_ID].aliases.clone();
+        store.tracks.insert(
+            second_id.into(),
+            LocalTrackAliases {
+                anchor: LocalFileIdentity {
+                    fingerprint: "3".repeat(64),
+                    size: 10,
+                },
+                aliases: shared_aliases,
+            },
+        );
+        let ambiguous = vec![
+            LibraryLinkCandidate {
+                file_fingerprint: anchor.fingerprint,
+                file_size: anchor.size,
+                track_id: TEST_LIBRARY_TRACK_ID.into(),
+            },
+            LibraryLinkCandidate {
+                file_fingerprint: "3".repeat(64),
+                file_size: 10,
+                track_id: second_id.into(),
+            },
+        ];
+        assert!(
+            link_library_candidates_with_aliases(&tracks, &ambiguous, &store)
+                .unwrap()
+                .links
+                .is_empty()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn general_metadata_write_registers_alias_only_for_linked_tracks() {
+        let (root, _, state, request, _, _) =
+            maest_genre_fixture("general-session", "general.flac");
+        let alias_path = root.join("aliases.json");
+        let before = read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+            .aliases
+            .len();
+        apply_metadata_writes_state(
+            &state,
+            general_metadata_request(&state, &request, "General write"),
+            &alias_path,
+        )
+        .unwrap();
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            before + 1
+        );
+
+        state
+            .scan_session
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .library_links
+            .clear();
+        let aliases_before_unlinked = read_local_alias_store(&alias_path).tracks
+            [TEST_LIBRARY_TRACK_ID]
+            .aliases
+            .len();
+        let unlinked_run = apply_metadata_writes_state(
+            &state,
+            general_metadata_request(&state, &request, "Unlinked write"),
+            &alias_path,
+        )
+        .unwrap()
+        .run_id
+        .unwrap();
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            aliases_before_unlinked
+        );
+        undo_metadata_writes_state(
+            &state,
+            request.session_id.clone(),
+            unlinked_run,
+            &alias_path,
+        )
+        .unwrap();
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            aliases_before_unlinked
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn successive_writes_keep_bounded_history_and_undo_state_relinks() {
+        let (root, _, state, request, _, _) =
+            maest_genre_fixture("successive-session", "successive.flac");
+        let alias_path = root.join("aliases.json");
+        let mut runs = Vec::new();
+        for index in 0..10 {
+            runs.push(
+                apply_metadata_writes_state(
+                    &state,
+                    general_metadata_request(&state, &request, &format!("Version {index}")),
+                    &alias_path,
+                )
+                .unwrap()
+                .run_id
+                .unwrap(),
+            );
+        }
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            MAX_LIBRARY_FILE_ALIASES_PER_TRACK
+        );
+        let evicted_backup = {
+            let history = state.metadata_write_history.lock().unwrap();
+            history
+                .iter()
+                .find(|run| run.id == runs[2])
+                .unwrap()
+                .backups[0]
+                .backup_path
+                .clone()
+        };
+        let evicted_size = fs::metadata(&evicted_backup).unwrap().len();
+        let evicted_identity = LocalFileIdentity {
+            fingerprint: fingerprint_text(hash_file(&evicted_backup, evicted_size).unwrap()),
+            size: evicted_size,
+        };
+        assert!(
+            !read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .contains(&evicted_identity)
+        );
+        for run_id in runs.iter().skip(2).rev() {
+            undo_metadata_writes_state(
+                &state,
+                request.session_id.clone(),
+                run_id.clone(),
+                &alias_path,
+            )
+            .unwrap();
+        }
+        let store = read_local_alias_store(&alias_path);
+        assert_eq!(
+            store.tracks[TEST_LIBRARY_TRACK_ID].aliases.len(),
+            MAX_LIBRARY_FILE_ALIASES_PER_TRACK
+        );
+        assert!(store.tracks[TEST_LIBRARY_TRACK_ID]
+            .aliases
+            .contains(&evicted_identity));
+        let session = state.scan_session.lock().unwrap();
+        let current = &session.as_ref().unwrap().tracks[&request.scan_id];
+        let candidates = vec![LibraryLinkCandidate {
+            file_fingerprint: store.tracks[TEST_LIBRARY_TRACK_ID]
+                .anchor
+                .fingerprint
+                .clone(),
+            file_size: store.tracks[TEST_LIBRARY_TRACK_ID].anchor.size,
+            track_id: TEST_LIBRARY_TRACK_ID.into(),
+        }];
+        assert!(link_library_candidates_with_aliases(
+            std::slice::from_ref(current),
+            &candidates,
+            &store,
+        )
+        .unwrap()
+        .links
+        .contains_key(TEST_LIBRARY_TRACK_ID));
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_alias_persistence_failure_rolls_back_or_reports_restore_failure() {
+        let (root, file, state, request, _, original) =
+            maest_genre_fixture("alias-failure", "alias-failure.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let error = apply_maest_genre_write_state_with(
+            &state,
+            request,
+            &root.join("aliases.json"),
+            write_genre_only,
+            |_, _| Err(()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "link_state_failed");
+        assert_eq!(fs::read(&file).unwrap(), original);
+        assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+
+        let (root, file, state, request, _, _) =
+            maest_genre_fixture("restore-failure", "restore-failure.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let sabotaged = file.clone();
+        let error = apply_maest_genre_write_state_with(
+            &state,
+            request,
+            &root.join("aliases.json"),
+            write_genre_only,
+            move |_, _| {
+                fs::remove_file(&sabotaged).unwrap();
+                fs::create_dir(&sabotaged).unwrap();
+                Err(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "restore_failed");
+        assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn undo_alias_persistence_failure_restores_pre_undo_state_and_history() {
+        let (root, file, state, request, _, _) =
+            maest_genre_fixture("undo-alias-failure", "undo-alias-failure.flac");
+        let alias_path = root.join("aliases.json");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let run_id = apply_maest_genre_write_state(&state, request.clone(), &alias_path)
+            .unwrap()
+            .run_id
+            .unwrap();
+        let pre_undo = fs::read(&file).unwrap();
+        let error = undo_metadata_writes_state_with(
+            &state,
+            request.session_id.clone(),
+            run_id.clone(),
+            &alias_path,
+            |_, _| Err(()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "link_state_failed");
+        assert_eq!(fs::read(&file).unwrap(), pre_undo);
+        assert!(
+            !state
+                .metadata_write_history
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|run| run.id == run_id)
+                .unwrap()
+                .undone
+        );
+        fs::remove_dir_all(root).unwrap();
+
+        let (root, _, state, request, _, _) =
+            maest_genre_fixture("undo-restore-failure", "undo-restore-failure.flac");
+        let alias_path = root.join("aliases.json");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let run_id = apply_maest_genre_write_state(&state, request.clone(), &alias_path)
+            .unwrap()
+            .run_id
+            .unwrap();
+        let undo_current = root
+            .join(super::METADATA_BACKUP_DIRECTORY)
+            .join(&run_id)
+            .join("undo-current")
+            .join(&request.scan_id);
+        let error = undo_metadata_writes_state_with(
+            &state,
+            request.session_id,
+            run_id.clone(),
+            &alias_path,
+            move |_, _| {
+                fs::remove_file(&undo_current).unwrap();
+                Err(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "restore_failed");
+        assert!(
+            !state
+                .metadata_write_history
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|run| run.id == run_id)
+                .unwrap()
+                .undone
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

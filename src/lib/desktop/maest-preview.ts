@@ -4,6 +4,7 @@ import {
   DESKTOP_MAEST_COMPATIBILITY_KEY,
 } from "@/lib/desktop/maest-analysis";
 import type { TauriCore } from "@/lib/desktop/tauri";
+import type { Tables } from "@/types/database";
 
 export type MaestPublicResult = {
   scanId: string;
@@ -295,4 +296,90 @@ export function maestErrorMessage(error: unknown, locale: "es" | "en") {
     return stageCopy[stage as keyof typeof stageCopy];
   }
   return en ? "The local analysis could not be completed. Try again." : "No se pudo completar el análisis local. Reinténtalo.";
+}
+
+export type MaestGenreWriteAvailability = "available" | "needs-save" | "unavailable";
+
+export type MaestGenreWritePreview = {
+  scanId: string;
+  field: "genre";
+  before: string | null;
+  after: string;
+  changed: boolean;
+};
+
+export type MaestGenreWriteResult = {
+  appliedFiles: number;
+  runId: string | null;
+};
+
+export function maestGenreWriteAvailability(
+  track: Tables<"tracks">,
+  formGenre: string,
+  linked: boolean,
+): MaestGenreWriteAvailability {
+  const persisted = track.genre?.trim();
+  const validEvidence =
+    persisted &&
+    track.genre_source === "automatic" &&
+    track.genre_analyzer_id === DESKTOP_MAEST_ANALYZER.id &&
+    track.genre_analyzer_version === DESKTOP_MAEST_ANALYZER.version &&
+    track.genre_compatibility_key === DESKTOP_MAEST_COMPATIBILITY_KEY &&
+    typeof track.genre_analyzed_at_ms === "number" &&
+    Number.isSafeInteger(track.genre_analyzed_at_ms) &&
+    track.genre_analyzed_at_ms >= 0 &&
+    typeof track.genre_raw_score === "number" &&
+    Number.isFinite(track.genre_raw_score);
+  if (!linked || !validEvidence) return "unavailable";
+  return formGenre === track.genre ? "available" : "needs-save";
+}
+
+export function maestGenreWriteArguments(sessionId: string, scanId: string, genre: string) {
+  return { request: { sessionId, scanId, genre } } as const;
+}
+
+export function invokeMaestGenreWritePreview(
+  core: TauriCore,
+  sessionId: string,
+  scanId: string,
+  genre: string,
+) {
+  return core.invoke<MaestGenreWritePreview>(
+    "preview_maest_genre_write",
+    maestGenreWriteArguments(sessionId, scanId, genre),
+  );
+}
+
+export function invokeMaestGenreWrite(
+  core: TauriCore,
+  sessionId: string,
+  scanId: string,
+  genre: string,
+) {
+  return core.invoke<MaestGenreWriteResult>(
+    "apply_maest_genre_write",
+    maestGenreWriteArguments(sessionId, scanId, genre),
+  );
+}
+
+export function metadataWriteErrorMessage(error: unknown, locale: "es" | "en") {
+  const safe = error && typeof error === "object" ? (error as CommandError) : {};
+  const code = typeof safe.code === "string" ? safe.code : "";
+  const en = locale === "en";
+  const messages: Record<string, [string, string]> = {
+    scan_session_unavailable: ["El escaneo local ya no está activo.", "The local scan is no longer active."],
+    track_not_in_session: ["La pista ya no está vinculada al escaneo activo.", "The track is no longer linked to the active scan."],
+    track_unavailable: ["El archivo local ya no está disponible.", "The local file is no longer available."],
+    track_changed: ["El archivo cambió. Vuelve a escanearlo antes de escribir.", "The file changed. Scan it again before writing."],
+    preview_required: ["Previsualiza de nuevo la escritura antes de confirmar.", "Preview the write again before confirming."],
+    file_not_writable: ["El archivo no se puede escribir.", "The file cannot be written."],
+    tag_not_writable: ["El formato no admite escribir esta etiqueta.", "This format does not support writing this tag."],
+    backup_failed: ["No se pudo crear la copia de seguridad.", "The backup could not be created."],
+    write_failed: ["No se pudo escribir el género; se conservó el archivo original.", "The genre could not be written; the original file was preserved."],
+    verification_failed: ["No se pudo verificar la escritura; se restauró el original.", "The write could not be verified; the original was restored."],
+    undo_failed: ["No se pudo deshacer la escritura de forma segura.", "The write could not be safely undone."],
+    restore_failed: ["No se pudo restaurar automáticamente el original. Conserva la copia de seguridad y no vuelvas a escribir.", "The original could not be restored automatically. Keep the backup and do not write again."],
+    link_state_failed: ["No se pudo conservar el vínculo local. El archivo original fue restaurado.", "The local link could not be preserved. The original file was restored."],
+  };
+  return messages[code]?.[en ? 1 : 0] ?? (en ? "The file operation could not be completed." : "No se pudo completar la operación con el archivo.");
 }
