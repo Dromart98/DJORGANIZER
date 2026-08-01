@@ -83,8 +83,8 @@ Las pruebas normales inyectan una función determinista que recibe el tensor por
 
 ## Pendiente
 
-- Añadir escritura de etiquetas y soporte seguro para ventanas múltiples.
+- Extender la escritura de etiquetas MAEST más allá de la etiqueta estándar `Genre`; el subgénero y cualquier otra etiqueta portable siguen pendientes.
 - Añadir selección de ventanas, cancelación, progreso y procesamiento por lotes en sus fases aprobadas.
 - Ejecutar smoke tests de empaquetado por plataforma antes de publicar instaladores macOS o Linux.
 
-El runtime aislado, su empaquetado Windows, el pipeline interno, el análisis seguro de una pista confirmada, la previsualización en Biblioteca, la aplicación explícita al formulario y la persistencia validada por campo de evidencia/procedencia MAEST están implementados. La salida nunca modifica el archivo ni persiste por sí sola; guardar sigue requiriendo la acción normal del usuario. Escritura de etiquetas, ventanas múltiples, lotes, progreso y cancelación permanecen pendientes; por tanto, el flujo completo de clasificación de Biblioteca no está terminado.
+El runtime aislado, su empaquetado Windows, el pipeline interno, el análisis seguro de una pista confirmada, la previsualización en Biblioteca, la aplicación explícita al formulario y la persistencia validada por campo de evidencia/procedencia MAEST están implementados. La salida del análisis y `Aplicar al formulario` nunca modifican el archivo por sí solas; guardar sigue requiriendo la acción normal del usuario. Cuando el género MAEST ya está persistido y su evidencia sigue siendo válida, Tauri permite previsualizar y confirmar explícitamente la escritura exclusiva de la etiqueta estándar `Genre` en el archivo local, con backup, relectura/verificación, historial y deshacer, además de aliases locales acotados para conservar el vínculo tras cambios de huella. La escritura de subgénero u otras etiquetas, las ventanas múltiples, los lotes, el progreso y la cancelación permanecen pendientes; por tanto, el flujo completo de clasificación de Biblioteca no está terminado.
