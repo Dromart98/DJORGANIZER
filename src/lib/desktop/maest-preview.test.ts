@@ -7,6 +7,7 @@ import {
   isCurrentMaestRequest,
   maestAnalyzeArguments,
   maestErrorMessage,
+  maestSurfaceVisibility,
   createMaestPreviewState,
   reduceMaestPreviewState,
   type MaestLinkIdentity,
@@ -60,6 +61,19 @@ function succeeded(state: MaestPreviewState, result = publicResult) {
 }
 
 describe("MAEST preview UI state controller", () => {
+  it("hides the complete surface without the Tauri bridge", () => {
+    expect(maestSurfaceVisibility(false, null)).toBe("hidden");
+    expect(maestSurfaceVisibility(false, link)).toBe("hidden");
+  });
+
+  it("shows the linking state in Tauri for an unlinked track", () => {
+    expect(maestSurfaceVisibility(true, null)).toBe("unlinked");
+  });
+
+  it("shows the analysis action in Tauri for a linked track", () => {
+    expect(maestSurfaceVisibility(true, link)).toBe("linked");
+  });
+
   it("does not start without a local link", () => {
     const state = createMaestPreviewState(null);
     expect(start(state)).toBe(state);
@@ -183,7 +197,9 @@ describe("MAEST preview UI state controller", () => {
     expect(component).toContain("Analizando pista…");
     expect(component).toContain("Volver a analizar");
     expect(component).toContain("Descartar propuesta");
-    expect(component).toContain("<dt>Score</dt>");
+    expect(component).toContain("setDesktopAvailable(Boolean(getTauriCore()))");
+    expect(component).toContain('if (surface === "hidden") return null');
+    expect(component).not.toMatch(/<dt>Score<\/dt>|confidence|confianza|%|0\.812345/);
     expect(component).not.toMatch(/Aplicar propuesta|Guardar propuesta|Escribir etiquetas/);
   });
 });

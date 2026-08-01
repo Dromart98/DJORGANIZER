@@ -6,6 +6,7 @@ import { useTranslator } from "@/components/i18n/locale-provider";
 import {
   createMaestPreviewState,
   invokeMaestPreview,
+  maestSurfaceVisibility,
   maestErrorMessage,
   reduceMaestPreviewState,
   sameMaestLink,
@@ -18,6 +19,7 @@ export function MaestPreview({ trackId }: { trackId: string }) {
   const { getTrackLink } = useDesktopScanSession();
   const { locale } = useTranslator();
   const link = getTrackLink(trackId);
+  const [desktopAvailable, setDesktopAvailable] = useState(false);
   const sessionId = link?.sessionId ?? null;
   const scanId = link?.scanId ?? null;
   const identity: MaestLinkIdentity | null =
@@ -39,6 +41,10 @@ export function MaestPreview({ trackId }: { trackId: string }) {
     setState(next);
     return next;
   }
+
+  useEffect(() => {
+    setDesktopAvailable(Boolean(getTauriCore()));
+  }, []);
 
   useEffect(() => {
     transition({ type: "linkChanged", identity });
@@ -80,10 +86,11 @@ export function MaestPreview({ trackId }: { trackId: string }) {
     ? state
     : createMaestPreviewState(identity);
   const { error, phase, proposal } = visibleState;
+  const surface = maestSurfaceVisibility(desktopAvailable, identity);
+  if (surface === "hidden") return null;
   const isBusy = phase !== "idle";
   const genre = proposal?.analysis.genre;
   const subgenre = proposal?.analysis.subgenre;
-  const score = genre?.score ?? subgenre?.score;
 
   return (
     <section aria-labelledby="maest-preview-title" className="maest-preview">
@@ -92,7 +99,7 @@ export function MaestPreview({ trackId }: { trackId: string }) {
           <p className="eyebrow">{locale === "en" ? "Read-only proposal" : "Propuesta sin aplicar"}</p>
           <h2 id="maest-preview-title">{locale === "en" ? "Genre and subgenre analysis" : "Análisis de género y subgénero"}</h2>
         </div>
-        {link ? (
+        {surface === "linked" ? (
           <button className="button button--secondary" disabled={isBusy} onClick={analyze} type="button">
             {phase === "preparing"
               ? locale === "en" ? "Preparing analyzer…" : "Preparando analizador…"
@@ -104,7 +111,7 @@ export function MaestPreview({ trackId }: { trackId: string }) {
           </button>
         ) : null}
       </div>
-      {!link ? (
+      {surface === "unlinked" ? (
         <p className="organization-muted" role="status">
           {locale === "en" ? "Link this track to the active local scan before analyzing it." : "Vincula primero esta pista con el escaneo local activo para analizarla."}
         </p>
@@ -122,7 +129,6 @@ export function MaestPreview({ trackId }: { trackId: string }) {
           <dl>
             <div><dt>{locale === "en" ? "Proposed genre" : "Género propuesto"}</dt><dd>{genre?.proposedValue ?? "—"}</dd></div>
             <div><dt>{locale === "en" ? "Proposed subgenre" : "Subgénero propuesto"}</dt><dd>{subgenre?.proposedValue ?? "—"}</dd></div>
-            <div><dt>Score</dt><dd>{score == null ? "—" : score.toString()}</dd></div>
           </dl>
           <button className="button button--secondary button--small" onClick={() => transition({ type: "discard" })} type="button">
             {locale === "en" ? "Discard proposal" : "Descartar propuesta"}

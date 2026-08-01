@@ -15,6 +15,7 @@ export type MaestRequestIdentity = {
 
 export type MaestLinkIdentity = Omit<MaestRequestIdentity, "requestId">;
 export type MaestPreviewPhase = "idle" | "preparing" | "analyzing";
+export type MaestSurfaceVisibility = "hidden" | "unlinked" | "linked";
 export type MaestPreviewState = {
   identity: MaestLinkIdentity | null;
   phase: MaestPreviewPhase;
@@ -56,6 +57,14 @@ export function createMaestPreviewState(
     error: null,
     activeRequest: null,
   };
+}
+
+export function maestSurfaceVisibility(
+  desktopAvailable: boolean,
+  identity: MaestLinkIdentity | null,
+): MaestSurfaceVisibility {
+  if (!desktopAvailable) return "hidden";
+  return identity ? "linked" : "unlinked";
 }
 
 function requestMatchesState(
