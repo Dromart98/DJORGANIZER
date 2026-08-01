@@ -34,6 +34,19 @@ export type MaestFormProposal = {
   subgenre: string | null;
 };
 
+export function initialTrackClassification(
+  mode: "create" | "update",
+  genre?: string | null,
+  subgenre?: string | null,
+): MaestFormFields {
+  return mode === "create"
+    ? { genre: "", subgenre: "" }
+    : {
+        genre: genre ?? "",
+        subgenre: subgenre ?? "",
+      };
+}
+
 export type MaestPreviewAction =
   | { type: "linkChanged"; identity: MaestLinkIdentity | null }
   | { type: "start"; requestId: number }

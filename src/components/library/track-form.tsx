@@ -13,6 +13,7 @@ import type { Tables } from "@/types/database";
 import { MaestPreview } from "@/components/library/maest-preview";
 import {
   applyMaestFormProposal,
+  initialTrackClassification,
   type MaestFormProposal,
 } from "@/lib/desktop/maest-preview";
 
@@ -57,20 +58,24 @@ export function TrackForm({ mode, track }: TrackFormProps) {
     INITIAL_TRACK_ACTION_STATE,
   );
   const { t } = useTranslator();
-  const [classification, setClassification] = useState(() => ({
-    genre: track?.genre ?? "",
-    subgenre: track?.subgenre ?? "",
-  }));
+  const [classification, setClassification] = useState(() =>
+    initialTrackClassification(mode, track?.genre, track?.subgenre),
+  );
 
   useEffect(() => {
-    setClassification({
-      genre: track?.genre ?? "",
-      subgenre: track?.subgenre ?? "",
-    });
-  }, [track?.id, track?.genre, track?.subgenre]);
+    setClassification(
+      initialTrackClassification(mode, track?.genre, track?.subgenre),
+    );
+  }, [mode, track?.id, track?.genre, track?.subgenre]);
 
   function applyMaestProposal(proposal: MaestFormProposal) {
     setClassification((current) => applyMaestFormProposal(current, proposal));
+  }
+
+  function resetClassification() {
+    setClassification(
+      initialTrackClassification(mode, track?.genre, track?.subgenre),
+    );
   }
 
   return (
@@ -78,6 +83,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
       action={formAction}
       className="track-form card"
       data-offline-action={mode === "create" ? "track-create" : "track-update"}
+      onReset={resetClassification}
     >
       {track ? <input name="id" type="hidden" value={track.id} /> : null}
       {track ? (

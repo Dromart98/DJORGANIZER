@@ -5,6 +5,7 @@ import type { TauriCore } from "./tauri";
 import {
   applyMaestFormProposal,
   invokeMaestPreview,
+  initialTrackClassification,
   isCurrentMaestRequest,
   maestAnalyzeArguments,
   maestErrorMessage,
@@ -156,6 +157,40 @@ describe("MAEST preview UI state controller", () => {
     expect(discarded.proposal).toBeNull();
   });
 
+  it("resets create classification fields to their initial empty values", () => {
+    const initial = initialTrackClassification("create");
+    const changed = applyMaestFormProposal(initial, {
+      genre: "Electronic",
+      subgenre: "Techno",
+    });
+
+    expect(initial).toEqual({ genre: "", subgenre: "" });
+    expect(changed).toEqual({ genre: "Electronic", subgenre: "Techno" });
+    expect(initialTrackClassification("create")).toEqual({
+      genre: "",
+      subgenre: "",
+    });
+  });
+
+  it("resets update classification fields to the persisted track values", () => {
+    const persisted = { genre: "House", subgenre: "Deep House" };
+    const initial = initialTrackClassification(
+      "update",
+      persisted.genre,
+      persisted.subgenre,
+    );
+    const changed = applyMaestFormProposal(initial, {
+      genre: "Electronic",
+      subgenre: "Techno",
+    });
+
+    expect(initial).toEqual(persisted);
+    expect(changed).toEqual({ genre: "Electronic", subgenre: "Techno" });
+    expect(
+      initialTrackClassification("update", persisted.genre, persisted.subgenre),
+    ).toEqual(persisted);
+  });
+
   it("discards the current proposal", () => {
     const proposed = succeeded(start(createMaestPreviewState(link)));
     const discarded = reduceMaestPreviewState(proposed, { type: "discard" });
@@ -265,6 +300,8 @@ describe("MAEST preview UI state controller", () => {
     expect(form).toContain("value={classification.genre}");
     expect(form).toContain("value={classification.subgenre}");
     expect(form).toContain("applyMaestFormProposal(current, proposal)");
+    expect(form).toContain("onReset={resetClassification}");
+    expect(form).toContain("initialTrackClassification(mode, track?.genre, track?.subgenre)");
     expect(form).toMatch(/<MaestPreview onApply=\{applyMaestProposal\} trackId=\{track\.id\} \/>/);
     expect(form).toMatch(/<SaveButton mode=\{mode\} \/>/);
     expect(form).toContain('mode === "create" ? createTrackAction : updateTrackAction');
