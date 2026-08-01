@@ -10,9 +10,53 @@ describe("parseBulkTrackUpdate", () => {
     ).toEqual({
       field: "genre",
       trackIds,
-      update: { genre: "House", genre_confidence: null, genre_source: "manual" },
+      update: {
+        genre: "House",
+        genre_analyzed_at_ms: null,
+        genre_analyzer_id: null,
+        genre_analyzer_version: null,
+        genre_compatibility_key: null,
+        genre_confidence: null,
+        genre_raw_score: null,
+        genre_source: "manual",
+      },
     });
   });
+
+  it.each([
+    ["genre", "House"],
+    ["subgenre", "Deep House"],
+  ] as const)("clears only %s MAEST evidence for a manual bulk edit", (field, value) => {
+    const update = parseBulkTrackUpdate({ field, trackIds, value }).update;
+    expect(update).toMatchObject({
+      [field]: value,
+      [`${field}_analyzed_at_ms`]: null,
+      [`${field}_analyzer_id`]: null,
+      [`${field}_analyzer_version`]: null,
+      [`${field}_compatibility_key`]: null,
+      [`${field}_confidence`]: null,
+      [`${field}_raw_score`]: null,
+      [`${field}_source`]: "manual",
+    });
+    const other = field === "genre" ? "subgenre" : "genre";
+    expect(Object.keys(update).some((key) => key.startsWith(`${other}_`))).toBe(false);
+  });
+
+  it.each(["genre", "subgenre"] as const)(
+    "clears %s provenance and MAEST evidence for an empty bulk edit",
+    (field) => {
+      expect(parseBulkTrackUpdate({ field, trackIds, value: "" }).update).toMatchObject({
+        [field]: null,
+        [`${field}_analyzer_id`]: null,
+        [`${field}_analyzer_version`]: null,
+        [`${field}_compatibility_key`]: null,
+        [`${field}_analyzed_at_ms`]: null,
+        [`${field}_raw_score`]: null,
+        [`${field}_confidence`]: null,
+        [`${field}_source`]: null,
+      });
+    },
+  );
 
   it("normalizes musical keys and derives Camelot", () => {
     expect(

@@ -1,5 +1,26 @@
 begin;
-select plan(16);
+select plan(36);
+
+select has_column('public', 'tracks', 'genre_analyzer_id', 'tracks has genre analyzer id');
+select col_type_is('public', 'tracks', 'genre_analyzer_id', 'text', 'genre analyzer id is text');
+select has_column('public', 'tracks', 'genre_analyzer_version', 'tracks has genre analyzer version');
+select col_type_is('public', 'tracks', 'genre_analyzer_version', 'text', 'genre analyzer version is text');
+select has_column('public', 'tracks', 'genre_compatibility_key', 'tracks has genre compatibility key');
+select col_type_is('public', 'tracks', 'genre_compatibility_key', 'text', 'genre compatibility key is text');
+select has_column('public', 'tracks', 'genre_analyzed_at_ms', 'tracks has genre analysis date');
+select col_type_is('public', 'tracks', 'genre_analyzed_at_ms', 'bigint', 'genre analysis date is bigint');
+select has_column('public', 'tracks', 'genre_raw_score', 'tracks has genre raw score');
+select col_type_is('public', 'tracks', 'genre_raw_score', 'double precision', 'genre raw score is double precision');
+select has_column('public', 'tracks', 'subgenre_analyzer_id', 'tracks has subgenre analyzer id');
+select col_type_is('public', 'tracks', 'subgenre_analyzer_id', 'text', 'subgenre analyzer id is text');
+select has_column('public', 'tracks', 'subgenre_analyzer_version', 'tracks has subgenre analyzer version');
+select col_type_is('public', 'tracks', 'subgenre_analyzer_version', 'text', 'subgenre analyzer version is text');
+select has_column('public', 'tracks', 'subgenre_compatibility_key', 'tracks has subgenre compatibility key');
+select col_type_is('public', 'tracks', 'subgenre_compatibility_key', 'text', 'subgenre compatibility key is text');
+select has_column('public', 'tracks', 'subgenre_analyzed_at_ms', 'tracks has subgenre analysis date');
+select col_type_is('public', 'tracks', 'subgenre_analyzed_at_ms', 'bigint', 'subgenre analysis date is bigint');
+select has_column('public', 'tracks', 'subgenre_raw_score', 'tracks has subgenre raw score');
+select col_type_is('public', 'tracks', 'subgenre_raw_score', 'double precision', 'subgenre raw score is double precision');
 
 select has_column('public', 'tracks', 'subgenre', 'tracks has independent subgenre');
 select col_is_null('public', 'tracks', 'subgenre', 'subgenre remains nullable');

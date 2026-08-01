@@ -13,6 +13,7 @@ import type { Tables } from "@/types/database";
 import { MaestPreview } from "@/components/library/maest-preview";
 import {
   applyMaestFormProposal,
+  editMaestFormField,
   initialTrackClassification,
   type MaestFormProposal,
 } from "@/lib/desktop/maest-preview";
@@ -89,6 +90,13 @@ export function TrackForm({ mode, track }: TrackFormProps) {
       {track ? (
         <input name="revision" type="hidden" value={track.updated_at} />
       ) : null}
+      {mode === "update" ? (
+        <input
+          name="maest_evidence"
+          type="hidden"
+          value={JSON.stringify(classification.evidence)}
+        />
+      ) : null}
       {state.status === "error" ? (
         <p className="form-message form-message--error" role="alert">
           {state.message}
@@ -131,10 +139,9 @@ export function TrackForm({ mode, track }: TrackFormProps) {
             maxLength={120}
             name="genre"
             onChange={(event) =>
-              setClassification((current) => ({
-                ...current,
-                genre: event.target.value,
-              }))
+              setClassification((current) =>
+                editMaestFormField(current, "genre", event.target.value),
+              )
             }
             value={classification.genre}
           />
@@ -146,10 +153,9 @@ export function TrackForm({ mode, track }: TrackFormProps) {
             maxLength={120}
             name="subgenre"
             onChange={(event) =>
-              setClassification((current) => ({
-                ...current,
-                subgenre: event.target.value,
-              }))
+              setClassification((current) =>
+                editMaestFormField(current, "subgenre", event.target.value),
+              )
             }
             value={classification.subgenre}
           />

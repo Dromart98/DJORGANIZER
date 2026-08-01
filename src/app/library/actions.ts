@@ -10,6 +10,7 @@ import { bulkTrackUpdateFromFormData } from "@/lib/library/bulk-track-update";
 import {
   toTrackInsert,
   toTrackUpdate,
+  maestEvidenceFromFormData,
   trackIdSchema,
   trackIdsSchema,
   trackValuesFromFormData,
@@ -107,7 +108,7 @@ export async function updateTrackAction(
   const supabase = await createClient();
   const { data: persisted, error: readError } = await supabase
     .from("tracks")
-    .select("bpm, bpm_confidence, bpm_explanation, bpm_source, camelot_key, energy, energy_confidence, energy_source, genre, genre_confidence, genre_source, key_confidence, key_explanation, key_source, musical_key, subgenre, subgenre_confidence, subgenre_source")
+    .select("bpm, bpm_confidence, bpm_explanation, bpm_source, camelot_key, energy, energy_confidence, energy_source, genre, genre_analyzed_at_ms, genre_analyzer_id, genre_analyzer_version, genre_compatibility_key, genre_confidence, genre_raw_score, genre_source, key_confidence, key_explanation, key_source, musical_key, subgenre, subgenre_analyzed_at_ms, subgenre_analyzer_id, subgenre_analyzer_version, subgenre_compatibility_key, subgenre_confidence, subgenre_raw_score, subgenre_source")
     .eq("id", idResult.data)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -119,7 +120,7 @@ export async function updateTrackAction(
   }
   const { data, error } = await supabase
     .from("tracks")
-    .update(toTrackUpdate(values, persisted))
+    .update(toTrackUpdate(values, persisted, maestEvidenceFromFormData(formData)))
     .eq("id", idResult.data)
     .eq("user_id", user.id)
     .select("id")

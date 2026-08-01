@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   toTrackInsert,
   toTrackUpdate,
+  maestEvidenceFromFormData,
   trackFormSchema,
   trackIdsSchema,
 } from "./track-schema";
@@ -16,14 +17,24 @@ const persistedAnalysis = {
   energy_confidence: 0.8,
   energy_source: "automatic",
   genre: "Electronic",
+  genre_analyzed_at_ms: 1785542400000,
+  genre_analyzer_id: "existing-analyzer",
+  genre_analyzer_version: "existing-version",
+  genre_compatibility_key: "existing-key",
   genre_confidence: 0.7,
+  genre_raw_score: 1.2,
   genre_source: "automatic",
   key_confidence: 0.85,
   key_explanation: "Automatic key evidence",
   key_source: "automatic",
   musical_key: "Am",
   subgenre: "Techno",
+  subgenre_analyzed_at_ms: 1785542400000,
+  subgenre_analyzer_id: "existing-analyzer",
+  subgenre_analyzer_version: "existing-version",
+  subgenre_compatibility_key: "existing-key",
   subgenre_confidence: 0.75,
+  subgenre_raw_score: 1.1,
   subgenre_source: "automatic",
 };
 
@@ -121,6 +132,16 @@ describe("trackFormSchema", () => {
     });
   });
 
+  it("keeps track creation manual and does not accept MAEST provenance", () => {
+    const insert = toTrackInsert(
+      trackFormSchema.parse({ ...editableValues, camelot_key: "8A" }),
+      "user-id",
+    );
+    expect(insert).toMatchObject({ genre_source: "manual", subgenre_source: "manual" });
+    expect(insert).not.toHaveProperty("genre_analyzer_id");
+    expect(insert).not.toHaveProperty("subgenre_raw_score");
+  });
+
   it("rechaza valores musicales fuera de rango", () => {
     const result = trackFormSchema.safeParse({
       album: "",
@@ -155,6 +176,93 @@ describe("trackFormSchema", () => {
     expect(update).not.toHaveProperty("genre_confidence");
     expect(update).not.toHaveProperty("subgenre_source");
     expect(update).not.toHaveProperty("subgenre_confidence");
+    expect(update).not.toHaveProperty("genre_analyzer_id");
+    expect(update).not.toHaveProperty("subgenre_raw_score");
+  });
+
+  it("persists matching MAEST evidence only for changed classification fields", () => {
+    const evidence = {
+      value: "House",
+      analyzerId: "djorganizer.desktop.genre.maest" as const,
+      analyzerVersion: "discogs-maest-30s-pw-519l@2" as const,
+      compatibilityKey: "maest-519l|mel-16000-1876x96-f32|v2" as const,
+      analyzedAt: "1785542400000",
+      rawScore: 0.812345,
+    };
+    const update = toTrackUpdate(
+      { ...editableValues, genre: "House", subgenre: "Deep House" },
+      persistedAnalysis,
+      { genre: evidence, subgenre: { ...evidence, value: "Deep House", rawScore: 0.712345 } },
+    );
+    expect(update).toMatchObject({
+      genre_source: "automatic",
+      genre_confidence: null,
+      genre_analyzer_id: evidence.analyzerId,
+      genre_analyzer_version: evidence.analyzerVersion,
+      genre_compatibility_key: evidence.compatibilityKey,
+      genre_analyzed_at_ms: 1785542400000,
+      genre_raw_score: 0.812345,
+      subgenre_source: "automatic",
+      subgenre_confidence: null,
+      subgenre_raw_score: 0.712345,
+    });
+  });
+
+  it.each([
+    ["different value", { value: "Rock" }],
+    ["wrong analyzer", { analyzerId: "wrong" }],
+    ["wrong version", { analyzerVersion: "wrong" }],
+    ["wrong compatibility", { compatibilityKey: "wrong" }],
+    ["non-finite score", { rawScore: Number.NaN }],
+    ["invalid timestamp", { analyzedAt: "1.5" }],
+  ])("degrades %s evidence to a manual edit", (_name, change) => {
+    const formData = new FormData();
+    formData.set("maest_evidence", JSON.stringify({ genre: {
+      value: "House",
+      analyzerId: "djorganizer.desktop.genre.maest",
+      analyzerVersion: "discogs-maest-30s-pw-519l@2",
+      compatibilityKey: "maest-519l|mel-16000-1876x96-f32|v2",
+      analyzedAt: "1785542400000",
+      rawScore: 0.8,
+      ...change,
+    } }));
+    const update = toTrackUpdate(
+      { ...editableValues, genre: "House" },
+      persistedAnalysis,
+      maestEvidenceFromFormData(formData),
+    );
+    expect(update).toMatchObject({ genre_source: "manual", genre_analyzer_id: null, genre_raw_score: null });
+  });
+
+  it("degrades malformed evidence without blocking a legitimate edit", () => {
+    const formData = new FormData();
+    formData.set("maest_evidence", "{bad json");
+    expect(toTrackUpdate(
+      { ...editableValues, genre: "House" },
+      persistedAnalysis,
+      maestEvidenceFromFormData(formData),
+    )).toMatchObject({ genre: "House", genre_source: "manual" });
+  });
+
+  it("keeps valid subgenre evidence when genre evidence is invalid", () => {
+    const valid = {
+      value: "Deep House",
+      analyzerId: "djorganizer.desktop.genre.maest",
+      analyzerVersion: "discogs-maest-30s-pw-519l@2",
+      compatibilityKey: "maest-519l|mel-16000-1876x96-f32|v2",
+      analyzedAt: "1785542400000",
+      rawScore: 0.7,
+    };
+    const formData = new FormData();
+    formData.set("maest_evidence", JSON.stringify({
+      genre: { ...valid, value: "House", analyzerId: "wrong" },
+      subgenre: valid,
+    }));
+    expect(toTrackUpdate(
+      { ...editableValues, genre: "House", subgenre: "Deep House" },
+      persistedAnalysis,
+      maestEvidenceFromFormData(formData),
+    )).toMatchObject({ genre_source: "manual", subgenre_source: "automatic" });
   });
 
   it.each([
@@ -198,6 +306,8 @@ describe("trackFormSchema", () => {
       genre: null,
       genre_confidence: null,
       genre_source: null,
+      genre_analyzer_id: null,
+      genre_raw_score: null,
       key_confidence: null,
       key_explanation: null,
       key_source: null,
@@ -205,6 +315,8 @@ describe("trackFormSchema", () => {
       subgenre: null,
       subgenre_confidence: null,
       subgenre_source: null,
+      subgenre_analyzer_id: null,
+      subgenre_raw_score: null,
     });
   });
 });
