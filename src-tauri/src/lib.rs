@@ -3914,47 +3914,105 @@ async fn apply_metadata_writes(
     apply_metadata_writes_state(&state, request, &alias_path)
 }
 
-fn undo_metadata_writes_state(
+#[derive(Debug)]
+struct UndoMetadataWriteError {
+    code: &'static str,
+    message: String,
+}
+
+impl UndoMetadataWriteError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+fn restore_undo_current(
+    session: &mut ScanSession,
+    current_copies: &[(PathBuf, PathBuf, String)],
+) -> bool {
+    for (current_copy, original_path, _) in current_copies {
+        if fs::copy(current_copy, original_path).is_err() {
+            return false;
+        }
+    }
+    for (_, original_path, scan_id) in current_copies {
+        let Ok(metadata) = read_audio_metadata(original_path) else {
+            return false;
+        };
+        let Ok(file_metadata) = fs::metadata(original_path) else {
+            return false;
+        };
+        let Ok(updated) =
+            update_session_track_after_write(session, scan_id, metadata, file_metadata.len())
+        else {
+            return false;
+        };
+        session
+            .file_versions
+            .insert(updated.relative_path, file_version(&file_metadata));
+    }
+    true
+}
+
+fn undo_metadata_writes_state_with<P>(
     state: &DesktopState,
     session_id: String,
     run_id: String,
-) -> Result<MetadataWriteResult, String> {
-    let run = {
-        let history = state
-            .metadata_write_history
-            .lock()
-            .map_err(|_| "No se pudo leer el historial local de metadatos.".to_owned())?;
-        history
-            .iter()
-            .find(|run| run.id == run_id && run.session_id == session_id && !run.undone)
-            .cloned()
-            .ok_or_else(|| "La escritura ya no está disponible para deshacer.".to_owned())?
-    };
-
-    let mut current_session = state
-        .scan_session
-        .lock()
-        .map_err(|_| "No se pudo actualizar la sesión local.".to_owned())?;
+    alias_path: &Path,
+    persist: P,
+) -> Result<MetadataWriteResult, UndoMetadataWriteError>
+where
+    P: FnOnce(&Path, &[(String, [u8; 32], u64)]) -> Result<(), ()>,
+{
+    let mut current_session = state.scan_session.lock().map_err(|_| {
+        UndoMetadataWriteError::new("undo_failed", "No se pudo actualizar la sesión local.")
+    })?;
     let session = current_session
         .as_mut()
         .filter(|session| session.id == session_id)
         .ok_or_else(|| {
-            "Este historial pertenece a otro escaneo. Selecciona de nuevo la carpeta original."
-                .to_owned()
+            UndoMetadataWriteError::new("undo_failed", {
+                "Este historial pertenece a otro escaneo. Selecciona de nuevo la carpeta original."
+                    .to_owned()
+            })
+        })?;
+    let mut history = state.metadata_write_history.lock().map_err(|_| {
+        UndoMetadataWriteError::new(
+            "undo_failed",
+            "No se pudo leer el historial local de metadatos.",
+        )
+    })?;
+    let run = history
+        .iter()
+        .find(|run| run.id == run_id && run.session_id == session_id && !run.undone)
+        .cloned()
+        .ok_or_else(|| {
+            UndoMetadataWriteError::new(
+                "undo_failed",
+                "La escritura ya no está disponible para deshacer.",
+            )
         })?;
 
     for backup in &run.backups {
         let current_size = fs::metadata(&backup.original_path)
             .map_err(|_| {
-                "Un archivo editado ya no está disponible; no se deshizo nada.".to_owned()
+                UndoMetadataWriteError::new(
+                    "undo_failed",
+                    "Un archivo editado ya no está disponible; no se deshizo nada.",
+                )
             })?
             .len();
-        let current_fingerprint = hash_file(&backup.original_path, current_size)?;
+        let current_fingerprint = hash_file(&backup.original_path, current_size)
+            .map_err(|message| UndoMetadataWriteError::new("undo_failed", message))?;
         if current_fingerprint != backup.written_fingerprint {
-            return Err(
+            return Err(UndoMetadataWriteError::new(
+                "undo_failed",
                 "Un archivo cambió después de escribir sus etiquetas. No se deshizo nada."
                     .to_owned(),
-            );
+            ));
         }
     }
 
@@ -3967,23 +4025,34 @@ fn undo_metadata_writes_state(
     for backup in &run.backups {
         let current_copy = undo_root.join(&backup.scan_id);
         if let Some(parent) = current_copy.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("No se pudo preparar el deshacer: {error}"))?;
+            fs::create_dir_all(parent).map_err(|_| {
+                UndoMetadataWriteError::new("undo_failed", "No se pudo preparar el deshacer.")
+            })?;
         }
-        fs::copy(&backup.original_path, &current_copy)
-            .map_err(|error| format!("No se pudo proteger el estado actual: {error}"))?;
-        current_copies.push((current_copy, backup.original_path.clone()));
+        fs::copy(&backup.original_path, &current_copy).map_err(|_| {
+            UndoMetadataWriteError::new("undo_failed", "No se pudo proteger el estado actual.")
+        })?;
+        current_copies.push((
+            current_copy,
+            backup.original_path.clone(),
+            backup.scan_id.clone(),
+        ));
     }
 
     let mut restored_count = 0;
     for backup in &run.backups {
-        if let Err(error) = fs::copy(&backup.backup_path, &backup.original_path) {
-            for (current_copy, original_path) in &current_copies {
-                let _ = fs::copy(current_copy, original_path);
-            }
-            return Err(format!(
-                "No se pudo completar el deshacer; se restauró el estado previo al intento: {error}"
-            ));
+        if fs::copy(&backup.backup_path, &backup.original_path).is_err() {
+            return Err(if restore_undo_current(session, &current_copies) {
+                UndoMetadataWriteError::new(
+                    "undo_failed",
+                    "No se pudo completar el deshacer; se restauró el estado previo al intento.",
+                )
+            } else {
+                UndoMetadataWriteError::new(
+                    "restore_failed",
+                    "No se pudo recuperar el estado previo al intento de deshacer.",
+                )
+            });
         }
         restored_count += 1;
     }
@@ -3992,48 +4061,109 @@ fn undo_metadata_writes_state(
     for backup in &run.backups {
         let metadata = match read_audio_metadata(&backup.original_path) {
             Ok(metadata) => metadata,
-            Err(error) => {
-                for (current_copy, original_path) in &current_copies {
-                    let _ = fs::copy(current_copy, original_path);
-                }
-                return Err(format!(
-                    "No se pudo verificar el archivo restaurado; se revirtió el intento de deshacer: {error}"
-                ));
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo verificar el archivo restaurado; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
             }
         };
         let size_bytes = match fs::metadata(&backup.original_path) {
             Ok(metadata) => metadata.len(),
-            Err(error) => {
-                for (current_copy, original_path) in &current_copies {
-                    let _ = fs::copy(current_copy, original_path);
-                }
-                return Err(format!(
-                    "No se pudo verificar el tamaño restaurado; se revirtió el intento de deshacer: {error}"
-                ));
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo verificar el tamaño restaurado; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
             }
         };
-        restored_metadata.push((backup.scan_id.clone(), metadata, size_bytes));
+        let fingerprint = match hash_file(&backup.original_path, size_bytes) {
+            Ok(fingerprint) => fingerprint,
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo verificar la huella restaurada; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
+            }
+        };
+        restored_metadata.push((backup.scan_id.clone(), metadata, size_bytes, fingerprint));
     }
     let mut updated_tracks = Vec::with_capacity(run.backups.len());
-    for (scan_id, metadata, size_bytes) in restored_metadata {
-        let updated = update_session_track_after_write(session, &scan_id, metadata, size_bytes)?;
-        let restored_file = session
+    let mut restored_aliases = Vec::new();
+    for (scan_id, metadata, size_bytes, fingerprint) in restored_metadata {
+        let updated = match update_session_track_after_write(
+            session, &scan_id, metadata, size_bytes,
+        ) {
+            Ok(updated) => updated,
+            Err(_) => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo actualizar la pista restaurada; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
+            }
+        };
+        let restored_file = match session
             .tracks
             .get(&scan_id)
             .and_then(|track| fs::metadata(&track.absolute_path).ok())
-            .ok_or_else(|| "No se pudo actualizar la versión del archivo restaurado.".to_owned())?;
+        {
+            Some(restored_file) => restored_file,
+            None => {
+                return Err(if restore_undo_current(session, &current_copies) {
+                    UndoMetadataWriteError::new("undo_failed", "No se pudo actualizar la versión del archivo restaurado; se revirtió el intento de deshacer.")
+                } else {
+                    UndoMetadataWriteError::new(
+                        "restore_failed",
+                        "No se pudo recuperar el estado previo al intento de deshacer.",
+                    )
+                });
+            }
+        };
         session
             .file_versions
             .insert(updated.relative_path.clone(), file_version(&restored_file));
+        if let Some(track_id) =
+            session
+                .library_links
+                .iter()
+                .find_map(|(track_id, linked_scan_id)| {
+                    (linked_scan_id == &scan_id).then(|| track_id.clone())
+                })
+        {
+            restored_aliases.push((track_id, fingerprint, size_bytes));
+        }
         updated_tracks.push(updated);
     }
+    if persist(alias_path, &restored_aliases).is_err() {
+        return Err(if restore_undo_current(session, &current_copies) {
+            UndoMetadataWriteError::new(
+                "link_state_failed",
+                "No se pudo conservar el vínculo local; se restauró el estado previo al deshacer.",
+            )
+        } else {
+            UndoMetadataWriteError::new(
+                "restore_failed",
+                "No se pudo recuperar el estado previo al intento de deshacer.",
+            )
+        });
+    }
     let _ = fs::remove_dir_all(&undo_root);
-    drop(current_session);
-
-    let mut history = state
-        .metadata_write_history
-        .lock()
-        .map_err(|_| "No se pudo actualizar el historial local de metadatos.".to_owned())?;
     if let Some(entry) = history.iter_mut().find(|entry| entry.id == run_id) {
         entry.undone = true;
     }
@@ -4044,28 +4174,55 @@ fn undo_metadata_writes_state(
     })
 }
 
+fn undo_metadata_writes_state(
+    state: &DesktopState,
+    session_id: String,
+    run_id: String,
+    alias_path: &Path,
+) -> Result<MetadataWriteResult, UndoMetadataWriteError> {
+    undo_metadata_writes_state_with(state, session_id, run_id, alias_path, persist_local_aliases)
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn undo_metadata_writes(
+    app: AppHandle,
     state: State<'_, DesktopState>,
     session_id: String,
     run_id: String,
 ) -> Result<MetadataWriteResult, String> {
-    undo_metadata_writes_state(&state, session_id, run_id)
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    undo_metadata_writes_state(&state, session_id, run_id, &alias_path)
+        .map_err(|error| error.message)
 }
 
 #[tauri::command(rename_all = "camelCase")]
 async fn undo_maest_genre_write(
+    app: AppHandle,
     state: State<'_, DesktopState>,
     session_id: String,
     run_id: String,
 ) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
-    undo_metadata_writes_state(&state, session_id, run_id)
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| {
+            SafeMetadataWriteError::new(
+                "link_state_failed",
+                "No se pudo abrir el estado local de vínculos.",
+            )
+        })?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    undo_metadata_writes_state(&state, session_id, run_id, &alias_path)
         .map(|result| MaestGenreWriteResult {
             applied_files: result.applied_files,
             run_id: result.run_id,
         })
-        .map_err(|_| {
-            SafeMetadataWriteError::new("undo_failed", "No se pudo deshacer la escritura.")
+        .map_err(|error| {
+            SafeMetadataWriteError::new(error.code, "No se pudo deshacer la escritura.")
         })
 }
 
@@ -4975,12 +5132,12 @@ mod tests {
         preview_maest_genre_write_state, read_audio_metadata, read_local_alias_store,
         register_local_alias, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
         safe_path_segment, scan_music_folder, scan_music_folder_with_previous,
-        undo_metadata_writes_state, update_alias_anchors, write_genre_only,
-        write_local_alias_store, write_metadata_to_file, write_rekordbox_xml_no_clobber,
-        DesktopState, LibraryLinkCandidate, LocalFileIdentity, LocalLibraryFileAliases,
-        LocalTrackAliases, MaestGenreWriteRequest, MetadataEditInput, MetadataWriteRequest,
-        OrganizationScheme, RekordboxCrateInput, ScanSession, ScannedAudioFile, SessionTrack,
-        MAX_LIBRARY_FILE_ALIASES_PER_TRACK,
+        undo_metadata_writes_state, undo_metadata_writes_state_with, update_alias_anchors,
+        write_genre_only, write_local_alias_store, write_metadata_to_file,
+        write_rekordbox_xml_no_clobber, DesktopState, LibraryLinkCandidate, LocalFileIdentity,
+        LocalLibraryFileAliases, LocalTrackAliases, MaestGenreWriteRequest, MetadataEditInput,
+        MetadataWriteRequest, OrganizationScheme, RekordboxCrateInput, ScanSession,
+        ScannedAudioFile, SessionTrack, MAX_LIBRARY_FILE_ALIASES_PER_TRACK,
     };
     const TEST_LIBRARY_TRACK_ID: &str = "11111111-1111-4111-8111-111111111111";
     use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -5468,7 +5625,13 @@ mod tests {
                 .unwrap()
                 .run_id
                 .unwrap();
-        undo_metadata_writes_state(&state, request.session_id.clone(), run_id).unwrap();
+        undo_metadata_writes_state(
+            &state,
+            request.session_id.clone(),
+            run_id,
+            &root.join("aliases.json"),
+        )
+        .unwrap();
         assert_eq!(fs::read(&file).unwrap(), original_bytes);
 
         preview_maest_genre_write_state(&state, &request).unwrap();
@@ -5483,7 +5646,13 @@ mod tests {
             .unwrap()
             .write_all(&[0])
             .unwrap();
-        assert!(undo_metadata_writes_state(&state, request.session_id, run_id).is_err());
+        assert!(undo_metadata_writes_state(
+            &state,
+            request.session_id,
+            run_id,
+            &root.join("aliases.json"),
+        )
+        .is_err());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -5665,9 +5834,24 @@ mod tests {
             [TEST_LIBRARY_TRACK_ID]
             .aliases
             .len();
-        apply_metadata_writes_state(
+        let unlinked_run = apply_metadata_writes_state(
             &state,
             general_metadata_request(&state, &request, "Unlinked write"),
+            &alias_path,
+        )
+        .unwrap()
+        .run_id
+        .unwrap();
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            aliases_before_unlinked
+        );
+        undo_metadata_writes_state(
+            &state,
+            request.session_id.clone(),
+            unlinked_run,
             &alias_path,
         )
         .unwrap();
@@ -5685,16 +5869,18 @@ mod tests {
         let (root, _, state, request, _, _) =
             maest_genre_fixture("successive-session", "successive.flac");
         let alias_path = root.join("aliases.json");
-        let mut latest_run = String::new();
+        let mut runs = Vec::new();
         for index in 0..10 {
-            latest_run = apply_metadata_writes_state(
-                &state,
-                general_metadata_request(&state, &request, &format!("Version {index}")),
-                &alias_path,
-            )
-            .unwrap()
-            .run_id
-            .unwrap();
+            runs.push(
+                apply_metadata_writes_state(
+                    &state,
+                    general_metadata_request(&state, &request, &format!("Version {index}")),
+                    &alias_path,
+                )
+                .unwrap()
+                .run_id
+                .unwrap(),
+            );
         }
         assert_eq!(
             read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
@@ -5702,8 +5888,43 @@ mod tests {
                 .len(),
             MAX_LIBRARY_FILE_ALIASES_PER_TRACK
         );
-        undo_metadata_writes_state(&state, request.session_id.clone(), latest_run).unwrap();
+        let evicted_backup = {
+            let history = state.metadata_write_history.lock().unwrap();
+            history
+                .iter()
+                .find(|run| run.id == runs[2])
+                .unwrap()
+                .backups[0]
+                .backup_path
+                .clone()
+        };
+        let evicted_size = fs::metadata(&evicted_backup).unwrap().len();
+        let evicted_identity = LocalFileIdentity {
+            fingerprint: fingerprint_text(hash_file(&evicted_backup, evicted_size).unwrap()),
+            size: evicted_size,
+        };
+        assert!(
+            !read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .contains(&evicted_identity)
+        );
+        for run_id in runs.iter().skip(2).rev() {
+            undo_metadata_writes_state(
+                &state,
+                request.session_id.clone(),
+                run_id.clone(),
+                &alias_path,
+            )
+            .unwrap();
+        }
         let store = read_local_alias_store(&alias_path);
+        assert_eq!(
+            store.tracks[TEST_LIBRARY_TRACK_ID].aliases.len(),
+            MAX_LIBRARY_FILE_ALIASES_PER_TRACK
+        );
+        assert!(store.tracks[TEST_LIBRARY_TRACK_ID]
+            .aliases
+            .contains(&evicted_identity));
         let session = state.scan_session.lock().unwrap();
         let current = &session.as_ref().unwrap().tracks[&request.scan_id];
         let candidates = vec![LibraryLinkCandidate {
@@ -5762,6 +5983,77 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "restore_failed");
         assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn undo_alias_persistence_failure_restores_pre_undo_state_and_history() {
+        let (root, file, state, request, _, _) =
+            maest_genre_fixture("undo-alias-failure", "undo-alias-failure.flac");
+        let alias_path = root.join("aliases.json");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let run_id = apply_maest_genre_write_state(&state, request.clone(), &alias_path)
+            .unwrap()
+            .run_id
+            .unwrap();
+        let pre_undo = fs::read(&file).unwrap();
+        let error = undo_metadata_writes_state_with(
+            &state,
+            request.session_id.clone(),
+            run_id.clone(),
+            &alias_path,
+            |_, _| Err(()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "link_state_failed");
+        assert_eq!(fs::read(&file).unwrap(), pre_undo);
+        assert!(
+            !state
+                .metadata_write_history
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|run| run.id == run_id)
+                .unwrap()
+                .undone
+        );
+        fs::remove_dir_all(root).unwrap();
+
+        let (root, _, state, request, _, _) =
+            maest_genre_fixture("undo-restore-failure", "undo-restore-failure.flac");
+        let alias_path = root.join("aliases.json");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let run_id = apply_maest_genre_write_state(&state, request.clone(), &alias_path)
+            .unwrap()
+            .run_id
+            .unwrap();
+        let undo_current = root
+            .join(super::METADATA_BACKUP_DIRECTORY)
+            .join(&run_id)
+            .join("undo-current")
+            .join(&request.scan_id);
+        let error = undo_metadata_writes_state_with(
+            &state,
+            request.session_id,
+            run_id.clone(),
+            &alias_path,
+            move |_, _| {
+                fs::remove_file(&undo_current).unwrap();
+                Err(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "restore_failed");
+        assert!(
+            !state
+                .metadata_write_history
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|run| run.id == run_id)
+                .unwrap()
+                .undone
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
