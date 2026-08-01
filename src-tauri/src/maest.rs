@@ -11,7 +11,7 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -105,7 +105,26 @@ pub struct MaestAnalysisResult {
 pub struct MaestState {
     preparing: AtomicBool,
     inference: InferenceGate,
-    session: Mutex<Option<Session>>,
+    session: Mutex<Option<Arc<Session>>>,
+}
+
+fn with_cloned_ready_value<T, R>(
+    value: &Mutex<Option<Arc<T>>>,
+    run: impl FnOnce(Arc<T>) -> R,
+) -> Option<R> {
+    let value = value.lock().ok()?.as_ref()?.clone();
+    Some(run(value))
+}
+
+impl MaestState {
+    pub(crate) fn with_ready_session<T>(
+        &self,
+        run: impl FnOnce(&Session, &InferenceGate) -> T,
+    ) -> Option<T> {
+        with_cloned_ready_value(&self.session, |session| {
+            run(session.as_ref(), &self.inference)
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -529,7 +548,7 @@ pub async fn prepare_maest_model(
                 "model_state_error",
                 "El estado del analizador no está disponible.",
             )
-        })? = Some(session);
+        })? = Some(Arc::new(session));
     }
     Ok(PrepareModelResult {
         model_id: MODEL.model_id,
@@ -542,6 +561,37 @@ pub async fn prepare_maest_model(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloned_ready_value_does_not_hold_its_mutex_while_consumed() {
+        let value = Mutex::new(Some(Arc::new(7_u8)));
+        let observed = with_cloned_ready_value(&value, |cloned| {
+            assert!(value.try_lock().is_ok());
+            assert_eq!(*cloned, 7);
+            Arc::strong_count(&cloned)
+        });
+        assert_eq!(observed, Some(2));
+    }
+
+    #[test]
+    fn cloned_requests_reach_the_gate_and_busy_does_not_leak_the_permit() {
+        let value = Mutex::new(Some(Arc::new(7_u8)));
+        let gate = InferenceGate::default();
+        let first = with_cloned_ready_value(&value, |_| gate.acquire().unwrap()).unwrap();
+        let second = with_cloned_ready_value(&value, |_| gate.acquire().unwrap_err()).unwrap();
+        assert_eq!(second.code, "analyzer_busy");
+        drop(first);
+        assert!(with_cloned_ready_value(&value, |_| gate.acquire())
+            .unwrap()
+            .is_ok());
+        let failed = with_cloned_ready_value(&value, |_| {
+            let _permit = gate.acquire()?;
+            Err::<(), _>(error("forced_failure", "Fallo controlado."))
+        })
+        .unwrap();
+        assert_eq!(failed.unwrap_err().code, "forced_failure");
+        assert!(gate.acquire().is_ok());
+    }
 
     #[test]
     fn manifest_matches_the_verified_official_artifact() {

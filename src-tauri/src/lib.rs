@@ -16,13 +16,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fs,
+    fs::{self, File},
     io::{BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -45,6 +45,464 @@ struct AudioMetadata {
     duration_seconds: Option<f64>,
     bpm: Option<f64>,
     musical_key: Option<String>,
+}
+
+#[cfg(test)]
+mod scanned_track_analysis_tests {
+    use super::*;
+    use std::io::Read;
+
+    fn fixture() -> (PathBuf, DesktopState, AnalyzeScannedTrackRequest, Vec<u8>) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "djorganizer-analysis-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let bytes = b"server-confirmed-audio".to_vec();
+        let path = root.join("track.wav");
+        fs::write(&path, &bytes).unwrap();
+        let metadata = fs::symlink_metadata(&path).unwrap();
+        let version = file_version(&metadata);
+        let scan_id = "opaque-track".to_owned();
+        let track = SessionTrack {
+            absolute_path: path,
+            track: ScannedAudioFile {
+                scan_id: scan_id.clone(),
+                name: "track.wav".into(),
+                relative_path: "track.wav".into(),
+                extension: "wav".into(),
+                size_bytes: metadata.len(),
+                metadata_read: false,
+                title: None,
+                artist: None,
+                album: None,
+                genre: None,
+                duration_seconds: None,
+                bpm: None,
+                musical_key: None,
+                duplicate_group: None,
+            },
+        };
+        let state = DesktopState::default();
+        let relative_path = track.track.relative_path.clone();
+        *state.scan_session.lock().unwrap() = Some(ScanSession {
+            file_versions: HashMap::from([(relative_path, version)]),
+            id: "opaque-session".into(),
+            incremental_scan_active: false,
+            root: root.clone(),
+            tracks: HashMap::from([(scan_id.clone(), track)]),
+            truncated: false,
+            library_links: HashMap::new(),
+        });
+        (
+            root,
+            state,
+            AnalyzeScannedTrackRequest {
+                session_id: "opaque-session".into(),
+                scan_id,
+            },
+            bytes,
+        )
+    }
+
+    fn proposal(at: &str) -> maest::MaestAnalysisResult {
+        let field = |name: &'static str, value: &str| maest::ProposedTextField {
+            field: name,
+            status: "completed",
+            source: "automatic",
+            proposed_value: Some(value.into()),
+            score: Some(0.75),
+            error: None,
+            analyzed_at: at.into(),
+        };
+        maest::MaestAnalysisResult {
+            analyzer: maest::AnalyzerIdentity {
+                id: maest::ANALYZER_ID,
+                version: maest::ANALYZER_VERSION,
+            },
+            compatibility_key: maest::COMPATIBILITY_KEY,
+            genre: field("genre", "Electronic"),
+            subgenre: field("subgenre", "House"),
+            partial_errors: vec![],
+        }
+    }
+
+    fn replace_preserving_size_and_modified(path: &Path) {
+        let metadata = fs::metadata(path).unwrap();
+        let modified = metadata.modified().unwrap();
+        let size = metadata.len() as usize;
+        let old = path.with_extension("old");
+        fs::rename(path, old).unwrap();
+        let replacement = File::create(path).unwrap();
+        replacement.set_len(size as u64).unwrap();
+        replacement
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+    }
+
+    fn valid_wav() -> Vec<u8> {
+        let sample_rate = 8_000_u32;
+        let data_length = sample_rate;
+        let mut wav = Vec::with_capacity((44 + data_length) as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_length).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&8_u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_length.to_le_bytes());
+        wav.resize((44 + data_length) as usize, 128);
+        wav
+    }
+
+    #[test]
+    fn real_and_incremental_scans_resolve_versions_by_relative_path() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "djorganizer-analysis-scan-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("scanned.wav"), valid_wav()).unwrap();
+        let state = DesktopState::default();
+        let session_id = "real-scan-session".to_owned();
+        let completed = scan_music_folder(&root, session_id.clone()).unwrap();
+        let scan_id = completed.result.tracks[0].scan_id.clone();
+        activate_completed_scan(&state, root.clone(), session_id.clone(), completed).unwrap();
+        let request = AnalyzeScannedTrackRequest {
+            session_id: session_id.clone(),
+            scan_id: scan_id.clone(),
+        };
+        let resolved = resolve_analysis_track(&state, &request).unwrap();
+        assert_eq!(resolved.relative_path, PathBuf::from("scanned.wav"));
+        let (previous_tracks, previous_versions) = {
+            let guard = state.scan_session.lock().unwrap();
+            let session = guard.as_ref().unwrap();
+            assert!(session.file_versions.contains_key("scanned.wav"));
+            assert!(!session.file_versions.contains_key(&scan_id));
+            (session.tracks.clone(), session.file_versions.clone())
+        };
+        let incremental = scan_music_folder_with_previous(
+            &root,
+            session_id.clone(),
+            Some(&previous_tracks),
+            Some(&previous_versions),
+        )
+        .unwrap();
+        activate_completed_scan(&state, root.clone(), session_id, incremental).unwrap();
+        assert_eq!(
+            resolve_analysis_track(&state, &request)
+                .unwrap()
+                .expected_version,
+            resolved.expected_version
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn descriptor_identity_is_stable_for_clones_and_distinguishes_files() {
+        let (root, _, _, _) = fixture();
+        let first = File::open(root.join("track.wav")).unwrap();
+        let cloned = first.try_clone().unwrap();
+        fs::write(root.join("other.wav"), b"server-confirmed-audio").unwrap();
+        let other = File::open(root.join("other.wav")).unwrap();
+        assert_eq!(
+            analysis_file_identity(&first),
+            analysis_file_identity(&cloned)
+        );
+        assert_ne!(
+            analysis_file_identity(&first),
+            analysis_file_identity(&other)
+        );
+        drop((first, cloned, other));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_descriptor_ffi_returns_distinct_file_indices() {
+        let (root, _, _, _) = fixture();
+        fs::write(root.join("other.wav"), b"server-confirmed-audio").unwrap();
+        let first = File::open(root.join("track.wav")).unwrap();
+        let other = File::open(root.join("other.wav")).unwrap();
+        assert_ne!(
+            analysis_file_identity(&first),
+            analysis_file_identity(&other)
+        );
+        drop((first, other));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn valid_track_uses_server_file_releases_mutex_and_returns_minimal_proposal() {
+        let (root, state, request, expected) = fixture();
+        let result = analyze_confirmed_track_with(&state, request, |mut file, at| {
+            assert!(state.scan_session.try_lock().is_ok());
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).unwrap();
+            assert_eq!(bytes, expected);
+            Ok(proposal(at))
+        })
+        .unwrap();
+        assert_eq!(result.scan_id, "opaque-track");
+        let value = serde_json::to_value(&result).unwrap();
+        assert_eq!(
+            value
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            ["analysis", "scanId"]
+        );
+        let json = value.to_string();
+        for forbidden in [
+            "sessionId",
+            "path",
+            "relativePath",
+            "pcm",
+            "tensor",
+            "scores",
+        ] {
+            assert!(!json.contains(forbidden));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_unknown_fields_sessions_and_tracks() {
+        assert!(
+            serde_json::from_value::<AnalyzeScannedTrackRequest>(serde_json::json!({
+                "sessionId":"opaque-session", "scanId":"opaque-track", "path":"/tmp/track.wav"
+            }))
+            .is_err()
+        );
+        let (root, state, mut request, _) = fixture();
+        request.session_id = "expired".into();
+        assert_eq!(
+            resolve_analysis_track(&state, &request).unwrap_err().code,
+            "scan_session_unavailable"
+        );
+        request.session_id = "opaque-session".into();
+        request.scan_id = "unknown".into();
+        assert_eq!(
+            resolve_analysis_track(&state, &request).unwrap_err().code,
+            "track_not_in_session"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_paths_missing_and_changed_files() {
+        let (root, state, request, _) = fixture();
+        {
+            let mut guard = state.scan_session.lock().unwrap();
+            guard
+                .as_mut()
+                .unwrap()
+                .tracks
+                .get_mut(&request.scan_id)
+                .unwrap()
+                .absolute_path = PathBuf::from("relative.wav");
+        }
+        assert_eq!(
+            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+                .unwrap_err()
+                .code,
+            "track_unavailable"
+        );
+        {
+            let mut guard = state.scan_session.lock().unwrap();
+            guard
+                .as_mut()
+                .unwrap()
+                .tracks
+                .get_mut(&request.scan_id)
+                .unwrap()
+                .absolute_path = std::env::temp_dir().join("outside-confirmed-root.wav");
+        }
+        assert_eq!(
+            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+                .unwrap_err()
+                .code,
+            "track_unavailable"
+        );
+        {
+            let mut guard = state.scan_session.lock().unwrap();
+            let session = guard.as_mut().unwrap();
+            let track = session.tracks.get_mut(&request.scan_id).unwrap();
+            track.absolute_path = root.join("other.wav");
+            track.track.relative_path = "track.wav".into();
+        }
+        fs::write(root.join("other.wav"), b"server-confirmed-audio").unwrap();
+        assert_eq!(
+            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+                .unwrap_err()
+                .code,
+            "track_unavailable"
+        );
+        {
+            let mut guard = state.scan_session.lock().unwrap();
+            let track = guard
+                .as_mut()
+                .unwrap()
+                .tracks
+                .get_mut(&request.scan_id)
+                .unwrap();
+            track.absolute_path = root.join("track.wav");
+        }
+        fs::remove_file(root.join("track.wav")).unwrap();
+        assert_eq!(
+            analyze_confirmed_track_with(&state, request, |_, at| Ok(proposal(at)))
+                .unwrap_err()
+                .code,
+            "track_unavailable"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discards_changes_before_and_during_analysis() {
+        let (root, state, request, _) = fixture();
+        fs::write(root.join("track.wav"), b"changed-size").unwrap();
+        assert_eq!(
+            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+                .unwrap_err()
+                .code,
+            "track_changed"
+        );
+        let (root2, state2, request2, _) = fixture();
+        let path = root2.join("track.wav");
+        let error = analyze_confirmed_track_with(&state2, request2, |_, at| {
+            fs::write(&path, b"changed-during-analysis-with-new-size").unwrap();
+            Ok(proposal(at))
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "track_changed");
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root2).unwrap();
+    }
+
+    #[test]
+    fn rejects_identity_change_between_validation_and_open_without_executing() {
+        let (root, state, request, _) = fixture();
+        let path = root.join("track.wav");
+        let executed = std::cell::Cell::new(false);
+        let error = analyze_confirmed_track_with_open(
+            &state,
+            request,
+            |confirmed| {
+                replace_preserving_size_and_modified(confirmed);
+                File::open(confirmed)
+            },
+            |_, at| {
+                executed.set(true);
+                Ok(proposal(at))
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "track_changed");
+        assert!(!executed.get());
+        let serialized = serde_json::to_string(&error).unwrap();
+        assert!(!serialized.contains(path.to_str().unwrap()));
+        assert!(!serialized.to_ascii_lowercase().contains("handle"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_same_size_and_modified_identity_change_during_analysis() {
+        let (root, state, request, _) = fixture();
+        let path = root.join("track.wav");
+        let error = analyze_confirmed_track_with(&state, request, |_, at| {
+            replace_preserving_size_and_modified(&path);
+            Ok(proposal(at))
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "track_changed");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink() {
+        use std::os::unix::fs::symlink;
+        let (root, state, request, _) = fixture();
+        let target = root.join("target.wav");
+        fs::rename(root.join("track.wav"), &target).unwrap();
+        symlink(&target, root.join("track.wav")).unwrap();
+        assert_eq!(
+            analyze_confirmed_track_with(&state, request, |_, at| Ok(proposal(at)))
+                .unwrap_err()
+                .code,
+            "track_unavailable"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_intermediate_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let (root, state, request, _) = fixture();
+        let outside = root.with_extension("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let outside_track = outside.join("track.wav");
+        fs::rename(root.join("track.wav"), &outside_track).unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+        {
+            let mut guard = state.scan_session.lock().unwrap();
+            let session = guard.as_mut().unwrap();
+            let track = session.tracks.get_mut(&request.scan_id).unwrap();
+            track.absolute_path = root.join("linked/track.wav");
+            track.track.relative_path = "linked/track.wav".into();
+        }
+        let error =
+            analyze_confirmed_track_with(&state, request, |_, at| Ok(proposal(at))).unwrap_err();
+        assert_eq!(error.code, "track_unavailable");
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn preserves_pipeline_error_and_maps_task_failure() {
+        let (root, state, request, _) = fixture();
+        let error = analyze_confirmed_track_with(&state, request, |_, _| {
+            Err(analysis_error(
+                "invalid_audio_source",
+                Some("decode"),
+                "safe",
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(
+            (error.stage.as_deref(), error.code.as_str()),
+            (Some("decode"), "invalid_audio_source")
+        );
+        let failed: Result<(), &str> = Err("join details and /private/path");
+        let error = map_analysis_task_result(failed).unwrap_err();
+        assert_eq!(error.code, "analysis_task_failed");
+        assert!(!serde_json::to_string(&error).unwrap().contains("private"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unprepared_model_is_not_used() {
+        assert!(maest::MaestState::default()
+            .with_ready_session(|_, _| ())
+            .is_none());
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -136,6 +594,103 @@ struct DesktopState {
     metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
     reorganization_history: Mutex<Vec<ReorganizationRun>>,
     scan_session: Mutex<Option<ScanSession>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AnalyzeScannedTrackRequest {
+    session_id: String,
+    scan_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeScannedTrackError {
+    code: String,
+    stage: Option<String>,
+    message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeScannedTrackResult {
+    scan_id: String,
+    analysis: maest::MaestAnalysisResult,
+}
+
+#[derive(Clone, Debug)]
+struct ConfirmedAnalysisTrack {
+    scan_id: String,
+    root: PathBuf,
+    absolute_path: PathBuf,
+    relative_path: PathBuf,
+    expected_size: u64,
+    expected_version: FileVersion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AnalysisFileIdentity {
+    first: u64,
+    second: u64,
+}
+
+#[cfg(unix)]
+fn analysis_file_identity(file: &File) -> Option<AnalysisFileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = file.metadata().ok()?;
+    Some(AnalysisFileIdentity {
+        first: metadata.dev(),
+        second: metadata.ino(),
+    })
+}
+
+#[cfg(windows)]
+fn analysis_file_identity(file: &File) -> Option<AnalysisFileIdentity> {
+    use std::{ffi::c_void, mem::MaybeUninit, os::windows::io::AsRawHandle};
+
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        attributes: u32,
+        creation_time: FileTime,
+        last_access_time: FileTime,
+        last_write_time: FileTime,
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileInformationByHandle(
+            file: *mut c_void,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+
+    let mut information = MaybeUninit::<ByHandleFileInformation>::uninit();
+    // SAFETY: the handle belongs to the live `File`, the output pointer targets a
+    // correctly laid-out uninitialized structure, and it is read only on success.
+    let succeeded = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle().cast(), information.as_mut_ptr())
+    };
+    if succeeded == 0 {
+        return None;
+    }
+    // SAFETY: a successful call initializes the complete output structure.
+    let information = unsafe { information.assume_init() };
+    Some(AnalysisFileIdentity {
+        first: information.volume_serial_number as u64,
+        second: ((information.file_index_high as u64) << 32) | information.file_index_low as u64,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -1846,6 +2401,357 @@ fn validate_virtualdj_list_name(list_name: &str) -> Result<&str, String> {
     }
 }
 
+fn analysis_error(code: &str, stage: Option<&str>, message: &str) -> AnalyzeScannedTrackError {
+    AnalyzeScannedTrackError {
+        code: code.to_owned(),
+        stage: stage.map(str::to_owned),
+        message: message.to_owned(),
+    }
+}
+
+fn resolve_analysis_track(
+    state: &DesktopState,
+    request: &AnalyzeScannedTrackRequest,
+) -> Result<ConfirmedAnalysisTrack, AnalyzeScannedTrackError> {
+    if request.session_id.is_empty() || request.scan_id.is_empty() {
+        return Err(analysis_error(
+            "invalid_request",
+            None,
+            "La solicitud de análisis no es válida.",
+        ));
+    }
+    let current = state.scan_session.lock().map_err(|_| {
+        analysis_error(
+            "scan_session_unavailable",
+            None,
+            "La sesión de escaneo no está disponible.",
+        )
+    })?;
+    let session = current
+        .as_ref()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            analysis_error(
+                "scan_session_unavailable",
+                None,
+                "La sesión de escaneo no está disponible.",
+            )
+        })?;
+    let track = session.tracks.get(&request.scan_id).ok_or_else(|| {
+        analysis_error(
+            "track_not_in_session",
+            None,
+            "La pista no pertenece a la sesión de escaneo.",
+        )
+    })?;
+    let expected_version = session
+        .file_versions
+        .get(&track.track.relative_path)
+        .ok_or_else(|| {
+            analysis_error(
+                "track_unavailable",
+                None,
+                "La pista confirmada no está disponible.",
+            )
+        })?;
+    Ok(ConfirmedAnalysisTrack {
+        scan_id: request.scan_id.clone(),
+        root: session.root.clone(),
+        absolute_path: track.absolute_path.clone(),
+        relative_path: PathBuf::from(&track.track.relative_path),
+        expected_size: track.track.size_bytes,
+        expected_version: expected_version.clone(),
+    })
+}
+
+fn validate_analysis_track(track: &ConfirmedAnalysisTrack) -> Result<(), AnalyzeScannedTrackError> {
+    if !track.absolute_path.is_absolute() || !track.root.is_absolute() {
+        return Err(analysis_error(
+            "track_unavailable",
+            None,
+            "La ubicación confirmada de la pista no es válida.",
+        ));
+    }
+    let relative = track.absolute_path.strip_prefix(&track.root).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista ya no está dentro de la carpeta confirmada.",
+        )
+    })?;
+    if relative != track.relative_path {
+        return Err(analysis_error(
+            "track_unavailable",
+            None,
+            "La identidad local de la pista no coincide.",
+        ));
+    }
+    let canonical_root = fs::canonicalize(&track.root).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La carpeta confirmada no está disponible.",
+        )
+    })?;
+    if !fs::metadata(&canonical_root)
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false)
+    {
+        return Err(analysis_error(
+            "track_unavailable",
+            None,
+            "La carpeta confirmada no es válida.",
+        ));
+    }
+    let metadata = fs::symlink_metadata(&track.absolute_path).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no está disponible.",
+        )
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no es un archivo regular.",
+        ));
+    }
+    let canonical_path = fs::canonicalize(&track.absolute_path).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no está disponible.",
+        )
+    })?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err(analysis_error(
+            "track_unavailable",
+            None,
+            "La pista ya no está dentro de la carpeta confirmada.",
+        ));
+    }
+    let actual = file_version(&metadata);
+    if track.expected_version.modified_nanos.is_none()
+        || actual.modified_nanos.is_none()
+        || metadata.len() != track.expected_size
+        || actual != track.expected_version
+    {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió desde el escaneo.",
+        ));
+    }
+    Ok(())
+}
+
+fn validated_analysis_descriptor_identity(
+    file: &File,
+    track: &ConfirmedAnalysisTrack,
+) -> Result<AnalysisFileIdentity, AnalyzeScannedTrackError> {
+    let metadata = file.metadata().map_err(|_| {
+        analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió durante el análisis.",
+        )
+    })?;
+    let actual_version = file_version(&metadata);
+    if !metadata.is_file()
+        || metadata.len() != track.expected_size
+        || actual_version.modified_nanos.is_none()
+        || actual_version != track.expected_version
+    {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió durante el análisis.",
+        ));
+    }
+    analysis_file_identity(file).ok_or_else(|| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "No se pudo confirmar la identidad de la pista.",
+        )
+    })
+}
+
+fn open_current_analysis_path(
+    track: &ConfirmedAnalysisTrack,
+) -> Result<(File, AnalysisFileIdentity), AnalyzeScannedTrackError> {
+    validate_analysis_track(track)?;
+    let file = File::open(&track.absolute_path).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no se pudo abrir.",
+        )
+    })?;
+    let identity = validated_analysis_descriptor_identity(&file, track)?;
+    Ok((file, identity))
+}
+
+fn analyze_confirmed_track_with_open<O, E>(
+    state: &DesktopState,
+    request: AnalyzeScannedTrackRequest,
+    open: O,
+    execute: E,
+) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError>
+where
+    O: FnOnce(&Path) -> std::io::Result<File>,
+    E: FnOnce(File, &str) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
+{
+    let track = resolve_analysis_track(state, &request)?;
+    let (validated_file, validated_identity) = open_current_analysis_path(&track)?;
+    let file = open(&track.absolute_path).map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no se pudo abrir.",
+        )
+    })?;
+    let analysis_identity = validated_analysis_descriptor_identity(&file, &track)?;
+    if analysis_identity != validated_identity {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió antes del análisis.",
+        ));
+    }
+    drop(validated_file);
+    let (current_path, current_path_identity) = open_current_analysis_path(&track)?;
+    if current_path_identity != analysis_identity {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió antes del análisis.",
+        ));
+    }
+    drop(current_path);
+    let analysis_file = file.try_clone().map_err(|_| {
+        analysis_error(
+            "track_unavailable",
+            None,
+            "La pista confirmada no se pudo abrir.",
+        )
+    })?;
+    let analyzed_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| {
+            analysis_error(
+                "analysis_task_failed",
+                None,
+                "No se pudo fechar el análisis.",
+            )
+        })?
+        .as_millis()
+        .to_string();
+    let analysis = execute(analysis_file, &analyzed_at)?;
+    let final_descriptor_identity = validated_analysis_descriptor_identity(&file, &track)?;
+    let (final_path, final_path_identity) = open_current_analysis_path(&track)?;
+    drop(final_path);
+    if final_descriptor_identity != analysis_identity || final_path_identity != analysis_identity {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió durante el análisis.",
+        ));
+    }
+    Ok(AnalyzeScannedTrackResult {
+        scan_id: track.scan_id,
+        analysis,
+    })
+}
+
+fn analyze_confirmed_track_with<E>(
+    state: &DesktopState,
+    request: AnalyzeScannedTrackRequest,
+    execute: E,
+) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError>
+where
+    E: FnOnce(File, &str) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
+{
+    analyze_confirmed_track_with_open(state, request, |path| File::open(path), execute)
+}
+
+fn map_analysis_task_result<T, E>(result: Result<T, E>) -> Result<T, AnalyzeScannedTrackError> {
+    result.map_err(|_| {
+        analysis_error(
+            "analysis_task_failed",
+            None,
+            "La tarea de análisis se interrumpió.",
+        )
+    })
+}
+
+fn activate_completed_scan(
+    state: &DesktopState,
+    root: PathBuf,
+    session_id: String,
+    completed: CompletedScan,
+) -> Result<FolderScanResult, String> {
+    let tracks = completed
+        .session_tracks
+        .into_iter()
+        .map(|track| (track.track.scan_id.clone(), track))
+        .collect();
+    let truncated = completed.result.truncated;
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    *current_session = Some(ScanSession {
+        file_versions: completed.file_versions,
+        id: session_id,
+        incremental_scan_active: false,
+        root,
+        tracks,
+        truncated,
+        library_links: HashMap::new(),
+    });
+    Ok(completed.result)
+}
+
+#[tauri::command]
+async fn analyze_scanned_track(
+    app: AppHandle,
+    request: AnalyzeScannedTrackRequest,
+) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError> {
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let desktop = app.state::<DesktopState>();
+        analyze_confirmed_track_with(&desktop, request, |file, analyzed_at| {
+            let maest = app.state::<maest::MaestState>();
+            maest
+                .with_ready_session(|session, gate| {
+                    maest_inference_pipeline::analyze_media_source(
+                        session,
+                        gate,
+                        Box::new(file),
+                        analyzed_at,
+                    )
+                })
+                .ok_or_else(|| {
+                    analysis_error(
+                        "model_not_ready",
+                        None,
+                        "El analizador todavía no está preparado.",
+                    )
+                })?
+                .map_err(|error| {
+                    analysis_error(
+                        &error.code,
+                        Some(error.stage),
+                        "No se pudo completar el análisis de audio.",
+                    )
+                })
+        })
+    })
+    .await;
+    map_analysis_task_result(task)?
+}
+
 #[tauri::command]
 async fn choose_and_scan_music_folder(
     app: AppHandle,
@@ -1872,28 +2778,12 @@ async fn choose_and_scan_music_folder(
             .await
             .map_err(|error| format!("El escaneo local se interrumpió: {error}"))??;
 
-    let tracks = completed
-        .session_tracks
-        .iter()
-        .cloned()
-        .map(|track| (track.track.scan_id.clone(), track))
-        .collect();
-    let truncated = completed.result.truncated;
-    let mut current_session = state
-        .scan_session
-        .lock()
-        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
-    *current_session = Some(ScanSession {
-        file_versions: completed.file_versions,
-        id: session_id,
-        incremental_scan_active: false,
-        root: session_root,
-        tracks,
-        truncated,
-        library_links: HashMap::new(),
-    });
-
-    Ok(Some(completed.result))
+    Ok(Some(activate_completed_scan(
+        &state,
+        session_root,
+        session_id,
+        completed,
+    )?))
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -3123,6 +4013,7 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             maest::prepare_maest_model,
+            analyze_scanned_track,
             choose_and_scan_music_folder,
             scan_music_folder_incrementally,
             link_library_tracks,
