@@ -13,6 +13,7 @@ import {
   maestGenreWriteArguments,
   maestGenreWriteAvailability,
   invokeMaestGenreWritePreview,
+  metadataWriteErrorMessage,
   maestFormProposal,
   maestSurfaceVisibility,
   createMaestPreviewState,
@@ -362,6 +363,15 @@ describe("MAEST library preview contract", () => {
     });
     expect(Object.keys(maestGenreWriteArguments("s", "x", "g").request)).toEqual(["sessionId", "scanId", "genre"]);
     expect(JSON.stringify(preview)).not.toMatch(/path|subgenre|score|analyzer/i);
+  });
+
+  it("maps a missing native preview to a safe recovery message", () => {
+    const message = metadataWriteErrorMessage(
+      { code: "preview_required", message: "C:\\private\\song.flac fingerprint" },
+      "es",
+    );
+    expect(message).toContain("Previsualiza de nuevo");
+    expect(message).not.toMatch(/private|song|fingerprint|\\/i);
   });
 
   it("prepares only after the explicit invocation and then analyzes", async () => {
