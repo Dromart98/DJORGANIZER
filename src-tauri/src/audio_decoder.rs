@@ -96,7 +96,7 @@ where
                     track_id: Some(track_id),
                 },
             )
-            .map_err(|_| AudioDecodeError::new(SEEK_UNSUPPORTED))?;
+            .map_err(map_seek_error)?;
         decoder.reset();
         let time_base = format
             .tracks()
@@ -220,6 +220,19 @@ fn map_probe_error(error: SymphoniaError) -> AudioDecodeError {
             AudioDecodeError::new(INVALID_SOURCE)
         }
         _ => AudioDecodeError::new(UNRECOGNIZED_FORMAT),
+    }
+}
+
+fn map_seek_error(error: SymphoniaError) -> AudioDecodeError {
+    match error {
+        SymphoniaError::SeekError(_) | SymphoniaError::Unsupported(_) => {
+            AudioDecodeError::new(SEEK_UNSUPPORTED)
+        }
+        SymphoniaError::IoError(_)
+        | SymphoniaError::DecodeError(_)
+        | SymphoniaError::LimitError(_)
+        | SymphoniaError::ResetRequired => AudioDecodeError::new(DECODE_FAILED),
+        _ => AudioDecodeError::new(DECODE_FAILED),
     }
 }
 
@@ -418,6 +431,26 @@ mod tests {
         // 1.01 frames proves ceil advances beyond the fractional requested offset.
         assert_eq!(frames_for_seek_preroll(101, time_base, 10).unwrap(), 2);
         assert_eq!((101_f64 / 1_000.0 * 10.0).round() as usize, 1);
+    }
+
+    #[test]
+    fn seek_error_mapper_allows_fallback_only_for_positioning_capability_errors() {
+        use symphonia::core::errors::SeekErrorKind;
+
+        for error in [
+            SymphoniaError::SeekError(SeekErrorKind::Unseekable),
+            SymphoniaError::Unsupported("seek"),
+        ] {
+            assert_eq!(map_seek_error(error).code, SEEK_UNSUPPORTED);
+        }
+        for error in [
+            SymphoniaError::DecodeError("corrupt"),
+            SymphoniaError::IoError(io::Error::new(io::ErrorKind::UnexpectedEof, "stream")),
+            SymphoniaError::LimitError("limit"),
+            SymphoniaError::ResetRequired,
+        ] {
+            assert_eq!(map_seek_error(error).code, DECODE_FAILED);
+        }
     }
 
     #[test]
