@@ -379,6 +379,7 @@ export function metadataWriteErrorMessage(error: unknown, locale: "es" | "en") {
     verification_failed: ["No se pudo verificar la escritura; se restauró el original.", "The write could not be verified; the original was restored."],
     undo_failed: ["No se pudo deshacer la escritura de forma segura.", "The write could not be safely undone."],
     restore_failed: ["No se pudo restaurar automáticamente el original. Conserva la copia de seguridad y no vuelvas a escribir.", "The original could not be restored automatically. Keep the backup and do not write again."],
+    link_state_failed: ["No se pudo conservar el vínculo local. El archivo original fue restaurado.", "The local link could not be preserved. The original file was restored."],
   };
   return messages[code]?.[en ? 1 : 0] ?? (en ? "The file operation could not be completed." : "No se pudo completar la operación con el archivo.");
 }

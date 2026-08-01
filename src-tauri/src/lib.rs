@@ -36,6 +36,11 @@ const MAX_REKORDBOX_CRATES: usize = 200;
 const MAX_REKORDBOX_XML_BYTES: usize = 20_000_000;
 const METADATA_BACKUP_DIRECTORY: &str = ".djorganizer-backups";
 const MAX_PENDING_MAEST_GENRE_PREVIEWS: usize = 64;
+const LIBRARY_FILE_ALIASES_VERSION: u8 = 1;
+const MAX_LIBRARY_FILE_ALIAS_TRACKS: usize = 10_000;
+const MAX_LIBRARY_FILE_ALIASES_PER_TRACK: usize = 8;
+const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+const LIBRARY_FILE_ALIASES_NAME: &str = "library-file-aliases.json";
 
 #[derive(Debug, Default, PartialEq)]
 struct AudioMetadata {
@@ -961,6 +966,36 @@ struct LibraryLinkCandidate {
     file_fingerprint: String,
     file_size: u64,
     track_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LocalFileIdentity {
+    fingerprint: String,
+    size: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LocalTrackAliases {
+    anchor: LocalFileIdentity,
+    aliases: Vec<LocalFileIdentity>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct LocalLibraryFileAliases {
+    version: u8,
+    tracks: BTreeMap<String, LocalTrackAliases>,
+}
+
+impl Default for LocalLibraryFileAliases {
+    fn default() -> Self {
+        Self {
+            version: LIBRARY_FILE_ALIASES_VERSION,
+            tracks: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -2297,6 +2332,32 @@ fn restore_metadata_backups(backups: &[MetadataBackup]) -> bool {
     restored_all
 }
 
+fn restore_metadata_run(session: &mut ScanSession, backups: &[MetadataBackup]) -> bool {
+    if !restore_metadata_backups(backups) {
+        return false;
+    }
+    for backup in backups {
+        let Ok(metadata) = read_audio_metadata(&backup.original_path) else {
+            return false;
+        };
+        let Ok(file_metadata) = fs::metadata(&backup.original_path) else {
+            return false;
+        };
+        let Ok(updated) = update_session_track_after_write(
+            session,
+            &backup.scan_id,
+            metadata,
+            file_metadata.len(),
+        ) else {
+            return false;
+        };
+        session
+            .file_versions
+            .insert(updated.relative_path, file_version(&file_metadata));
+    }
+    true
+}
+
 fn update_session_track_after_write(
     session: &mut ScanSession,
     scan_id: &str,
@@ -2517,9 +2578,275 @@ fn parse_library_fingerprint(value: &str) -> Result<[u8; 32], String> {
     Ok(fingerprint)
 }
 
+fn valid_library_track_id(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
+}
+
+fn valid_local_file_identity(identity: &LocalFileIdentity) -> bool {
+    identity.size <= MAX_SAFE_JSON_INTEGER
+        && identity.fingerprint.len() == 64
+        && identity
+            .fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn validate_local_alias_store(store: &LocalLibraryFileAliases) -> bool {
+    store.version == LIBRARY_FILE_ALIASES_VERSION
+        && store.tracks.len() <= MAX_LIBRARY_FILE_ALIAS_TRACKS
+        && store.tracks.iter().all(|(track_id, record)| {
+            valid_library_track_id(track_id)
+                && valid_local_file_identity(&record.anchor)
+                && record.aliases.len() <= MAX_LIBRARY_FILE_ALIASES_PER_TRACK
+                && record.aliases.iter().all(valid_local_file_identity)
+        })
+}
+
+fn read_local_alias_store(path: &Path) -> LocalLibraryFileAliases {
+    fs::read(path)
+        .ok()
+        .filter(|bytes| bytes.len() <= 4_000_000)
+        .and_then(|bytes| serde_json::from_slice::<LocalLibraryFileAliases>(&bytes).ok())
+        .filter(validate_local_alias_store)
+        .unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+fn replace_local_alias_store(temp: &Path, target: &Path) -> std::io::Result<()> {
+    fs::rename(temp, target)
+}
+
+#[cfg(windows)]
+fn replace_local_alias_store(temp: &Path, target: &Path) -> std::io::Result<()> {
+    use std::{iter, os::windows::ffi::OsStrExt};
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    }
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    let existing = temp
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect::<Vec<_>>();
+    let replacement = target
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: both pointers reference NUL-terminated UTF-16 buffers that remain
+    // alive for the duration of the call.
+    let result = unsafe {
+        MoveFileExW(
+            existing.as_ptr(),
+            replacement.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn write_local_alias_store(path: &Path, store: &LocalLibraryFileAliases) -> Result<(), ()> {
+    if !validate_local_alias_store(store) {
+        return Err(());
+    }
+    let parent = path.parent().ok_or(())?;
+    fs::create_dir_all(parent).map_err(|_| ())?;
+    let temp = parent.join(format!(".{LIBRARY_FILE_ALIASES_NAME}.tmp"));
+    let bytes = serde_json::to_vec(store).map_err(|_| ())?;
+    let mut file = File::create(&temp).map_err(|_| ())?;
+    file.write_all(&bytes).map_err(|_| ())?;
+    file.sync_all().map_err(|_| ())?;
+    drop(file);
+    if replace_local_alias_store(&temp, path).is_err() {
+        let _ = fs::remove_file(&temp);
+        return Err(());
+    }
+    Ok(())
+}
+
+fn fingerprint_text(fingerprint: [u8; 32]) -> String {
+    fingerprint
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn update_alias_anchors(
+    store: &mut LocalLibraryFileAliases,
+    candidates: &[LibraryLinkCandidate],
+    linked_track_ids: impl Iterator<Item = String>,
+) {
+    let by_id = candidates
+        .iter()
+        .map(|candidate| (candidate.track_id.as_str(), candidate))
+        .collect::<HashMap<_, _>>();
+    for track_id in linked_track_ids {
+        if !valid_library_track_id(&track_id) {
+            continue;
+        }
+        let Some(candidate) = by_id.get(track_id.as_str()) else {
+            continue;
+        };
+        let anchor = LocalFileIdentity {
+            fingerprint: candidate.file_fingerprint.to_ascii_lowercase(),
+            size: candidate.file_size,
+        };
+        if !valid_local_file_identity(&anchor) {
+            continue;
+        }
+        let has_capacity = store.tracks.len() < MAX_LIBRARY_FILE_ALIAS_TRACKS;
+        match store.tracks.get_mut(&track_id) {
+            Some(record) if record.anchor != anchor => {
+                *record = LocalTrackAliases {
+                    anchor,
+                    aliases: Vec::new(),
+                };
+            }
+            Some(_) => {}
+            None if has_capacity => {
+                store.tracks.insert(
+                    track_id,
+                    LocalTrackAliases {
+                        anchor,
+                        aliases: Vec::new(),
+                    },
+                );
+            }
+            None => {}
+        }
+    }
+}
+
+fn register_local_alias(
+    store: &mut LocalLibraryFileAliases,
+    track_id: &str,
+    fingerprint: [u8; 32],
+    size: u64,
+) -> bool {
+    let Some(record) = store.tracks.get_mut(track_id) else {
+        return false;
+    };
+    let alias = LocalFileIdentity {
+        fingerprint: fingerprint_text(fingerprint),
+        size,
+    };
+    if !valid_local_file_identity(&alias) || alias == record.anchor {
+        return false;
+    }
+    record.aliases.retain(|existing| existing != &alias);
+    record.aliases.push(alias);
+    if record.aliases.len() > MAX_LIBRARY_FILE_ALIASES_PER_TRACK {
+        let excess = record.aliases.len() - MAX_LIBRARY_FILE_ALIASES_PER_TRACK;
+        record.aliases.drain(..excess);
+    }
+    true
+}
+
+fn persist_local_aliases(path: &Path, aliases: &[(String, [u8; 32], u64)]) -> Result<(), ()> {
+    if aliases.is_empty() {
+        return Ok(());
+    }
+    let mut store = read_local_alias_store(path);
+    for (track_id, fingerprint, size) in aliases {
+        if !register_local_alias(&mut store, track_id, *fingerprint, *size) {
+            let already_known = store.tracks.get(track_id).is_some_and(|record| {
+                let identity = LocalFileIdentity {
+                    fingerprint: fingerprint_text(*fingerprint),
+                    size: *size,
+                };
+                record.anchor == identity || record.aliases.contains(&identity)
+            });
+            if !already_known {
+                return Err(());
+            }
+        }
+    }
+    write_local_alias_store(path, &store)
+}
+
+fn linked_aliases_for_backups(
+    session: &ScanSession,
+    backups: &[MetadataBackup],
+) -> Result<Vec<(String, [u8; 32], u64)>, ()> {
+    let track_by_scan = session
+        .library_links
+        .iter()
+        .map(|(track_id, scan_id)| (scan_id.as_str(), track_id.as_str()))
+        .collect::<HashMap<_, _>>();
+    backups
+        .iter()
+        .filter_map(|backup| {
+            track_by_scan
+                .get(backup.scan_id.as_str())
+                .map(|track_id| (backup, *track_id))
+        })
+        .map(|(backup, track_id)| {
+            let size = fs::metadata(&backup.original_path).map_err(|_| ())?.len();
+            Ok((track_id.to_owned(), backup.written_fingerprint, size))
+        })
+        .collect()
+}
+
+fn aliases_for_candidates(
+    store: &LocalLibraryFileAliases,
+    candidates: &[LibraryLinkCandidate],
+) -> HashMap<(u64, [u8; 32]), String> {
+    let mut aliases: HashMap<(u64, [u8; 32]), Option<String>> = HashMap::new();
+    for candidate in candidates {
+        let Some(record) = store.tracks.get(&candidate.track_id) else {
+            continue;
+        };
+        let anchor_matches = record.anchor.size == candidate.file_size
+            && record
+                .anchor
+                .fingerprint
+                .eq_ignore_ascii_case(&candidate.file_fingerprint);
+        if !anchor_matches {
+            continue;
+        }
+        for alias in &record.aliases {
+            let Ok(fingerprint) = parse_library_fingerprint(&alias.fingerprint) else {
+                continue;
+            };
+            aliases
+                .entry((alias.size, fingerprint))
+                .and_modify(|owner| *owner = None)
+                .or_insert_with(|| Some(candidate.track_id.clone()));
+        }
+    }
+    aliases
+        .into_iter()
+        .filter_map(|(identity, owner)| owner.map(|track_id| (identity, track_id)))
+        .collect()
+}
+
+#[cfg(test)]
 fn link_library_candidates(
     session_tracks: &[SessionTrack],
     candidates: &[LibraryLinkCandidate],
+) -> Result<LibraryLinkMatch, String> {
+    link_library_candidates_with_aliases(
+        session_tracks,
+        candidates,
+        &LocalLibraryFileAliases::default(),
+    )
+}
+
+fn link_library_candidates_with_aliases(
+    session_tracks: &[SessionTrack],
+    candidates: &[LibraryLinkCandidate],
+    alias_store: &LocalLibraryFileAliases,
 ) -> Result<LibraryLinkMatch, String> {
     if candidates.len() > MAX_TRACKS {
         return Err("La vinculación admite hasta 10.000 pistas por sesión.".to_owned());
@@ -2548,12 +2875,19 @@ fn link_library_candidates(
     let mut ordered_tracks = session_tracks.iter().collect::<Vec<_>>();
     ordered_tracks.sort_by_key(|track| track.track.relative_path.to_ascii_lowercase());
     let mut links = HashMap::new();
+    let aliases = aliases_for_candidates(alias_store, candidates);
+    let mut alias_linked_scan_ids = HashSet::new();
     let mut fingerprint_failures = 0;
 
     for session_track in ordered_tracks {
-        let Some(fingerprints) = candidates_by_size.get(&session_track.track.size_bytes) else {
+        let fingerprints = candidates_by_size.get(&session_track.track.size_bytes);
+        if fingerprints.is_none()
+            && !aliases
+                .keys()
+                .any(|(size, _)| *size == session_track.track.size_bytes)
+        {
             continue;
-        };
+        }
         let fingerprint =
             match hash_file(&session_track.absolute_path, session_track.track.size_bytes) {
                 Ok(fingerprint) => fingerprint,
@@ -2562,13 +2896,20 @@ fn link_library_candidates(
                     continue;
                 }
             };
-        let Some(track_ids) = fingerprints.get(&fingerprint) else {
+        if let Some(track_ids) = fingerprints.and_then(|values| values.get(&fingerprint)) {
+            for track_id in track_ids {
+                links
+                    .entry(track_id.clone())
+                    .or_insert_with(|| session_track.track.scan_id.clone());
+            }
             continue;
-        };
-        for track_id in track_ids {
-            links
-                .entry(track_id.clone())
-                .or_insert_with(|| session_track.track.scan_id.clone());
+        }
+        if let Some(track_id) = aliases.get(&(session_track.track.size_bytes, fingerprint)) {
+            if !links.contains_key(track_id)
+                && alias_linked_scan_ids.insert(session_track.track.scan_id.clone())
+            {
+                links.insert(track_id.clone(), session_track.track.scan_id.clone());
+            }
         }
     }
 
@@ -3127,10 +3468,17 @@ async fn scan_music_folder_incrementally(
 
 #[tauri::command(rename_all = "camelCase")]
 async fn link_library_tracks(
+    app: AppHandle,
     state: State<'_, DesktopState>,
     session_id: String,
     candidates: Vec<LibraryLinkCandidate>,
 ) -> Result<LibraryLinkResult, String> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    let mut alias_store = read_local_alias_store(&alias_path);
     let session_tracks = {
         let current_session = state
             .scan_session
@@ -3145,8 +3493,14 @@ async fn link_library_tracks(
         session.tracks.values().cloned().collect::<Vec<_>>()
     };
 
+    let link_candidates = candidates.clone();
+    let aliases_for_linking = alias_store.clone();
     let matches = tauri::async_runtime::spawn_blocking(move || {
-        link_library_candidates(&session_tracks, &candidates)
+        link_library_candidates_with_aliases(
+            &session_tracks,
+            &link_candidates,
+            &aliases_for_linking,
+        )
     })
     .await
     .map_err(|error| format!("La vinculación local se interrumpió: {error}"))??;
@@ -3161,6 +3515,9 @@ async fn link_library_tracks(
         .collect::<Vec<_>>();
     links.sort_by(|left, right| left.track_id.cmp(&right.track_id));
     let linked_tracks = links.len();
+    update_alias_anchors(&mut alias_store, &candidates, matches.links.keys().cloned());
+    write_local_alias_store(&alias_path, &alias_store)
+        .map_err(|_| "No se pudo guardar el estado local de vínculos.".to_owned())?;
     let mut current_session = state
         .scan_session
         .lock()
@@ -3305,13 +3662,16 @@ fn restored_write_error(
     }
 }
 
-fn apply_maest_genre_write_state_with<W>(
+fn apply_maest_genre_write_state_with<W, P>(
     state: &DesktopState,
     request: MaestGenreWriteRequest,
+    alias_path: &Path,
     writer: W,
+    persist_aliases: P,
 ) -> Result<MaestGenreWriteResult, SafeMetadataWriteError>
 where
     W: FnOnce(&Path, &str) -> Result<AudioMetadata, &'static str>,
+    P: FnOnce(&Path, &[(String, [u8; 32], u64)]) -> Result<(), ()>,
 {
     let normalized_genre = normalized_metadata_text(&request.genre, "El género", 120)
         .map_err(|_| SafeMetadataWriteError::new("invalid_genre", "El género no es válido."))?
@@ -3421,6 +3781,31 @@ where
     session
         .file_versions
         .insert(updated.relative_path, file_version(&written_file));
+    let aliases = linked_aliases_for_backups(
+        session,
+        &[MetadataBackup {
+            backup_path: backup_path.clone(),
+            original_path: track.absolute_path.clone(),
+            scan_id: request.scan_id.clone(),
+            written_fingerprint,
+        }],
+    )
+    .map_err(|_| {
+        let restored = restore_maest_genre_backup(session, &track, &backup_path);
+        restored_write_error(
+            restored,
+            "link_state_failed",
+            "No se pudo guardar el vínculo local; se restauró el original.",
+        )
+    })?;
+    if persist_aliases(alias_path, &aliases).is_err() {
+        let restored = restore_maest_genre_backup(session, &track, &backup_path);
+        return Err(restored_write_error(
+            restored,
+            "link_state_failed",
+            "No se pudo guardar el vínculo local; se restauró el original.",
+        ));
+    }
     history.push(MetadataWriteRun {
         backups: vec![MetadataBackup {
             backup_path,
@@ -3442,8 +3827,15 @@ where
 fn apply_maest_genre_write_state(
     state: &DesktopState,
     request: MaestGenreWriteRequest,
+    alias_path: &Path,
 ) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
-    apply_maest_genre_write_state_with(state, request, write_genre_only)
+    apply_maest_genre_write_state_with(
+        state,
+        request,
+        alias_path,
+        write_genre_only,
+        persist_local_aliases,
+    )
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -3456,36 +3848,70 @@ async fn preview_maest_genre_write(
 
 #[tauri::command(rename_all = "camelCase")]
 async fn apply_maest_genre_write(
+    app: AppHandle,
     state: State<'_, DesktopState>,
     request: MaestGenreWriteRequest,
 ) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
-    apply_maest_genre_write_state(&state, request)
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| {
+            SafeMetadataWriteError::new("link_state_failed", "No se pudo abrir el vínculo local.")
+        })?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    apply_maest_genre_write_state(&state, request, &alias_path)
+}
+
+fn apply_metadata_writes_state(
+    state: &DesktopState,
+    request: MetadataWriteRequest,
+    alias_path: &Path,
+) -> Result<MetadataWriteResult, String> {
+    let mut current_session = state
+        .scan_session
+        .lock()
+        .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
+    let session = current_session
+        .as_mut()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
+        })?;
+    let mut history = state
+        .metadata_write_history
+        .lock()
+        .map_err(|_| "No se pudo guardar el historial local de metadatos.".to_owned())?;
+    let (run, result) = apply_metadata_write_batch(session, &request)?;
+    let aliases = linked_aliases_for_backups(session, &run.backups).map_err(|_| {
+        if restore_metadata_run(session, &run.backups) {
+            "No se pudo preparar el vínculo local; se restauraron los originales.".to_owned()
+        } else {
+            "No se pudo restaurar automáticamente un archivo original.".to_owned()
+        }
+    })?;
+    if persist_local_aliases(alias_path, &aliases).is_err() {
+        return Err(if restore_metadata_run(session, &run.backups) {
+            "No se pudo guardar el vínculo local; se restauraron los originales.".to_owned()
+        } else {
+            "No se pudo restaurar automáticamente un archivo original.".to_owned()
+        });
+    }
+    history.push(run);
+    Ok(result)
 }
 
 #[tauri::command(rename_all = "camelCase")]
 async fn apply_metadata_writes(
+    app: AppHandle,
     state: State<'_, DesktopState>,
     request: MetadataWriteRequest,
 ) -> Result<MetadataWriteResult, String> {
-    let (run, result) = {
-        let mut current_session = state
-            .scan_session
-            .lock()
-            .map_err(|_| "No se pudo proteger la sesión del escaneo.".to_owned())?;
-        let session = current_session
-            .as_mut()
-            .filter(|session| session.id == request.session_id)
-            .ok_or_else(|| {
-                "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
-            })?;
-        apply_metadata_write_batch(session, &request)?
-    };
-    state
-        .metadata_write_history
-        .lock()
-        .map_err(|_| "No se pudo guardar el historial local de metadatos.".to_owned())?
-        .push(run);
-    Ok(result)
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    apply_metadata_writes_state(&state, request, &alias_path)
 }
 
 fn undo_metadata_writes_state(
@@ -4540,18 +4966,23 @@ mod tests {
     use super::export_path_text;
     use super::{
         apply_maest_genre_write_state, apply_maest_genre_write_state_with,
-        apply_metadata_write_batch, audio_extension, build_metadata_write_preview,
-        build_rekordbox_xml, build_reorganization_plan, build_virtualdj_list_xml,
-        build_virtualdj_m3u8, confirmed_maest_genre_preview, count_incremental_changes,
-        create_track_path_id, file_version, link_library_candidates, parse_bpm,
-        parse_mp4_bpm_value, parse_virtualdj_paths, preview_maest_genre_write_state,
-        read_audio_metadata, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
+        apply_metadata_write_batch, apply_metadata_writes_state, audio_extension,
+        build_metadata_write_preview, build_rekordbox_xml, build_reorganization_plan,
+        build_virtualdj_list_xml, build_virtualdj_m3u8, confirmed_maest_genre_preview,
+        count_incremental_changes, create_track_path_id, file_version, fingerprint_text, hash_file,
+        link_library_candidates, link_library_candidates_with_aliases, parse_bpm,
+        parse_mp4_bpm_value, parse_virtualdj_paths, persist_local_aliases,
+        preview_maest_genre_write_state, read_audio_metadata, read_local_alias_store,
+        register_local_alias, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
         safe_path_segment, scan_music_folder, scan_music_folder_with_previous,
-        undo_metadata_writes_state, write_genre_only, write_metadata_to_file,
-        write_rekordbox_xml_no_clobber, DesktopState, LibraryLinkCandidate, MaestGenreWriteRequest,
-        MetadataEditInput, MetadataWriteRequest, OrganizationScheme, RekordboxCrateInput,
-        ScanSession, ScannedAudioFile, SessionTrack,
+        undo_metadata_writes_state, update_alias_anchors, write_genre_only,
+        write_local_alias_store, write_metadata_to_file, write_rekordbox_xml_no_clobber,
+        DesktopState, LibraryLinkCandidate, LocalFileIdentity, LocalLibraryFileAliases,
+        LocalTrackAliases, MaestGenreWriteRequest, MetadataEditInput, MetadataWriteRequest,
+        OrganizationScheme, RekordboxCrateInput, ScanSession, ScannedAudioFile, SessionTrack,
+        MAX_LIBRARY_FILE_ALIASES_PER_TRACK,
     };
+    const TEST_LIBRARY_TRACK_ID: &str = "11111111-1111-4111-8111-111111111111";
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use lofty::mp4::AtomData;
     use sha2::{Digest, Sha256};
@@ -4755,8 +5186,22 @@ mod tests {
                 .map(|track| (track.track.scan_id.clone(), track))
                 .collect(),
             truncated: false,
-            library_links: HashMap::from([("library-track".into(), scan_id.clone())]),
+            library_links: HashMap::from([(TEST_LIBRARY_TRACK_ID.into(), scan_id.clone())]),
         };
+        let alias_path = root.join("aliases.json");
+        let fingerprint =
+            fingerprint_text(hash_file(&file, fs::metadata(&file).unwrap().len()).unwrap());
+        let mut alias_store = LocalLibraryFileAliases::default();
+        update_alias_anchors(
+            &mut alias_store,
+            &[LibraryLinkCandidate {
+                file_fingerprint: fingerprint,
+                file_size: fs::metadata(&file).unwrap().len(),
+                track_id: TEST_LIBRARY_TRACK_ID.into(),
+            }],
+            [TEST_LIBRARY_TRACK_ID.to_owned()].into_iter(),
+        );
+        write_local_alias_store(&alias_path, &alias_store).unwrap();
         let state = DesktopState::default();
         *state.scan_session.lock().unwrap() = Some(session);
         let request = MaestGenreWriteRequest {
@@ -4796,7 +5241,9 @@ mod tests {
     fn maest_genre_apply_requires_and_consumes_the_matching_preview() {
         let (root, file, state, request, original, _) =
             maest_genre_fixture("genre-session", "genre-only.flac");
-        let missing = apply_maest_genre_write_state(&state, request.clone()).unwrap_err();
+        let missing =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap_err();
         assert_eq!(missing.code, "preview_required");
 
         preview_maest_genre_write_state(&state, &request).unwrap();
@@ -4805,7 +5252,7 @@ mod tests {
             ..request.clone()
         };
         assert_eq!(
-            apply_maest_genre_write_state(&state, wrong_genre)
+            apply_maest_genre_write_state(&state, wrong_genre, &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "preview_required"
@@ -4815,7 +5262,7 @@ mod tests {
             ..request.clone()
         };
         assert_eq!(
-            apply_maest_genre_write_state(&state, wrong_scan)
+            apply_maest_genre_write_state(&state, wrong_scan, &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "preview_required"
@@ -4825,13 +5272,15 @@ mod tests {
             ..request.clone()
         };
         assert_eq!(
-            apply_maest_genre_write_state(&state, wrong_session)
+            apply_maest_genre_write_state(&state, wrong_session, &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "scan_session_unavailable"
         );
 
-        let result = apply_maest_genre_write_state(&state, request.clone()).unwrap();
+        let result =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap();
         let run_id = result.run_id.clone().unwrap();
         assert_eq!(result.applied_files, 1);
         let public_result = serde_json::to_string(&result).unwrap();
@@ -4839,7 +5288,7 @@ mod tests {
         assert!(!public_result.contains("fingerprint"));
         assert!(!public_result.contains("identity"));
         assert_eq!(
-            apply_maest_genre_write_state(&state, request.clone())
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "preview_required"
@@ -4863,6 +5312,32 @@ mod tests {
             session.as_ref().unwrap().file_versions[&track.track.relative_path],
             file_version(&fs::metadata(&file).unwrap())
         );
+        drop(session);
+        let alias_store = read_local_alias_store(&root.join("aliases.json"));
+        let record = &alias_store.tracks[TEST_LIBRARY_TRACK_ID];
+        assert_eq!(record.aliases.len(), 1);
+        assert_ne!(
+            record.anchor.fingerprint,
+            fingerprint_text(hash_file(&file, fs::metadata(&file).unwrap().len()).unwrap())
+        );
+        let persisted = serde_json::to_string(&alias_store).unwrap();
+        assert!(!persisted.contains("genre-only"));
+        assert!(!persisted.contains("Electronic"));
+        assert!(!persisted.contains("genre-session"));
+
+        let restarted = scan_music_folder(&root, "restart-session".into()).unwrap();
+        let candidates = vec![LibraryLinkCandidate {
+            file_fingerprint: record.anchor.fingerprint.clone(),
+            file_size: record.anchor.size,
+            track_id: TEST_LIBRARY_TRACK_ID.into(),
+        }];
+        let relinked = link_library_candidates_with_aliases(
+            &restarted.session_tracks,
+            &candidates,
+            &alias_store,
+        )
+        .unwrap();
+        assert!(relinked.links.contains_key(TEST_LIBRARY_TRACK_ID));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -4875,7 +5350,7 @@ mod tests {
         bytes.push(0);
         fs::write(&file, bytes).unwrap();
         assert_eq!(
-            apply_maest_genre_write_state(&state, request.clone())
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "track_changed"
@@ -4905,7 +5380,7 @@ mod tests {
             apply_metadata_write_batch(session, &metadata_request).unwrap();
         }
         assert_eq!(
-            apply_maest_genre_write_state(&state, request)
+            apply_maest_genre_write_state(&state, request, &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "track_changed"
@@ -4931,7 +5406,7 @@ mod tests {
         fs::rename(&file, root.join("old.flac")).unwrap();
         fs::rename(&replacement, &file).unwrap();
         assert_eq!(
-            apply_maest_genre_write_state(&state, request)
+            apply_maest_genre_write_state(&state, request, &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "track_changed"
@@ -4952,7 +5427,7 @@ mod tests {
             .unwrap()
             .is_empty());
         assert_eq!(
-            apply_maest_genre_write_state(&state, request)
+            apply_maest_genre_write_state(&state, request, &root.join("aliases.json"))
                 .unwrap_err()
                 .code,
             "preview_required"
@@ -4966,10 +5441,16 @@ mod tests {
         let (root, file, state, request, _, original_bytes) =
             maest_genre_fixture("rollback-session", "rollback.flac");
         preview_maest_genre_write_state(&state, &request).unwrap();
-        let error = apply_maest_genre_write_state_with(&state, request, |path, genre| {
-            write_genre_only(path, genre).unwrap();
-            Err("verification_failed")
-        })
+        let error = apply_maest_genre_write_state_with(
+            &state,
+            request,
+            &root.join("aliases.json"),
+            |path, genre| {
+                write_genre_only(path, genre).unwrap();
+                Err("verification_failed")
+            },
+            persist_local_aliases,
+        )
         .unwrap_err();
         assert_eq!(error.code, "verification_failed");
         assert_eq!(fs::read(file).unwrap(), original_bytes);
@@ -4982,18 +5463,20 @@ mod tests {
         let (root, file, state, request, _, original_bytes) =
             maest_genre_fixture("undo-session", "undo.flac");
         preview_maest_genre_write_state(&state, &request).unwrap();
-        let run_id = apply_maest_genre_write_state(&state, request.clone())
-            .unwrap()
-            .run_id
-            .unwrap();
+        let run_id =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap()
+                .run_id
+                .unwrap();
         undo_metadata_writes_state(&state, request.session_id.clone(), run_id).unwrap();
         assert_eq!(fs::read(&file).unwrap(), original_bytes);
 
         preview_maest_genre_write_state(&state, &request).unwrap();
-        let run_id = apply_maest_genre_write_state(&state, request.clone())
-            .unwrap()
-            .run_id
-            .unwrap();
+        let run_id =
+            apply_maest_genre_write_state(&state, request.clone(), &root.join("aliases.json"))
+                .unwrap()
+                .run_id
+                .unwrap();
         fs::OpenOptions::new()
             .append(true)
             .open(&file)
@@ -5021,6 +5504,265 @@ mod tests {
         assert_eq!(after.musical_key, original.musical_key);
         drop(session);
         fs::remove_dir_all(root).expect("test directory should be removed");
+    }
+
+    fn general_metadata_request(
+        state: &DesktopState,
+        request: &MaestGenreWriteRequest,
+        title: &str,
+    ) -> MetadataWriteRequest {
+        let guard = state.scan_session.lock().unwrap();
+        let track = guard.as_ref().unwrap().tracks[&request.scan_id]
+            .track
+            .clone();
+        MetadataWriteRequest {
+            session_id: request.session_id.clone(),
+            edits: vec![MetadataEditInput {
+                title: title.into(),
+                artist: track.artist.unwrap_or_default(),
+                album: track.album.unwrap_or_default(),
+                genre: track.genre.unwrap_or_default(),
+                bpm: track.bpm,
+                musical_key: track.musical_key.unwrap_or_default(),
+                scan_id: request.scan_id.clone(),
+            }],
+        }
+    }
+
+    #[test]
+    fn local_alias_store_is_strict_bounded_and_anchor_scoped() {
+        let root = test_directory();
+        let path = root.join("aliases.json");
+        fs::write(&path, b"{broken").unwrap();
+        assert!(read_local_alias_store(&path).tracks.is_empty());
+
+        let anchor = LocalFileIdentity {
+            fingerprint: "1".repeat(64),
+            size: 10,
+        };
+        let mut store = LocalLibraryFileAliases::default();
+        store.tracks.insert(
+            TEST_LIBRARY_TRACK_ID.into(),
+            LocalTrackAliases {
+                anchor: anchor.clone(),
+                aliases: Vec::new(),
+            },
+        );
+        for index in 0..12_u8 {
+            register_local_alias(
+                &mut store,
+                TEST_LIBRARY_TRACK_ID,
+                [index; 32],
+                20 + index as u64,
+            );
+        }
+        assert_eq!(store.tracks[TEST_LIBRARY_TRACK_ID].aliases.len(), 8);
+        write_local_alias_store(&path, &store).unwrap();
+        let serialized = fs::read_to_string(&path).unwrap();
+        assert!(!serialized.contains("path"));
+        assert!(!serialized.contains("session"));
+
+        let file = root.join("alias.mp3");
+        fs::write(&file, [11_u8; 3]).unwrap();
+        let tracks = vec![SessionTrack {
+            absolute_path: file,
+            track: ScannedAudioFile {
+                scan_id: "alias-scan".into(),
+                name: "alias.mp3".into(),
+                relative_path: "alias.mp3".into(),
+                extension: "mp3".into(),
+                size_bytes: 3,
+                metadata_read: false,
+                title: None,
+                artist: None,
+                album: None,
+                genre: None,
+                duration_seconds: None,
+                bpm: None,
+                musical_key: None,
+                duplicate_group: None,
+            },
+        }];
+        let alias_fingerprint = format!("{:x}", Sha256::digest([11_u8; 3]));
+        store.tracks.get_mut(TEST_LIBRARY_TRACK_ID).unwrap().aliases = vec![LocalFileIdentity {
+            fingerprint: alias_fingerprint,
+            size: 3,
+        }];
+        let changed_anchor = vec![LibraryLinkCandidate {
+            file_fingerprint: "2".repeat(64),
+            file_size: 10,
+            track_id: TEST_LIBRARY_TRACK_ID.into(),
+        }];
+        assert!(
+            link_library_candidates_with_aliases(&tracks, &changed_anchor, &store)
+                .unwrap()
+                .links
+                .is_empty()
+        );
+        let second_id = "22222222-2222-4222-8222-222222222222";
+        let shared_aliases = store.tracks[TEST_LIBRARY_TRACK_ID].aliases.clone();
+        store.tracks.insert(
+            second_id.into(),
+            LocalTrackAliases {
+                anchor: LocalFileIdentity {
+                    fingerprint: "3".repeat(64),
+                    size: 10,
+                },
+                aliases: shared_aliases,
+            },
+        );
+        let ambiguous = vec![
+            LibraryLinkCandidate {
+                file_fingerprint: anchor.fingerprint,
+                file_size: anchor.size,
+                track_id: TEST_LIBRARY_TRACK_ID.into(),
+            },
+            LibraryLinkCandidate {
+                file_fingerprint: "3".repeat(64),
+                file_size: 10,
+                track_id: second_id.into(),
+            },
+        ];
+        assert!(
+            link_library_candidates_with_aliases(&tracks, &ambiguous, &store)
+                .unwrap()
+                .links
+                .is_empty()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn general_metadata_write_registers_alias_only_for_linked_tracks() {
+        let (root, _, state, request, _, _) =
+            maest_genre_fixture("general-session", "general.flac");
+        let alias_path = root.join("aliases.json");
+        let before = read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+            .aliases
+            .len();
+        apply_metadata_writes_state(
+            &state,
+            general_metadata_request(&state, &request, "General write"),
+            &alias_path,
+        )
+        .unwrap();
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            before + 1
+        );
+
+        state
+            .scan_session
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .library_links
+            .clear();
+        let aliases_before_unlinked = read_local_alias_store(&alias_path).tracks
+            [TEST_LIBRARY_TRACK_ID]
+            .aliases
+            .len();
+        apply_metadata_writes_state(
+            &state,
+            general_metadata_request(&state, &request, "Unlinked write"),
+            &alias_path,
+        )
+        .unwrap();
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            aliases_before_unlinked
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn successive_writes_keep_bounded_history_and_undo_state_relinks() {
+        let (root, _, state, request, _, _) =
+            maest_genre_fixture("successive-session", "successive.flac");
+        let alias_path = root.join("aliases.json");
+        let mut latest_run = String::new();
+        for index in 0..10 {
+            latest_run = apply_metadata_writes_state(
+                &state,
+                general_metadata_request(&state, &request, &format!("Version {index}")),
+                &alias_path,
+            )
+            .unwrap()
+            .run_id
+            .unwrap();
+        }
+        assert_eq!(
+            read_local_alias_store(&alias_path).tracks[TEST_LIBRARY_TRACK_ID]
+                .aliases
+                .len(),
+            MAX_LIBRARY_FILE_ALIASES_PER_TRACK
+        );
+        undo_metadata_writes_state(&state, request.session_id.clone(), latest_run).unwrap();
+        let store = read_local_alias_store(&alias_path);
+        let session = state.scan_session.lock().unwrap();
+        let current = &session.as_ref().unwrap().tracks[&request.scan_id];
+        let candidates = vec![LibraryLinkCandidate {
+            file_fingerprint: store.tracks[TEST_LIBRARY_TRACK_ID]
+                .anchor
+                .fingerprint
+                .clone(),
+            file_size: store.tracks[TEST_LIBRARY_TRACK_ID].anchor.size,
+            track_id: TEST_LIBRARY_TRACK_ID.into(),
+        }];
+        assert!(link_library_candidates_with_aliases(
+            std::slice::from_ref(current),
+            &candidates,
+            &store,
+        )
+        .unwrap()
+        .links
+        .contains_key(TEST_LIBRARY_TRACK_ID));
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_alias_persistence_failure_rolls_back_or_reports_restore_failure() {
+        let (root, file, state, request, _, original) =
+            maest_genre_fixture("alias-failure", "alias-failure.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let error = apply_maest_genre_write_state_with(
+            &state,
+            request,
+            &root.join("aliases.json"),
+            write_genre_only,
+            |_, _| Err(()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "link_state_failed");
+        assert_eq!(fs::read(&file).unwrap(), original);
+        assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+
+        let (root, file, state, request, _, _) =
+            maest_genre_fixture("restore-failure", "restore-failure.flac");
+        preview_maest_genre_write_state(&state, &request).unwrap();
+        let sabotaged = file.clone();
+        let error = apply_maest_genre_write_state_with(
+            &state,
+            request,
+            &root.join("aliases.json"),
+            write_genre_only,
+            move |_, _| {
+                fs::remove_file(&sabotaged).unwrap();
+                fs::create_dir(&sabotaged).unwrap();
+                Err(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "restore_failed");
+        assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

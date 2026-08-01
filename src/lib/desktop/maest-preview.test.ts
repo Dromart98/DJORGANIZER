@@ -374,6 +374,15 @@ describe("MAEST library preview contract", () => {
     expect(message).not.toMatch(/private|song|fingerprint|\\/i);
   });
 
+  it("maps local link persistence failures without exposing file details", () => {
+    const message = metadataWriteErrorMessage(
+      { code: "link_state_failed", message: "C:\\private\\library-file-aliases.json" },
+      "en",
+    );
+    expect(message).toContain("local link");
+    expect(message).not.toMatch(/private|aliases|\\/i);
+  });
+
   it("prepares only after the explicit invocation and then analyzes", async () => {
     const { core, invoke } = coreReturning();
     expect(invoke).not.toHaveBeenCalled();
