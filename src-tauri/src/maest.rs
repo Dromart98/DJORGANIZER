@@ -19,7 +19,10 @@ use tauri::{AppHandle, Manager, State};
 
 pub const ANALYZER_ID: &str = "djorganizer.desktop.genre.maest";
 pub const ANALYZER_VERSION: &str = "discogs-maest-30s-pw-519l@2";
-pub const COMPATIBILITY_KEY: &str = "maest-519l|mel-16000-1876x96-f32|v2";
+pub const COMPATIBILITY_KEY: &str =
+    "maest-519l|mel-16000-1876x96-f32|windows-start-center-end-mean|v3";
+#[allow(dead_code)] // Shared legacy evidence contract; Rust emits only the current key.
+pub const LEGACY_COMPATIBILITY_KEY: &str = "maest-519l|mel-16000-1876x96-f32|v2";
 pub const CLASS_COUNT: usize = 519;
 pub const INPUT_FRAMES: usize = 1876;
 pub const INPUT_BANDS: usize = 96;
@@ -210,18 +213,7 @@ pub fn parse_discogs_label(label: &str) -> Result<ParsedLabel, AnalysisError> {
 }
 
 pub fn validate_output(scores: &[f32]) -> Result<usize, AnalysisError> {
-    if scores.len() != CLASS_COUNT {
-        return Err(error(
-            "invalid_output_shape",
-            "El modelo devolvió una salida incompatible.",
-        ));
-    }
-    if scores.iter().any(|score| !score.is_finite()) {
-        return Err(error(
-            "invalid_output_value",
-            "El modelo devolvió valores no finitos.",
-        ));
-    }
+    validate_score_vector(scores)?;
     let (first, remaining) = scores
         .split_first()
         .ok_or_else(|| error("empty_output", "El modelo no devolvió predicciones."))?;
@@ -244,6 +236,22 @@ pub fn validate_output(scores: &[f32]) -> Result<usize, AnalysisError> {
         ));
     }
     Ok(winner)
+}
+
+pub(crate) fn validate_score_vector(scores: &[f32]) -> Result<(), AnalysisError> {
+    if scores.len() != CLASS_COUNT {
+        return Err(error(
+            "invalid_output_shape",
+            "El modelo devolvió una salida incompatible.",
+        ));
+    }
+    if scores.iter().any(|score| !score.is_finite()) {
+        return Err(error(
+            "invalid_output_value",
+            "El modelo devolvió valores no finitos.",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Default)]

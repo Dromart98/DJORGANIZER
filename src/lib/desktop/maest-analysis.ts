@@ -4,7 +4,22 @@ export const DESKTOP_MAEST_ANALYZER = {
   id: "djorganizer.desktop.genre.maest",
   version: "discogs-maest-30s-pw-519l@2",
 } as const;
-export const DESKTOP_MAEST_COMPATIBILITY_KEY = "maest-519l|mel-16000-1876x96-f32|v2";
+export const DESKTOP_MAEST_COMPATIBILITY_KEY =
+  "maest-519l|mel-16000-1876x96-f32|windows-start-center-end-mean|v3";
+export const DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY =
+  "maest-519l|mel-16000-1876x96-f32|v2";
+export const DESKTOP_MAEST_COMPATIBILITY_KEYS = [
+  DESKTOP_MAEST_COMPATIBILITY_KEY,
+  DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY,
+] as const;
+export type DesktopMaestCompatibilityKey =
+  (typeof DESKTOP_MAEST_COMPATIBILITY_KEYS)[number];
+
+export function isDesktopMaestCompatibilityKey(
+  value: unknown,
+): value is DesktopMaestCompatibilityKey {
+  return DESKTOP_MAEST_COMPATIBILITY_KEYS.some((key) => key === value);
+}
 
 type DesktopTextField<K extends "genre" | "subgenre"> = {
   field: K;
@@ -18,7 +33,7 @@ type DesktopTextField<K extends "genre" | "subgenre"> = {
 
 export type DesktopMaestResult = {
   analyzer: typeof DESKTOP_MAEST_ANALYZER;
-  compatibilityKey: typeof DESKTOP_MAEST_COMPATIBILITY_KEY;
+  compatibilityKey: DesktopMaestCompatibilityKey;
   genre: DesktopTextField<"genre">;
   subgenre: DesktopTextField<"subgenre">;
   partialErrors: Array<{ code: string; message: string }>;

@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::{self, File},
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read, Seek, Write},
     path::{Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
@@ -254,7 +254,7 @@ mod scanned_track_analysis_tests {
     #[test]
     fn valid_track_uses_server_file_releases_mutex_and_returns_minimal_proposal() {
         let (root, state, request, expected) = fixture();
-        let result = analyze_confirmed_track_with(&state, request, |mut file, at| {
+        let result = analyze_confirmed_track_with(&state, request, |mut file, _, at| {
             assert!(state.scan_session.try_lock().is_ok());
             let mut bytes = Vec::new();
             file.read_to_end(&mut bytes).unwrap();
@@ -324,7 +324,7 @@ mod scanned_track_analysis_tests {
                 .absolute_path = PathBuf::from("relative.wav");
         }
         assert_eq!(
-            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+            analyze_confirmed_track_with(&state, request.clone(), |_, _, at| Ok(proposal(at)))
                 .unwrap_err()
                 .code,
             "track_unavailable"
@@ -340,7 +340,7 @@ mod scanned_track_analysis_tests {
                 .absolute_path = std::env::temp_dir().join("outside-confirmed-root.wav");
         }
         assert_eq!(
-            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+            analyze_confirmed_track_with(&state, request.clone(), |_, _, at| Ok(proposal(at)))
                 .unwrap_err()
                 .code,
             "track_unavailable"
@@ -354,7 +354,7 @@ mod scanned_track_analysis_tests {
         }
         fs::write(root.join("other.wav"), b"server-confirmed-audio").unwrap();
         assert_eq!(
-            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+            analyze_confirmed_track_with(&state, request.clone(), |_, _, at| Ok(proposal(at)))
                 .unwrap_err()
                 .code,
             "track_unavailable"
@@ -371,7 +371,7 @@ mod scanned_track_analysis_tests {
         }
         fs::remove_file(root.join("track.wav")).unwrap();
         assert_eq!(
-            analyze_confirmed_track_with(&state, request, |_, at| Ok(proposal(at)))
+            analyze_confirmed_track_with(&state, request, |_, _, at| Ok(proposal(at)))
                 .unwrap_err()
                 .code,
             "track_unavailable"
@@ -384,14 +384,14 @@ mod scanned_track_analysis_tests {
         let (root, state, request, _) = fixture();
         fs::write(root.join("track.wav"), b"changed-size").unwrap();
         assert_eq!(
-            analyze_confirmed_track_with(&state, request.clone(), |_, at| Ok(proposal(at)))
+            analyze_confirmed_track_with(&state, request.clone(), |_, _, at| Ok(proposal(at)))
                 .unwrap_err()
                 .code,
             "track_changed"
         );
         let (root2, state2, request2, _) = fixture();
         let path = root2.join("track.wav");
-        let error = analyze_confirmed_track_with(&state2, request2, |_, at| {
+        let error = analyze_confirmed_track_with(&state2, request2, |_, _, at| {
             fs::write(&path, b"changed-during-analysis-with-new-size").unwrap();
             Ok(proposal(at))
         })
@@ -413,7 +413,7 @@ mod scanned_track_analysis_tests {
                 replace_preserving_size_and_modified(confirmed);
                 File::open(confirmed)
             },
-            |_, at| {
+            |_, _, at| {
                 executed.set(true);
                 Ok(proposal(at))
             },
@@ -431,7 +431,7 @@ mod scanned_track_analysis_tests {
     fn rejects_same_size_and_modified_identity_change_during_analysis() {
         let (root, state, request, _) = fixture();
         let path = root.join("track.wav");
-        let error = analyze_confirmed_track_with(&state, request, |_, at| {
+        let error = analyze_confirmed_track_with(&state, request, |_, _, at| {
             replace_preserving_size_and_modified(&path);
             Ok(proposal(at))
         })
@@ -449,7 +449,7 @@ mod scanned_track_analysis_tests {
         fs::rename(root.join("track.wav"), &target).unwrap();
         symlink(&target, root.join("track.wav")).unwrap();
         assert_eq!(
-            analyze_confirmed_track_with(&state, request, |_, at| Ok(proposal(at)))
+            analyze_confirmed_track_with(&state, request, |_, _, at| Ok(proposal(at)))
                 .unwrap_err()
                 .code,
             "track_unavailable"
@@ -475,7 +475,7 @@ mod scanned_track_analysis_tests {
             track.track.relative_path = "linked/track.wav".into();
         }
         let error =
-            analyze_confirmed_track_with(&state, request, |_, at| Ok(proposal(at))).unwrap_err();
+            analyze_confirmed_track_with(&state, request, |_, _, at| Ok(proposal(at))).unwrap_err();
         assert_eq!(error.code, "track_unavailable");
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(outside).unwrap();
@@ -484,7 +484,7 @@ mod scanned_track_analysis_tests {
     #[test]
     fn preserves_pipeline_error_and_maps_task_failure() {
         let (root, state, request, _) = fixture();
-        let error = analyze_confirmed_track_with(&state, request, |_, _| {
+        let error = analyze_confirmed_track_with(&state, request, |_, _, _| {
             Err(analysis_error(
                 "invalid_audio_source",
                 Some("decode"),
@@ -647,6 +647,7 @@ struct ConfirmedAnalysisTrack {
     relative_path: PathBuf,
     expected_size: u64,
     expected_version: FileVersion,
+    duration_seconds: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2989,6 +2990,7 @@ fn resolve_analysis_track(
         relative_path: PathBuf::from(&track.track.relative_path),
         expected_size: track.track.size_bytes,
         expected_version: expected_version.clone(),
+        duration_seconds: track.track.duration_seconds,
     })
 }
 
@@ -3129,7 +3131,11 @@ fn analyze_confirmed_track_with_open<O, E>(
 ) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError>
 where
     O: FnOnce(&Path) -> std::io::Result<File>,
-    E: FnOnce(File, &str) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
+    E: FnOnce(
+        File,
+        Option<f64>,
+        &str,
+    ) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
 {
     let track = resolve_analysis_track(state, &request)?;
     let (validated_file, validated_identity) = open_current_analysis_path(&track)?;
@@ -3176,7 +3182,7 @@ where
         })?
         .as_millis()
         .to_string();
-    let analysis = execute(analysis_file, &analyzed_at)?;
+    let analysis = execute(analysis_file, track.duration_seconds, &analyzed_at)?;
     let final_descriptor_identity = validated_analysis_descriptor_identity(&file, &track)?;
     let (final_path, final_path_identity) = open_current_analysis_path(&track)?;
     drop(final_path);
@@ -3199,7 +3205,11 @@ fn analyze_confirmed_track_with<E>(
     execute: E,
 ) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError>
 where
-    E: FnOnce(File, &str) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
+    E: FnOnce(
+        File,
+        Option<f64>,
+        &str,
+    ) -> Result<maest::MaestAnalysisResult, AnalyzeScannedTrackError>,
 {
     analyze_confirmed_track_with_open(state, request, |path| File::open(path), execute)
 }
@@ -3255,14 +3265,29 @@ async fn analyze_scanned_track(
 ) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError> {
     let task = tauri::async_runtime::spawn_blocking(move || {
         let desktop = app.state::<DesktopState>();
-        analyze_confirmed_track_with(&desktop, request, |file, analyzed_at| {
+        analyze_confirmed_track_with(&desktop, request, |file, duration_seconds, analyzed_at| {
             let maest = app.state::<maest::MaestState>();
             maest
                 .with_ready_session(|session, gate| {
-                    maest_inference_pipeline::analyze_media_source(
+                    maest_inference_pipeline::analyze_media_sources(
                         session,
                         gate,
-                        Box::new(file),
+                        duration_seconds,
+                        || {
+                            let mut clone = file.try_clone().map_err(|_| {
+                                maest_pipeline::MaestPipelineError {
+                                    stage: "decode",
+                                    code: "invalid_source".into(),
+                                }
+                            })?;
+                            clone
+                                .rewind()
+                                .map_err(|_| maest_pipeline::MaestPipelineError {
+                                    stage: "decode",
+                                    code: "invalid_source".into(),
+                                })?;
+                            Ok(Box::new(clone) as Box<dyn symphonia::core::io::MediaSource>)
+                        },
                         analyzed_at,
                     )
                 })

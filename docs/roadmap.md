@@ -193,13 +193,16 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   OGG/Vorbis; las pruebas directas actuales cubren WAV/PCM y FLAC. El remuestreo
   interno, determinista y acotado desde PCM mono finito a 16 kHz también está
   implementado con identidad exacta cuando la entrada ya está a 16 kHz. El
-  pipeline interno conecta las tres capas, deriva de la frecuencia real una
-  ventana de 30 segundos hasta un máximo explícito de 192 kHz, exige 480 000
-  muestras remuestreadas sin relleno y produce 180 096 valores finitos y
-  deterministas. El orquestador interno mueve ese tensor a ONNX, valida los 519
-  scores y resuelve una propuesta Discogs de género/subgénero con score bruto,
-  identidad y compatibility key; conserva las etapas de error y limita la
-  inferencia mediante un gate liberado por RAII. Esta base todavía no constituye
+  pipeline interno conecta las tres capas, selecciona de forma determinista hasta
+  tres ventanas de 30 segundos (inicio, centro y final) desde duración nativa
+  fiable, con fallback únicamente a la ventana inicial cuando el seek adicional
+  no es soportado de forma segura. Cada ventana exige 480 000 muestras
+  remuestreadas sin relleno y produce 180 096 valores finitos; las ventanas se
+  procesan con memoria acotada. El orquestador ejecuta sus inferencias bajo un
+  único gate y agrega por clase mediante media aritmética antes de resolver la
+  propuesta Discogs de género/subgénero. Los nuevos resultados usan una
+  compatibility key específica multi-ventana y la evidencia legacy de una sola
+  ventana continúa siendo válida sin migración. Esta base todavía no constituye
   un analizador completo de canciones.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
 - [x] Exponer el análisis MAEST seguro de una única pista confirmada por la
@@ -224,10 +227,16 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   `Genre`, registra historial/deshacer y mantiene aliases locales acotados para
   conservar el vínculo tras cambiar la huella; nunca escribe subgénero ni datos
   internos MAEST en el archivo.
+- [x] Analizar pistas largas con hasta tres ventanas MAEST deterministas de 30 s
+  (inicio, centro y final), deduplicadas en tiempo real, agregando los 519 scores
+  por media aritmética bajo un único `InferenceGate`. Duración no fiable conserva
+  la primera ventana y solo la falta de seek seguro permite fallback; errores
+  reales de decode/resample/preprocess se propagan. Los resultados nuevos usan
+  compatibility key v3 y la evidencia legacy v2 sigue aceptada.
 - [ ] Completar la clasificación local de escritorio con MAEST: escritura de
-  subgénero u otras etiquetas portables, ventanas múltiples, cancelación,
-  progreso y lotes. Conservar audio y rutas exclusivamente en el dispositivo
-  y comparar CPU y aceleración disponible antes de habilitar análisis masivo.
+  subgénero u otras etiquetas portables, cancelación, progreso y lotes. Conservar
+  audio y rutas exclusivamente en el dispositivo y comparar CPU y aceleración
+  disponible antes de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
 - [x] Verificar y documentar la licencia de `discogs-effnet-bs64-1`: modelo y
   derivados bajo CC BY-NC-SA 4.0, con atribución separada, ShareAlike y uso
@@ -383,4 +392,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera, la aplicación explícita al formulario y la persistencia validada por campo de identidad/version/compatibility key/fecha/score bruto MAEST están implementados; la propuesta nunca se guarda automáticamente y las ediciones manuales invalidan la evidencia correspondiente. La escritura explícita y segura de la etiqueta estándar `Genre` desde un género MAEST persistido también está implementada mediante previsualización, confirmación, backup, verificación, historial/deshacer y aliases locales acotados. La escritura de subgénero u otras etiquetas, la selección de ventanas, cancelación, progreso y lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera, la aplicación explícita al formulario y la persistencia validada por campo de identidad/version/compatibility key/fecha/score bruto MAEST están implementados; la propuesta nunca se guarda automáticamente y las ediciones manuales invalidan la evidencia correspondiente. La escritura explícita y segura de la etiqueta estándar `Genre` desde un género MAEST persistido también está implementada mediante previsualización, confirmación, backup, verificación, historial/deshacer y aliases locales acotados. El análisis de pistas largas usa hasta tres ventanas deterministas de 30 s (inicio, centro y final), deduplicadas y agregadas por media aritmética bajo un único `InferenceGate`; solo una incapacidad real de seek seguro degrada a la primera ventana, mientras que errores de decode/resample/preprocess se propagan. Los resultados multi-ventana usan una compatibility key v3 y la evidencia legacy v2 continúa aceptada sin migración. La escritura de subgénero u otras etiquetas, cancelación, progreso y lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.

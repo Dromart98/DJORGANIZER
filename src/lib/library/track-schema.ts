@@ -3,7 +3,7 @@ import { normalizeMusicalKey } from "@/lib/music/key-normalization";
 import type { Tables, TablesInsert, TablesUpdate } from "@/types/database";
 import {
   DESKTOP_MAEST_ANALYZER,
-  DESKTOP_MAEST_COMPATIBILITY_KEY,
+  DESKTOP_MAEST_COMPATIBILITY_KEYS,
 } from "@/lib/desktop/maest-analysis";
 
 export const MAEST_EVIDENCE_FIELD = "maest_evidence";
@@ -13,7 +13,7 @@ const maestFieldEvidenceSchema = z.object({
   value: z.string().trim().min(1).max(120),
   analyzerId: z.literal(DESKTOP_MAEST_ANALYZER.id),
   analyzerVersion: z.literal(DESKTOP_MAEST_ANALYZER.version),
-  compatibilityKey: z.literal(DESKTOP_MAEST_COMPATIBILITY_KEY),
+  compatibilityKey: z.enum(DESKTOP_MAEST_COMPATIBILITY_KEYS),
   analyzedAt: z.string().regex(/^(?:0|[1-9]\d*)$/).refine(
     (value) => Number.isSafeInteger(Number(value)),
   ),

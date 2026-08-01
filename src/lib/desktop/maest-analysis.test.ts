@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { canApplyAutomaticValue } from "@/lib/music/analysis-contract";
+import { canApplyAutomaticValue, canReuseAutomaticResult } from "@/lib/music/analysis-contract";
 import {
   DESKTOP_MAEST_ANALYZER,
   DESKTOP_MAEST_COMPATIBILITY_KEY,
+  DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY,
   type DesktopMaestResult,
   toMusicAnalysisResult,
 } from "./maest-analysis";
@@ -50,5 +51,19 @@ describe("desktop MAEST neutral proposal", () => {
 
   it("keeps manual corrections protected", () => {
     expect(canApplyAutomaticValue("manual")).toBe(false);
+  });
+
+  it("distinguishes legacy evidence from the current multi-window strategy", () => {
+    const result = toMusicAnalysisResult(baseResult);
+    expect(canReuseAutomaticResult(
+      result,
+      DESKTOP_MAEST_ANALYZER,
+      DESKTOP_MAEST_COMPATIBILITY_KEY,
+    )).toBe(true);
+    expect(canReuseAutomaticResult(
+      result,
+      DESKTOP_MAEST_ANALYZER,
+      DESKTOP_MAEST_LEGACY_COMPATIBILITY_KEY,
+    )).toBe(false);
   });
 });

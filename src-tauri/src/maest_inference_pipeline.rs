@@ -5,11 +5,11 @@ use symphonia::core::io::MediaSource;
 
 use crate::{
     maest::{
-        resolve_discogs_class, run_preprocessed, validate_output, AnalysisError, AnalyzerIdentity,
-        InferenceGate, MaestAnalysisResult, ParsedLabel, ProposedTextField, ANALYZER_ID,
-        ANALYZER_VERSION, COMPATIBILITY_KEY,
+        resolve_discogs_class, run_preprocessed, validate_output, validate_score_vector,
+        AnalysisError, AnalyzerIdentity, InferenceGate, MaestAnalysisResult, ParsedLabel,
+        ProposedTextField, ANALYZER_ID, ANALYZER_VERSION, COMPATIBILITY_KEY,
     },
-    maest_pipeline::preprocess_media_source,
+    maest_pipeline::{preprocess_media_windows, MaestPipelineError},
 };
 
 #[derive(Debug, PartialEq)]
@@ -35,8 +35,34 @@ pub(crate) fn analyze_media_source(
     source: Box<dyn MediaSource>,
     analyzed_at: &str,
 ) -> Result<MaestAnalysisResult, MaestInferencePipelineError> {
-    analyze_media_source_with(
+    let mut source = Some(source);
+    analyze_media_sources_with(
         gate,
+        None,
+        || {
+            Ok(source
+                .take()
+                .expect("the fallback opens exactly one source"))
+        },
+        analyzed_at,
+        |tensor| run_preprocessed(session, tensor),
+        resolve_discogs_class,
+    )
+}
+
+pub(crate) fn analyze_media_sources<F>(
+    session: &Session,
+    gate: &InferenceGate,
+    duration_seconds: Option<f64>,
+    source: F,
+    analyzed_at: &str,
+) -> Result<MaestAnalysisResult, MaestInferencePipelineError>
+where
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+{
+    analyze_media_sources_with(
+        gate,
+        duration_seconds,
         source,
         analyzed_at,
         |tensor| run_preprocessed(session, tensor),
@@ -44,18 +70,20 @@ pub(crate) fn analyze_media_source(
     )
 }
 
-fn analyze_media_source_with<Run, Resolve>(
+fn analyze_media_sources_with<F, Run, Resolve>(
     gate: &InferenceGate,
-    source: Box<dyn MediaSource>,
+    duration_seconds: Option<f64>,
+    source: F,
     analyzed_at: &str,
     run: Run,
     resolve: Resolve,
 ) -> Result<MaestAnalysisResult, MaestInferencePipelineError>
 where
-    Run: FnOnce(Vec<f32>) -> Result<Vec<f32>, AnalysisError>,
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+    Run: FnMut(Vec<f32>) -> Result<Vec<f32>, AnalysisError>,
     Resolve: FnOnce(usize) -> Result<ParsedLabel, AnalysisError>,
 {
-    let tensor = preprocess_media_source(source).map_err(|error| {
+    let tensors = preprocess_media_windows(duration_seconds, source).map_err(|error| {
         MaestInferencePipelineError::new(
             error.stage,
             AnalysisError {
@@ -65,13 +93,22 @@ where
         )
     })?;
 
-    // Keep the gate as narrow as possible: preprocessing happens before acquiring it,
-    // and the permit is dropped on both success and error immediately after inference.
+    // All bounded preprocessing happens before one permit. A track's windows cannot interleave.
     let scores = {
         let _permit = gate
             .acquire()
             .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
-        run(tensor).map_err(|error| MaestInferencePipelineError::new("inference", error))?
+        let mut run = run;
+        let mut outputs = Vec::with_capacity(tensors.len());
+        for tensor in tensors {
+            let output = run(tensor)
+                .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
+            validate_score_vector(&output)
+                .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
+            outputs.push(output);
+        }
+        aggregate_scores(&outputs)
+            .map_err(|error| MaestInferencePipelineError::new("inference", error))?
     };
     let winner = validate_output(&scores)
         .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
@@ -100,10 +137,60 @@ where
     })
 }
 
+fn aggregate_scores(outputs: &[Vec<f32>]) -> Result<Vec<f32>, AnalysisError> {
+    if outputs.is_empty() {
+        return Err(AnalysisError {
+            code: "empty_output".into(),
+            message: "El modelo no devolvió predicciones.".into(),
+        });
+    }
+    let mut aggregate = vec![0.0_f32; crate::maest::CLASS_COUNT];
+    for output in outputs {
+        validate_score_vector(output)?;
+        for (total, score) in aggregate.iter_mut().zip(output) {
+            *total += *score;
+        }
+    }
+    let count = outputs.len() as f32;
+    for score in &mut aggregate {
+        *score /= count;
+    }
+    if aggregate.iter().any(|score| !score.is_finite()) {
+        return Err(AnalysisError {
+            code: "invalid_output_value".into(),
+            message: "El modelo devolvió valores no finitos.".into(),
+        });
+    }
+    Ok(aggregate)
+}
+
+#[cfg(test)]
+fn analyze_media_source_with<Run, Resolve>(
+    gate: &InferenceGate,
+    source: Box<dyn MediaSource>,
+    analyzed_at: &str,
+    run: Run,
+    resolve: Resolve,
+) -> Result<MaestAnalysisResult, MaestInferencePipelineError>
+where
+    Run: FnMut(Vec<f32>) -> Result<Vec<f32>, AnalysisError>,
+    Resolve: FnOnce(usize) -> Result<ParsedLabel, AnalysisError>,
+{
+    let mut source = Some(source);
+    analyze_media_sources_with(
+        gate,
+        None,
+        || Ok(source.take().expect("single-window test source")),
+        analyzed_at,
+        run,
+        resolve,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::maest::{load_session, verify_model};
+    use crate::maest::{load_session, verify_model, LEGACY_COMPATIBILITY_KEY};
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::{cell::Cell, io::Cursor, path::Path};
 
@@ -120,6 +207,35 @@ mod tests {
         let mut scores = vec![0.0; crate::maest::CLASS_COUNT];
         scores[winner] = score;
         scores
+    }
+
+    #[test]
+    fn arithmetic_mean_of_two_and_three_score_vectors_drives_the_winner() {
+        let mut first = scores(10, 6.0);
+        first[11] = 1.0;
+        let mut second = scores(11, 5.0);
+        second[10] = 2.0;
+        let two = aggregate_scores(&[first.clone(), second.clone()]).unwrap();
+        assert_eq!(two[10], 4.0);
+        assert_eq!(two[11], 3.0);
+        assert_eq!(validate_output(&two).unwrap(), 10);
+
+        let mut third = scores(11, 9.0);
+        third[10] = 1.0;
+        let three = aggregate_scores(&[first, second, third]).unwrap();
+        assert_eq!(three[10], 3.0);
+        assert_eq!(three[11], 5.0);
+        assert_eq!(validate_output(&three).unwrap(), 11);
+        assert!(three.iter().all(|score| score.is_finite()));
+    }
+
+    #[test]
+    fn an_exact_aggregate_maximum_tie_remains_ambiguous() {
+        let first = scores(10, 2.0);
+        let second = scores(11, 2.0);
+        let aggregate = aggregate_scores(&[first, second]).unwrap();
+        let error = validate_output(&aggregate).unwrap_err();
+        assert_eq!(error.code, "ambiguous_output");
     }
 
     #[test]
@@ -141,6 +257,7 @@ mod tests {
         assert_eq!(result.analyzer.id, ANALYZER_ID);
         assert_eq!(result.analyzer.version, ANALYZER_VERSION);
         assert_eq!(result.compatibility_key, COMPATIBILITY_KEY);
+        assert_ne!(result.compatibility_key, LEGACY_COMPATIBILITY_KEY);
         assert_eq!(result.genre.field, "genre");
         assert_eq!(result.genre.status, "completed");
         assert_eq!(result.genre.source, "automatic");
@@ -240,7 +357,7 @@ mod tests {
                 &InferenceGate::default(),
                 audio_source(),
                 "now",
-                |_| Ok(invalid),
+                |_| Ok(invalid.clone()),
                 resolve_discogs_class,
             )
             .unwrap_err();

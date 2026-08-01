@@ -3,9 +3,11 @@ use std::io;
 use symphonia::core::{
     codecs::audio::{AudioDecoder, AudioDecoderOptions},
     errors::Error as SymphoniaError,
-    formats::{probe::Hint, FormatOptions, FormatReader, Track, TrackType},
+    formats::{probe::Hint, FormatOptions, FormatReader, SeekMode, SeekTo, Track, TrackType},
     io::{MediaSource, MediaSourceStream},
     meta::MetadataOptions,
+    units::Time,
+    units::TimeBase,
 };
 
 const INVALID_SOURCE: &str = "invalid_source";
@@ -15,6 +17,8 @@ const INVALID_SAMPLE_RATE: &str = "invalid_sample_rate";
 const INVALID_CHANNELS: &str = "invalid_channels";
 const DECODE_FAILED: &str = "decode_failed";
 const NON_FINITE_SAMPLE: &str = "non_finite_sample";
+const SEEK_UNSUPPORTED: &str = "seek_unsupported";
+const MAX_SAFE_SEEK_PREROLL_SECONDS: usize = 1;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct DecodedAudio {
@@ -54,6 +58,19 @@ pub(crate) fn decode_audio_with_rate_limit<F>(
 where
     F: FnOnce(u32) -> Result<usize, &'static str>,
 {
+    decode_audio_window_with_rate_limit(source, Time::ZERO, limit_for_rate)
+}
+
+/// Decodes one bounded window after an accurate container seek. The seek target is trusted native
+/// metadata, never an IPC value. Samples decoded before the exact target are discarded.
+pub(crate) fn decode_audio_window_with_rate_limit<F>(
+    source: Box<dyn MediaSource>,
+    offset: Time,
+    limit_for_rate: F,
+) -> Result<DecodedAudio, AudioDecodeError>
+where
+    F: FnOnce(u32) -> Result<usize, &'static str>,
+{
     if source.byte_len() == Some(0) {
         return Err(AudioDecodeError::new(INVALID_SOURCE));
     }
@@ -69,6 +86,32 @@ where
         .map_err(map_probe_error)?;
 
     let (track_id, mut decoder) = select_audio_track(format.as_ref())?;
+    let mut seek_preroll = None;
+    if offset != Time::ZERO {
+        let seeked = format
+            .seek(
+                SeekMode::Accurate,
+                SeekTo::Time {
+                    time: offset,
+                    track_id: Some(track_id),
+                },
+            )
+            .map_err(map_seek_error)?;
+        decoder.reset();
+        let time_base = format
+            .tracks()
+            .iter()
+            .find(|track| track.id == track_id)
+            .and_then(|track| track.time_base)
+            .ok_or_else(|| AudioDecodeError::new(SEEK_UNSUPPORTED))?;
+        let ticks = seeked
+            .required_ts
+            .get()
+            .checked_sub(seeked.actual_ts.get())
+            .filter(|ticks| *ticks >= 0)
+            .ok_or_else(|| AudioDecodeError::new(SEEK_UNSUPPORTED))?;
+        seek_preroll = Some((ticks as u64, time_base));
+    }
     let mut output = Vec::new();
     let mut sample_rate = None;
     let mut max_samples = None;
@@ -90,6 +133,13 @@ where
         let rate = decoded.spec().rate();
         let channels = decoded.spec().channels().count();
         validate_audio_metadata(rate, channels)?;
+        let mut frames_to_skip = match seek_preroll.take() {
+            Some((ticks, time_base)) => frames_for_seek_preroll(ticks, time_base, rate)?,
+            None => 0,
+        };
+        if frames_to_skip > rate as usize * MAX_SAFE_SEEK_PREROLL_SECONDS {
+            return Err(AudioDecodeError::new(SEEK_UNSUPPORTED));
+        }
         if sample_rate.replace(rate).is_some_and(|known| known != rate) {
             return Err(AudioDecodeError::new(INVALID_SAMPLE_RATE));
         }
@@ -114,6 +164,22 @@ where
 
         let mut interleaved = vec![0.0_f32; decoded.samples_interleaved()];
         decoded.copy_to_slice_interleaved(&mut interleaved);
+        if frames_to_skip != 0 {
+            let packet_frames = interleaved.len() / channels;
+            let skipped = frames_to_skip.min(packet_frames);
+            frames_to_skip -= skipped;
+            if frames_to_skip != 0 {
+                seek_preroll = Some((
+                    frames_to_skip as u64,
+                    TimeBase::try_from_recip(rate)
+                        .ok_or_else(|| AudioDecodeError::new(INVALID_SAMPLE_RATE))?,
+                ));
+            }
+            interleaved.drain(..skipped * channels);
+            if interleaved.is_empty() {
+                continue;
+            }
+        }
         if append_mono(&interleaved, channels, limit, &mut output)? {
             return Ok(DecodedAudio {
                 samples: output,
@@ -130,12 +196,43 @@ where
     })
 }
 
+fn frames_for_seek_preroll(
+    ticks: u64,
+    time_base: TimeBase,
+    sample_rate: u32,
+) -> Result<usize, AudioDecodeError> {
+    let numerator = u128::from(ticks)
+        .checked_mul(u128::from(time_base.numer.get()))
+        .and_then(|value| value.checked_mul(u128::from(sample_rate)))
+        .ok_or_else(|| AudioDecodeError::new(DECODE_FAILED))?;
+    let denominator = u128::from(time_base.denom.get());
+    let frames = numerator
+        .checked_add(denominator - 1)
+        .map(|value| value / denominator)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| AudioDecodeError::new(DECODE_FAILED))?;
+    Ok(frames)
+}
+
 fn map_probe_error(error: SymphoniaError) -> AudioDecodeError {
     match error {
         SymphoniaError::IoError(ref error) if error.kind() != io::ErrorKind::UnexpectedEof => {
             AudioDecodeError::new(INVALID_SOURCE)
         }
         _ => AudioDecodeError::new(UNRECOGNIZED_FORMAT),
+    }
+}
+
+fn map_seek_error(error: SymphoniaError) -> AudioDecodeError {
+    match error {
+        SymphoniaError::SeekError(_) | SymphoniaError::Unsupported(_) => {
+            AudioDecodeError::new(SEEK_UNSUPPORTED)
+        }
+        SymphoniaError::IoError(_)
+        | SymphoniaError::DecodeError(_)
+        | SymphoniaError::LimitError(_)
+        | SymphoniaError::ResetRequired => AudioDecodeError::new(DECODE_FAILED),
+        _ => AudioDecodeError::new(DECODE_FAILED),
     }
 }
 
@@ -326,6 +423,34 @@ mod tests {
                 .code,
             NON_FINITE_SAMPLE
         );
+    }
+
+    #[test]
+    fn seek_preroll_uses_the_decoded_rate_and_never_rounds_before_the_target() {
+        let time_base = TimeBase::try_new(1, 1_000).unwrap();
+        // 1.01 frames proves ceil advances beyond the fractional requested offset.
+        assert_eq!(frames_for_seek_preroll(101, time_base, 10).unwrap(), 2);
+        assert_eq!((101_f64 / 1_000.0 * 10.0).round() as usize, 1);
+    }
+
+    #[test]
+    fn seek_error_mapper_allows_fallback_only_for_positioning_capability_errors() {
+        use symphonia::core::errors::SeekErrorKind;
+
+        for error in [
+            SymphoniaError::SeekError(SeekErrorKind::Unseekable),
+            SymphoniaError::Unsupported("seek"),
+        ] {
+            assert_eq!(map_seek_error(error).code, SEEK_UNSUPPORTED);
+        }
+        for error in [
+            SymphoniaError::DecodeError("corrupt"),
+            SymphoniaError::IoError(io::Error::new(io::ErrorKind::UnexpectedEof, "stream")),
+            SymphoniaError::LimitError("limit"),
+            SymphoniaError::ResetRequired,
+        ] {
+            assert_eq!(map_seek_error(error).code, DECODE_FAILED);
+        }
     }
 
     #[test]
