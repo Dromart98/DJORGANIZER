@@ -10,6 +10,9 @@ import {
   isCurrentMaestRequest,
   maestAnalyzeArguments,
   maestErrorMessage,
+  maestGenreWriteArguments,
+  maestGenreWriteAvailability,
+  invokeMaestGenreWritePreview,
   maestFormProposal,
   maestSurfaceVisibility,
   createMaestPreviewState,
@@ -325,7 +328,7 @@ describe("MAEST preview UI state controller", () => {
     expect(form).toContain("applyMaestFormProposal(current, proposal)");
     expect(form).toContain("onReset={resetClassification}");
     expect(form).toContain("initialTrackClassification(mode, track?.genre, track?.subgenre)");
-    expect(form).toMatch(/<MaestPreview onApply=\{applyMaestProposal\} trackId=\{track\.id\} \/>/);
+    expect(form).toMatch(/<MaestPreview[\s\S]*formGenre=\{classification\.genre\}[\s\S]*onApply=\{applyMaestProposal\}[\s\S]*track=\{track\}[\s\S]*\/>/);
     expect(form).toMatch(/<SaveButton mode=\{mode\} \/>/);
     expect(form).toContain('mode === "create" ? createTrackAction : updateTrackAction');
     expect(form).not.toMatch(/document\.|querySelector/);
@@ -333,6 +336,34 @@ describe("MAEST preview UI state controller", () => {
 });
 
 describe("MAEST library preview contract", () => {
+  it("offers file writing only for persisted automatic MAEST genre evidence", () => {
+    const track = {
+      genre: "Electronic",
+      genre_source: "automatic",
+      genre_analyzer_id: DESKTOP_MAEST_ANALYZER.id,
+      genre_analyzer_version: DESKTOP_MAEST_ANALYZER.version,
+      genre_compatibility_key: DESKTOP_MAEST_COMPATIBILITY_KEY,
+      genre_analyzed_at_ms: 1785542400000,
+      genre_raw_score: 0.8,
+    } as Parameters<typeof maestGenreWriteAvailability>[0];
+    expect(maestGenreWriteAvailability(track, "Electronic", true)).toBe("available");
+    expect(maestGenreWriteAvailability(track, "House", true)).toBe("needs-save");
+    expect(maestGenreWriteAvailability({ ...track, genre_source: "manual" }, "Electronic", true)).toBe("unavailable");
+    expect(maestGenreWriteAvailability({ ...track, genre_raw_score: null }, "Electronic", true)).toBe("unavailable");
+    expect(maestGenreWriteAvailability(track, "Electronic", false)).toBe("unavailable");
+  });
+
+  it("previews a genre write with only sessionId, scanId and genre", async () => {
+    const preview = { scanId: "scan", field: "genre" as const, before: "House", after: "Electronic", changed: true };
+    const invoke = vi.fn(async () => preview);
+    await expect(invokeMaestGenreWritePreview({ invoke } as TauriCore, "session", "scan", "Electronic")).resolves.toEqual(preview);
+    expect(invoke).toHaveBeenCalledWith("preview_maest_genre_write", {
+      request: { sessionId: "session", scanId: "scan", genre: "Electronic" },
+    });
+    expect(Object.keys(maestGenreWriteArguments("s", "x", "g").request)).toEqual(["sessionId", "scanId", "genre"]);
+    expect(JSON.stringify(preview)).not.toMatch(/path|subgenre|score|analyzer/i);
+  });
+
   it("prepares only after the explicit invocation and then analyzes", async () => {
     const { core, invoke } = coreReturning();
     expect(invoke).not.toHaveBeenCalled();

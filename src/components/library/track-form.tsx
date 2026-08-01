@@ -104,7 +104,11 @@ export function TrackForm({ mode, track }: TrackFormProps) {
       ) : null}
 
       {mode === "update" && track ? (
-        <MaestPreview onApply={applyMaestProposal} trackId={track.id} />
+        <MaestPreview
+          formGenre={classification.genre}
+          onApply={applyMaestProposal}
+          track={track}
+        />
       ) : null}
 
       <div className="form-grid">
