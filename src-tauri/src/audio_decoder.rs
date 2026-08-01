@@ -3,9 +3,10 @@ use std::io;
 use symphonia::core::{
     codecs::audio::{AudioDecoder, AudioDecoderOptions},
     errors::Error as SymphoniaError,
-    formats::{probe::Hint, FormatOptions, FormatReader, Track, TrackType},
+    formats::{probe::Hint, FormatOptions, FormatReader, SeekMode, SeekTo, Track, TrackType},
     io::{MediaSource, MediaSourceStream},
     meta::MetadataOptions,
+    units::Time,
 };
 
 const INVALID_SOURCE: &str = "invalid_source";
@@ -54,6 +55,19 @@ pub(crate) fn decode_audio_with_rate_limit<F>(
 where
     F: FnOnce(u32) -> Result<usize, &'static str>,
 {
+    decode_audio_window_with_rate_limit(source, Time::ZERO, limit_for_rate)
+}
+
+/// Decodes one bounded window after an accurate container seek. The seek target is trusted native
+/// metadata, never an IPC value. Samples decoded before the exact target are discarded.
+pub(crate) fn decode_audio_window_with_rate_limit<F>(
+    source: Box<dyn MediaSource>,
+    offset: Time,
+    limit_for_rate: F,
+) -> Result<DecodedAudio, AudioDecodeError>
+where
+    F: FnOnce(u32) -> Result<usize, &'static str>,
+{
     if source.byte_len() == Some(0) {
         return Err(AudioDecodeError::new(INVALID_SOURCE));
     }
@@ -69,6 +83,40 @@ where
         .map_err(map_probe_error)?;
 
     let (track_id, mut decoder) = select_audio_track(format.as_ref())?;
+    let mut frames_to_skip = 0_usize;
+    if offset != Time::ZERO {
+        let seeked = format
+            .seek(
+                SeekMode::Accurate,
+                SeekTo::Time {
+                    time: offset,
+                    track_id: Some(track_id),
+                },
+            )
+            .map_err(|_| AudioDecodeError::new(DECODE_FAILED))?;
+        decoder.reset();
+        let time_base = format
+            .tracks()
+            .iter()
+            .find(|track| track.id == track_id)
+            .and_then(|track| track.time_base)
+            .ok_or_else(|| AudioDecodeError::new(DECODE_FAILED))?;
+        let ticks = seeked.required_ts.get() - seeked.actual_ts.get();
+        if ticks < 0 {
+            return Err(AudioDecodeError::new(DECODE_FAILED));
+        }
+        let seconds =
+            ticks as f64 * f64::from(time_base.numer.get()) / f64::from(time_base.denom.get());
+        let rate = format
+            .tracks()
+            .iter()
+            .find(|track| track.id == track_id)
+            .and_then(|track| track.codec_params.as_ref())
+            .and_then(|params| params.audio())
+            .and_then(|params| params.sample_rate)
+            .ok_or_else(|| AudioDecodeError::new(INVALID_SAMPLE_RATE))?;
+        frames_to_skip = (seconds * f64::from(rate)).round() as usize;
+    }
     let mut output = Vec::new();
     let mut sample_rate = None;
     let mut max_samples = None;
@@ -114,6 +162,15 @@ where
 
         let mut interleaved = vec![0.0_f32; decoded.samples_interleaved()];
         decoded.copy_to_slice_interleaved(&mut interleaved);
+        if frames_to_skip != 0 {
+            let packet_frames = interleaved.len() / channels;
+            let skipped = frames_to_skip.min(packet_frames);
+            frames_to_skip -= skipped;
+            interleaved.drain(..skipped * channels);
+            if interleaved.is_empty() {
+                continue;
+            }
+        }
         if append_mono(&interleaved, channels, limit, &mut output)? {
             return Ok(DecodedAudio {
                 samples: output,

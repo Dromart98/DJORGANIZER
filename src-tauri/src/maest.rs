@@ -210,18 +210,7 @@ pub fn parse_discogs_label(label: &str) -> Result<ParsedLabel, AnalysisError> {
 }
 
 pub fn validate_output(scores: &[f32]) -> Result<usize, AnalysisError> {
-    if scores.len() != CLASS_COUNT {
-        return Err(error(
-            "invalid_output_shape",
-            "El modelo devolvió una salida incompatible.",
-        ));
-    }
-    if scores.iter().any(|score| !score.is_finite()) {
-        return Err(error(
-            "invalid_output_value",
-            "El modelo devolvió valores no finitos.",
-        ));
-    }
+    validate_score_vector(scores)?;
     let (first, remaining) = scores
         .split_first()
         .ok_or_else(|| error("empty_output", "El modelo no devolvió predicciones."))?;
@@ -244,6 +233,22 @@ pub fn validate_output(scores: &[f32]) -> Result<usize, AnalysisError> {
         ));
     }
     Ok(winner)
+}
+
+pub(crate) fn validate_score_vector(scores: &[f32]) -> Result<(), AnalysisError> {
+    if scores.len() != CLASS_COUNT {
+        return Err(error(
+            "invalid_output_shape",
+            "El modelo devolvió una salida incompatible.",
+        ));
+    }
+    if scores.iter().any(|score| !score.is_finite()) {
+        return Err(error(
+            "invalid_output_value",
+            "El modelo devolvió valores no finitos.",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Default)]

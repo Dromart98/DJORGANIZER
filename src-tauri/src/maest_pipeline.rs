@@ -1,9 +1,9 @@
 //! Bounded orchestration from a trusted media source to one MAEST input tensor.
 
-use symphonia::core::io::MediaSource;
+use symphonia::core::{io::MediaSource, units::Time};
 
 use crate::{
-    audio_decoder::{decode_audio, decode_audio_with_rate_limit},
+    audio_decoder::{decode_audio, decode_audio_window_with_rate_limit},
     audio_resampler::resample_mono_to_16khz,
     maest::{INPUT_BANDS, INPUT_FRAMES},
     maest_preprocessing::preprocess_maest_pcm,
@@ -12,6 +12,7 @@ use crate::{
 const TARGET_SAMPLES: usize = 480_000;
 const MAX_PIPELINE_SAMPLE_RATE: u32 = 192_000;
 const TARGET_DURATION_SECONDS: usize = 30;
+pub(crate) const MAX_MAEST_WINDOWS: usize = 3;
 /// Maximum payload held by the decoded and resampled `f32` vectors concurrently.
 const MAX_DECODE_SAMPLES: usize = MAX_PIPELINE_SAMPLE_RATE as usize * TARGET_DURATION_SECONDS + 1;
 const MAX_VECTOR_PAYLOAD_BYTES: usize = (MAX_DECODE_SAMPLES + TARGET_SAMPLES) * size_of::<f32>();
@@ -46,11 +47,68 @@ impl MaestPipelineError {
 pub(crate) fn preprocess_media_source(
     source: Box<dyn MediaSource>,
 ) -> Result<Vec<f32>, MaestPipelineError> {
-    let decoded = decode_audio_with_rate_limit(source, |sample_rate| {
+    preprocess_media_window(source, Time::ZERO)
+}
+
+fn preprocess_media_window(
+    source: Box<dyn MediaSource>,
+    offset: Time,
+) -> Result<Vec<f32>, MaestPipelineError> {
+    let decoded = decode_audio_window_with_rate_limit(source, offset, |sample_rate| {
         decode_sample_limit(sample_rate, TARGET_DURATION_SECONDS)
     })
     .map_err(|error| MaestPipelineError::new("decode", error.code))?;
     preprocess_decoded_audio(decoded)
+}
+
+/// Selects start/centre/end using only confirmed native duration. Nanosecond conversion happens
+/// before deduplication so every offset is an exact media-time value.
+pub(crate) fn window_offsets(duration_seconds: Option<f64>) -> Vec<Time> {
+    let Some(duration) = duration_seconds.filter(|value| value.is_finite() && *value >= 30.0)
+    else {
+        return vec![Time::ZERO];
+    };
+    if duration == 30.0 {
+        return vec![Time::ZERO];
+    }
+    let last = duration - 30.0;
+    let mut offsets = Vec::with_capacity(MAX_MAEST_WINDOWS);
+    for seconds in [0.0, last / 2.0, last] {
+        let Some(offset) = Time::try_from_secs_f64(seconds) else {
+            return vec![Time::ZERO];
+        };
+        if !offsets.contains(&offset) {
+            offsets.push(offset);
+        }
+    }
+    offsets
+}
+
+/// Prepares at most three tensors. Each source PCM and resampled PCM is dropped inside
+/// `preprocess_media_window` before the next source is opened; only bounded tensors survive.
+pub(crate) fn preprocess_media_windows<F>(
+    duration_seconds: Option<f64>,
+    mut source: F,
+) -> Result<Vec<Vec<f32>>, MaestPipelineError>
+where
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+{
+    let offsets = window_offsets(duration_seconds);
+    let mut tensors = Vec::with_capacity(offsets.len());
+    for (index, offset) in offsets.into_iter().enumerate() {
+        let prepared = source().and_then(|source| preprocess_media_window(source, offset));
+        match prepared {
+            Ok(tensor) => tensors.push(tensor),
+            // A format that cannot safely seek retains the established first-window behaviour.
+            Err(_) if index > 0 => {
+                tensors.truncate(1);
+                break;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    debug_assert!(tensors.len() <= MAX_MAEST_WINDOWS);
+    Ok(tensors)
 }
 
 fn preprocess_media_source_with_limit(
@@ -229,5 +287,44 @@ mod tests {
         assert_eq!(TARGET_SAMPLES, 480_000);
         assert_eq!(MAX_DECODE_SAMPLES, 5_760_001);
         assert_eq!(MAX_VECTOR_PAYLOAD_BYTES, 24_960_004);
+        assert_eq!(MAX_MAEST_WINDOWS, 3);
+        assert_eq!(MAX_MAEST_WINDOWS * INPUT_FRAMES * INPUT_BANDS, 540_288);
+    }
+
+    #[test]
+    fn window_selection_is_deterministic_and_falls_back_safely() {
+        assert_eq!(window_offsets(Some(30.0)), vec![Time::ZERO]);
+        assert_eq!(window_offsets(None), vec![Time::ZERO]);
+        assert_eq!(window_offsets(Some(f64::NAN)), vec![Time::ZERO]);
+        assert_eq!(window_offsets(Some(29.9)), vec![Time::ZERO]);
+        assert_eq!(
+            window_offsets(Some(90.0)),
+            vec![
+                Time::ZERO,
+                Time::try_from_secs_f64(30.0).unwrap(),
+                Time::try_from_secs_f64(60.0).unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn offsets_are_deduplicated_after_media_time_conversion() {
+        assert_eq!(window_offsets(Some(30.0 + 1e-10)), vec![Time::ZERO]);
+    }
+
+    #[test]
+    fn multi_window_preprocessing_keeps_only_three_bounded_tensors() {
+        let bytes = wav(16_000, 90);
+        let mut opened = 0;
+        let tensors = preprocess_media_windows(Some(90.0), || {
+            opened += 1;
+            Ok(Box::new(Cursor::new(bytes.clone())) as Box<dyn MediaSource>)
+        })
+        .unwrap();
+        assert_eq!(opened, 3);
+        assert_eq!(tensors.len(), MAX_MAEST_WINDOWS);
+        assert!(tensors
+            .iter()
+            .all(|tensor| tensor.len() == INPUT_FRAMES * INPUT_BANDS));
     }
 }
