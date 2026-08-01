@@ -24,6 +24,29 @@ export type MaestPreviewState = {
   activeRequest: MaestRequestIdentity | null;
 };
 
+export type MaestFormFields = {
+  genre: string;
+  subgenre: string;
+};
+
+export type MaestFormProposal = {
+  genre: string | null;
+  subgenre: string | null;
+};
+
+export function initialTrackClassification(
+  mode: "create" | "update",
+  genre?: string | null,
+  subgenre?: string | null,
+): MaestFormFields {
+  return mode === "create"
+    ? { genre: "", subgenre: "" }
+    : {
+        genre: genre ?? "",
+        subgenre: subgenre ?? "",
+      };
+}
+
 export type MaestPreviewAction =
   | { type: "linkChanged"; identity: MaestLinkIdentity | null }
   | { type: "start"; requestId: number }
@@ -65,6 +88,32 @@ export function maestSurfaceVisibility(
 ): MaestSurfaceVisibility {
   if (!desktopAvailable) return "hidden";
   return identity ? "linked" : "unlinked";
+}
+
+function nonEmptyProposal(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+export function maestFormProposal(
+  result: MaestPublicResult | null,
+): MaestFormProposal | null {
+  if (!result) return null;
+  const proposal = {
+    genre: nonEmptyProposal(result.analysis.genre.proposedValue),
+    subgenre: nonEmptyProposal(result.analysis.subgenre.proposedValue),
+  };
+  return proposal.genre || proposal.subgenre ? proposal : null;
+}
+
+export function applyMaestFormProposal(
+  current: MaestFormFields,
+  proposal: MaestFormProposal,
+): MaestFormFields {
+  return {
+    genre: nonEmptyProposal(proposal.genre) ?? current.genre,
+    subgenre: nonEmptyProposal(proposal.subgenre) ?? current.subgenre,
+  };
 }
 
 function requestMatchesState(

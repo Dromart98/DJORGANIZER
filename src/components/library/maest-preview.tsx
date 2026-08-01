@@ -6,16 +6,24 @@ import { useTranslator } from "@/components/i18n/locale-provider";
 import {
   createMaestPreviewState,
   invokeMaestPreview,
+  maestFormProposal,
   maestSurfaceVisibility,
   maestErrorMessage,
   reduceMaestPreviewState,
   sameMaestLink,
   type MaestLinkIdentity,
   type MaestPreviewAction,
+  type MaestFormProposal,
 } from "@/lib/desktop/maest-preview";
 import { getTauriCore } from "@/lib/desktop/tauri";
 
-export function MaestPreview({ trackId }: { trackId: string }) {
+export function MaestPreview({
+  onApply,
+  trackId,
+}: {
+  onApply: (proposal: MaestFormProposal) => void;
+  trackId: string;
+}) {
   const { getTrackLink } = useDesktopScanSession();
   const { locale } = useTranslator();
   const link = getTrackLink(trackId);
@@ -25,6 +33,7 @@ export function MaestPreview({ trackId }: { trackId: string }) {
   const identity: MaestLinkIdentity | null =
     sessionId && scanId ? { scanId, sessionId, trackId } : null;
   const [state, setState] = useState(() => createMaestPreviewState(identity));
+  const [applied, setApplied] = useState(false);
   const stateRef = useRef(state);
   stateRef.current = state;
   const requestCounter = useRef(0);
@@ -48,12 +57,14 @@ export function MaestPreview({ trackId }: { trackId: string }) {
 
   useEffect(() => {
     transition({ type: "linkChanged", identity });
+    setApplied(false);
     // `identity` is deliberately represented by its opaque primitive parts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanId, sessionId, trackId]);
 
   async function analyze() {
     if (!sessionId || !scanId) return;
+    setApplied(false);
     const requestId = ++requestCounter.current;
     const started = transition({ type: "start", requestId });
     const request = started.activeRequest;
@@ -91,6 +102,13 @@ export function MaestPreview({ trackId }: { trackId: string }) {
   const isBusy = phase !== "idle";
   const genre = proposal?.analysis.genre;
   const subgenre = proposal?.analysis.subgenre;
+  const formProposal = maestFormProposal(proposal);
+
+  function applyToForm() {
+    if (!formProposal) return;
+    onApply(formProposal);
+    setApplied(true);
+  }
 
   return (
     <section aria-labelledby="maest-preview-title" className="maest-preview">
@@ -130,10 +148,24 @@ export function MaestPreview({ trackId }: { trackId: string }) {
             <div><dt>{locale === "en" ? "Proposed genre" : "Género propuesto"}</dt><dd>{genre?.proposedValue ?? "—"}</dd></div>
             <div><dt>{locale === "en" ? "Proposed subgenre" : "Subgénero propuesto"}</dt><dd>{subgenre?.proposedValue ?? "—"}</dd></div>
           </dl>
-          <button className="button button--secondary button--small" onClick={() => transition({ type: "discard" })} type="button">
-            {locale === "en" ? "Discard proposal" : "Descartar propuesta"}
-          </button>
+          <div className="form-actions">
+            {formProposal ? (
+              <button className="button button--primary button--small" onClick={applyToForm} type="button">
+                {locale === "en" ? "Apply to form" : "Aplicar al formulario"}
+              </button>
+            ) : null}
+            <button className="button button--secondary button--small" onClick={() => transition({ type: "discard" })} type="button">
+              {locale === "en" ? "Discard proposal" : "Descartar propuesta"}
+            </button>
+          </div>
         </div>
+      ) : null}
+      {applied ? (
+        <p aria-live="polite" className="form-message form-message--success" role="status">
+          {locale === "en"
+            ? "Proposal applied to the form. Review it before saving changes."
+            : "Propuesta aplicada al formulario. Revísala antes de guardar los cambios."}
+        </p>
       ) : null}
     </section>
   );
