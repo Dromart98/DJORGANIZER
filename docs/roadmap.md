@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-08-01.
+Actualizado: 2026-08-05.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -293,6 +293,55 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
 - [x] Diagnóstico local opt-in para exportación manual: conserva como máximo 100
   eventos técnicos saneados y nunca envía biblioteca, audio, rutas, cookies,
   cuenta o credenciales.
+
+### Fiabilidad operativa, observabilidad y releases
+
+Prioridad: alta antes de considerar estable la distribución pública.
+
+1. - [ ] **Logs estructurados locales y de servidor.** Unificar los eventos
+   técnicos relevantes en un formato estructurado y versionado con timestamp,
+   severidad, componente, operación, versión de la aplicación y un identificador
+   de correlación. El diagnóstico local existente seguirá siendo privado y
+   acotado: nunca incluir rutas absolutas, audio, biblioteca, cookies, tokens,
+   credenciales ni contenido del usuario. Los logs de servidor tampoco deben
+   registrar payloads de audio ni respuestas crudas de proveedores.
+2. - [ ] **Monitoreo de errores y crashes.** Capturar excepciones no controladas
+   de Next.js y fallos/crashes relevantes de Tauri/Rust con stack, release y
+   correlación suficiente para encontrar la causa raíz. Cualquier telemetría
+   remota del escritorio debe ser explícita, mínima y respetar el principio
+   local-first; el usuario debe poder seguir exportando diagnóstico saneado de
+   forma manual. Configurar alertas solo para errores accionables y regresiones.
+3. - [ ] **Rate limiting solo en superficies remotas.** Auditar autenticación,
+   endpoints de servidor y funciones que consumen OpenAI u otros proveedores,
+   reutilizando los límites por usuario ya existentes y añadiendo protección
+   adicional donde haya riesgo real de abuso. No aplicar rate limiting al
+   análisis MAEST local, escaneo, lectura de archivos ni otras operaciones Tauri
+   que no consumen un servicio remoto.
+4. - [ ] **Health checks y diagnóstico de dependencias.** Añadir un health check
+   web mínimo y seguro para comprobar disponibilidad del servicio y Supabase sin
+   exponer configuración. En escritorio, ofrecer comprobaciones locales de
+   readiness para componentes críticos como runtime, modelo preparado y acceso a
+   recursos de la sesión, sin publicar rutas. Los proveedores externos no
+   críticos se supervisarán mediante errores/métricas, no con llamadas costosas
+   en cada sondeo.
+5. - [ ] **Rollback de releases.** Definir un procedimiento probado para retirar
+   una versión web o actualización de escritorio defectuosa y volver a la última
+   release estable. Conservar instaladores/releases identificables por versión y
+   SHA, verificar compatibilidad de datos/backups antes de actualizaciones que
+   cambien contratos y documentar cómo deshabilitar una actualización publicada
+   si aparece un fallo bloqueante. Ejecutar un simulacro no destructivo antes de
+   cerrar esta fase.
+6. - [ ] **Ciclo de vida y rotación de secretos.** Mantener inventario y
+   procedimiento de rotación/revocación para credenciales server-side como
+   Supabase y OpenAI. Ningún secreto de servidor debe empaquetarse en Tauri ni
+   almacenarse en logs. Definir cadencia según riesgo/proveedor, soportar
+   revocación de emergencia y verificar tras cada rotación que la clave anterior
+   queda inutilizada sin interrumpir los flujos que dependen del servidor.
+
+Orden recomendado dentro de esta fase: monitoreo de errores → logs estructurados
+→ límites remotos → health/readiness → rollback de releases → rotación de
+secretos. Cada punto se implementará en una PR independiente y con pruebas
+focalizadas sobre el comportamiento nuevo.
 
 ### Calidad de producto
 
