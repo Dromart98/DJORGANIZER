@@ -1,0 +1,31 @@
+name: Regenerate lockfile temp
+
+on:
+  pull_request:
+    paths:
+      - "vendor/brace-expansion-compat/package.json"
+      - ".github/workflows/regenerate-lock-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Regenerate lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Show targeted diff
+        run: git diff -- package-lock.json vendor/brace-expansion-compat/package.json
+      - name: Upload lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 1
