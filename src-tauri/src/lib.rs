@@ -574,6 +574,10 @@ mod scanned_track_analysis_tests {
         let operation = start_maest_operation(&state, &request).unwrap();
         assert!(operation.cancel.load(Ordering::Acquire));
         assert_eq!(
+            ensure_maest_operation_active(&operation).unwrap_err().code,
+            "analysis_cancelled"
+        );
+        assert_eq!(
             state
                 .active_maest_analyses
                 .lock()
@@ -935,6 +939,20 @@ fn start_maest_operation<'a>(
         operation_id: request.operation_id.clone(),
         cancel,
     })
+}
+
+fn ensure_maest_operation_active(
+    operation: &ActiveMaestOperation<'_>,
+) -> Result<(), AnalyzeScannedTrackError> {
+    if operation.cancel.load(Ordering::Acquire) {
+        Err(analysis_error(
+            "analysis_cancelled",
+            Some("cancel"),
+            "El análisis fue cancelado.",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn request_maest_cancellation(state: &DesktopState, request: &CancelMaestAnalysisRequest) {
@@ -3650,6 +3668,7 @@ async fn analyze_scanned_track(
     let task = tauri::async_runtime::spawn_blocking(move || {
         let desktop = app.state::<DesktopState>();
         let operation = start_maest_operation(&desktop, &request)?;
+        ensure_maest_operation_active(&operation)?;
         let result = analyze_confirmed_track_with(
             &desktop,
             request,
