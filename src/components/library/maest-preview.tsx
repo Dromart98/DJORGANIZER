@@ -7,13 +7,14 @@ import {
   createMaestPreviewState,
   invokeMaestPreview,
   invokeMaestCancel,
-  invokeMaestProgress,
+  startMaestProgressPolling,
   cleanupMaestPreviewOperation,
   isMaestCancellation,
   maestFormProposal,
   maestSurfaceVisibility,
   maestErrorMessage,
   maestProgressText,
+  maestPollingRequest,
   maestGenreWriteAvailability,
   invokeMaestGenreWrite,
   invokeMaestGenreWritePreview,
@@ -103,27 +104,14 @@ export function MaestPreview({
     setWriteRunId(null);
   }, [formGenre, scanId, sessionId, trackId]);
 
-  const pollingRequest = state.phase === "analyzing" ? state.activeRequest : null;
+  const pollingRequest = maestPollingRequest(state);
   useEffect(() => {
     if (!pollingRequest) return;
     const core = getTauriCore();
     if (!core) return;
-    let stopped = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
-      try {
-        const progress = await invokeMaestProgress(core, pollingRequest);
-        if (!stopped && progress) transition({ type: "progress", request: pollingRequest, progress });
-      } catch {
-        // Progress is advisory; the analysis request remains authoritative.
-      }
-      if (!stopped) timeout = setTimeout(poll, 250);
-    };
-    void poll();
-    return () => {
-      stopped = true;
-      if (timeout) clearTimeout(timeout);
-    };
+    return startMaestProgressPolling(core, pollingRequest, (progress) => {
+      transition({ type: "progress", request: pollingRequest, progress });
+    });
     // The exact immutable request identity owns this polling loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollingRequest?.operationId, pollingRequest?.requestId, pollingRequest?.scanId, pollingRequest?.sessionId, pollingRequest?.trackId]);

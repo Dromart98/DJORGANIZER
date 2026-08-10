@@ -295,6 +295,34 @@ export function invokeMaestProgress(core: TauriCore, request: MaestRequestIdenti
   );
 }
 
+export function startMaestProgressPolling(
+  core: TauriCore,
+  request: MaestRequestIdentity,
+  onProgress: (progress: MaestAnalysisProgress) => void,
+  delayMs = 250,
+) {
+  let stopped = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const poll = async () => {
+    try {
+      const progress = await invokeMaestProgress(core, request);
+      if (!stopped && progress) onProgress(progress);
+    } catch {
+      // Progress is advisory; the analysis request remains authoritative.
+    }
+    if (!stopped) timeout = setTimeout(poll, delayMs);
+  };
+  void poll();
+  return () => {
+    stopped = true;
+    if (timeout) clearTimeout(timeout);
+  };
+}
+
+export function maestPollingRequest(state: MaestPreviewState) {
+  return state.phase === "analyzing" ? state.activeRequest : null;
+}
+
 export function maestProgressText(progress: MaestAnalysisProgress | null, locale: "es" | "en") {
   const en = locale === "en";
   if (!progress || progress.phase === "starting" || progress.totalWindows === null) {
