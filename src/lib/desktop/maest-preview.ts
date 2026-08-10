@@ -20,6 +20,7 @@ export type MaestRequestIdentity = {
   scanId: string;
   operationId: string;
 };
+export type MaestOperationIdentity = Pick<MaestRequestIdentity, "sessionId" | "scanId" | "operationId">;
 
 export type MaestLinkIdentity = Omit<MaestRequestIdentity, "requestId" | "operationId">;
 export type MaestPreviewPhase = "idle" | "preparing" | "starting" | "analyzing" | "cancelling";
@@ -344,6 +345,18 @@ export function invokeMaestRelease(core: TauriCore, request: MaestRequestIdentit
   return core.invoke("release_maest_analysis", maestCancelArguments(request.sessionId, request.scanId, request.operationId));
 }
 
+export function prepareMaestModel(core: TauriCore) {
+  return core.invoke("prepare_maest_model");
+}
+
+export function beginMaestAnalysis(core: TauriCore, request: MaestOperationIdentity) {
+  return core.invoke("begin_maest_analysis", maestAnalyzeArguments(request.sessionId, request.scanId, request.operationId));
+}
+
+export function analyzeScannedTrack(core: TauriCore, request: MaestOperationIdentity) {
+  return core.invoke<MaestPublicResult>("analyze_scanned_track", maestAnalyzeArguments(request.sessionId, request.scanId, request.operationId));
+}
+
 export function cleanupMaestPreviewOperation(core: TauriCore, state: MaestPreviewState) {
   const request = state.activeRequest;
   if (!request) return;
@@ -362,16 +375,16 @@ export async function invokeMaestPreview(
   onPrepared: () => boolean,
   onArmed: () => boolean,
 ) {
-  await core.invoke("prepare_maest_model");
+  await prepareMaestModel(core);
   if (!onPrepared()) return null;
   const request = maestAnalyzeArguments(sessionId, scanId, operationId);
-  await core.invoke("begin_maest_analysis", request);
+  await beginMaestAnalysis(core, { sessionId, scanId, operationId });
   if (!onArmed()) {
     await core.invoke("release_maest_analysis", request);
     return null;
   }
   try {
-    return await core.invoke<MaestPublicResult>("analyze_scanned_track", request);
+    return await analyzeScannedTrack(core, { sessionId, scanId, operationId });
   } catch (error) {
     try {
       await core.invoke("release_maest_analysis", request);
