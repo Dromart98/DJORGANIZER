@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use symphonia::core::{
     codecs::audio::{AudioDecoder, AudioDecoderOptions},
@@ -18,6 +19,7 @@ const INVALID_CHANNELS: &str = "invalid_channels";
 const DECODE_FAILED: &str = "decode_failed";
 const NON_FINITE_SAMPLE: &str = "non_finite_sample";
 const SEEK_UNSUPPORTED: &str = "seek_unsupported";
+pub(crate) const DECODE_CANCELLED: &str = "decode_cancelled";
 const MAX_SAFE_SEEK_PREROLL_SECONDS: usize = 1;
 
 #[derive(Debug, PartialEq)]
@@ -71,6 +73,25 @@ pub(crate) fn decode_audio_window_with_rate_limit<F>(
 where
     F: FnOnce(u32) -> Result<usize, &'static str>,
 {
+    decode_audio_window_with_rate_limit_and_cancel(source, offset, limit_for_rate, None)
+}
+
+pub(crate) fn decode_audio_window_with_rate_limit_and_cancel<F>(
+    source: Box<dyn MediaSource>,
+    offset: Time,
+    limit_for_rate: F,
+    cancelled: Option<&AtomicBool>,
+) -> Result<DecodedAudio, AudioDecodeError>
+where
+    F: FnOnce(u32) -> Result<usize, &'static str>,
+{
+    let check_cancelled = || {
+        cancelled
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
+            .then(|| AudioDecodeError::new(DECODE_CANCELLED))
+            .map_or(Ok(()), Err)
+    };
+    check_cancelled()?;
     if source.byte_len() == Some(0) {
         return Err(AudioDecodeError::new(INVALID_SOURCE));
     }
@@ -118,6 +139,8 @@ where
     let mut limit_for_rate = Some(limit_for_rate);
 
     loop {
+        // Packet boundaries are cheap, bounded cooperative cancellation points.
+        check_cancelled()?;
         let packet = match format.next_packet() {
             Ok(Some(packet)) => packet,
             Ok(None) => break,
@@ -130,6 +153,7 @@ where
         let decoded = decoder
             .decode(&packet)
             .map_err(|_| AudioDecodeError::new(DECODE_FAILED))?;
+        check_cancelled()?;
         let rate = decoded.spec().rate();
         let channels = decoded.spec().channels().count();
         validate_audio_metadata(rate, channels)?;
@@ -395,6 +419,19 @@ mod tests {
             decode(b"not audio".to_vec(), 10).unwrap_err().code,
             UNRECOGNIZED_FORMAT
         );
+    }
+
+    #[test]
+    fn cancellation_has_a_stable_code_before_decode_starts() {
+        let cancelled = AtomicBool::new(true);
+        let error = decode_audio_window_with_rate_limit_and_cancel(
+            Box::new(Cursor::new(wav(1, 1, 8_000, 16, &[0, 0]))),
+            Time::ZERO,
+            |_| Ok(10),
+            Some(&cancelled),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, DECODE_CANCELLED);
     }
 
     #[test]
