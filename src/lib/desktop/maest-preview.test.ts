@@ -7,11 +7,14 @@ import {
   editMaestFormField,
   invokeMaestPreview,
   invokeMaestCancel,
+  invokeMaestProgress,
   cleanupMaestPreviewOperation,
   isMaestCancellation,
   initialTrackClassification,
   isCurrentMaestRequest,
   maestAnalyzeArguments,
+  maestProgressArguments,
+  maestProgressText,
   maestErrorMessage,
   maestGenreWriteArguments,
   maestGenreWriteAvailability,
@@ -441,6 +444,35 @@ describe("MAEST library preview contract", () => {
       request: { sessionId: "session-opaque", scanId: "scan-opaque", operationId: "00000000-0000-4000-8000-000000000001" },
     });
     expect(Object.keys(maestAnalyzeArguments("s", "t", "o").request)).toEqual(["sessionId", "scanId", "operationId"]);
+  });
+
+  it("queries progress with only the exact opaque operation identity", async () => {
+    const { core, invoke } = coreReturning();
+    const request = { ...link, requestId: 7, operationId: "00000000-0000-4000-8000-000000000007" };
+    await invokeMaestProgress(core, request);
+    expect(invoke).toHaveBeenLastCalledWith("get_maest_analysis_progress", {
+      request: { sessionId: link.sessionId, scanId: link.scanId, operationId: request.operationId },
+    });
+    expect(Object.keys(maestProgressArguments("s", "t", "o").request)).toEqual(["sessionId", "scanId", "operationId"]);
+    expect(JSON.stringify(maestProgressArguments("s", "t", "o"))).not.toMatch(/path|duration|offset|audio|tensor/i);
+  });
+
+  it("accepts progress only for the exact active request and clears it on reanalysis", () => {
+    const active = prepared(start(createMaestPreviewState(link)));
+    const request = active.activeRequest!;
+    const progress = { phase: "preparing", totalWindows: 3, preparedWindows: 1, inferredWindows: 0 } as const;
+    const updated = reduceMaestPreviewState(active, { type: "progress", request, progress });
+    expect(updated.progress).toEqual(progress);
+    expect(reduceMaestPreviewState(updated, { type: "progress", request: { ...request, operationId: "stale" }, progress })).toBe(updated);
+    const completed = succeeded(updated);
+    expect(start(completed, 2).progress).toBeNull();
+  });
+
+  it("renders structural progress in Spanish and English, including fallback 3 to 1", () => {
+    expect(maestProgressText({ phase: "preparing", totalWindows: 3, preparedWindows: 0, inferredWindows: 0 }, "es")).toBe("Preparando audio 1 de 3…");
+    expect(maestProgressText({ phase: "inference", totalWindows: 3, preparedWindows: 3, inferredWindows: 1 }, "en")).toBe("Analyzing window 2 of 3…");
+    expect(maestProgressText({ phase: "preparing", totalWindows: 1, preparedWindows: 1, inferredWindows: 0 }, "en")).toBe("Preparing audio 1 of 1…");
+    expect(maestProgressText({ phase: "finalizing", totalWindows: 1, preparedWindows: 1, inferredWindows: 1 }, "es")).toBe("Finalizando análisis…");
   });
 
   it("releases an armed operation and skips stale analysis after identity changes", async () => {

@@ -7,11 +7,13 @@ import {
   createMaestPreviewState,
   invokeMaestPreview,
   invokeMaestCancel,
+  invokeMaestProgress,
   cleanupMaestPreviewOperation,
   isMaestCancellation,
   maestFormProposal,
   maestSurfaceVisibility,
   maestErrorMessage,
+  maestProgressText,
   maestGenreWriteAvailability,
   invokeMaestGenreWrite,
   invokeMaestGenreWritePreview,
@@ -101,6 +103,31 @@ export function MaestPreview({
     setWriteRunId(null);
   }, [formGenre, scanId, sessionId, trackId]);
 
+  const pollingRequest = state.phase === "analyzing" ? state.activeRequest : null;
+  useEffect(() => {
+    if (!pollingRequest) return;
+    const core = getTauriCore();
+    if (!core) return;
+    let stopped = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const progress = await invokeMaestProgress(core, pollingRequest);
+        if (!stopped && progress) transition({ type: "progress", request: pollingRequest, progress });
+      } catch {
+        // Progress is advisory; the analysis request remains authoritative.
+      }
+      if (!stopped) timeout = setTimeout(poll, 250);
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      if (timeout) clearTimeout(timeout);
+    };
+    // The exact immutable request identity owns this polling loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollingRequest?.operationId, pollingRequest?.requestId, pollingRequest?.scanId, pollingRequest?.sessionId, pollingRequest?.trackId]);
+
   async function analyze() {
     if (!sessionId || !scanId) return;
     setApplied(false);
@@ -167,7 +194,7 @@ export function MaestPreview({
   const visibleState = sameMaestLink(state.identity, identity)
     ? state
     : createMaestPreviewState(identity);
-  const { error, phase, proposal } = visibleState;
+  const { error, phase, progress, proposal } = visibleState;
   const surface = maestSurfaceVisibility(desktopAvailable, identity);
   if (surface === "hidden") return null;
   const isBusy = phase !== "idle";
@@ -291,7 +318,7 @@ export function MaestPreview({
             ? locale === "en" ? "Preparing the local analyzer. The first preparation may download about 348 MB." : "Preparando el analizador local. La primera preparación puede descargar unos 348 MB."
             : phase === "starting" ? (locale === "en" ? "Preparing the local analyzer…" : "Preparando el analizador local…")
             : phase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…")
-            : locale === "en" ? "Analyzing the linked track on this device…" : "Analizando la pista vinculada en este dispositivo…"}
+            : maestProgressText(progress, locale)}
         </p>
       ) : null}
       {error ? <p className="form-message form-message--error" role="alert">{error}</p> : null}

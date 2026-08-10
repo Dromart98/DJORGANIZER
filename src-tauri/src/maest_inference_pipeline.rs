@@ -1,7 +1,11 @@
 //! Internal orchestration from trusted media bytes to one Discogs proposal.
 
 use ort::session::Session;
-use std::sync::atomic::{AtomicBool, Ordering};
+use serde::Serialize;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use symphonia::core::io::MediaSource;
 
 use crate::{
@@ -11,9 +15,50 @@ use crate::{
         ProposedTextField, ANALYZER_ID, ANALYZER_VERSION, COMPATIBILITY_KEY,
     },
     maest_pipeline::{
-        preprocess_media_windows, preprocess_media_windows_cancellable, MaestPipelineError,
+        preprocess_media_windows, preprocess_media_windows_cancellable_with_progress,
+        MaestPipelineError,
     },
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MaestAnalysisProgress {
+    phase: MaestAnalysisProgressPhase,
+    total_windows: Option<usize>,
+    prepared_windows: usize,
+    inferred_windows: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum MaestAnalysisProgressPhase {
+    Starting,
+    Preparing,
+    Inference,
+    Finalizing,
+}
+
+impl Default for MaestAnalysisProgress {
+    fn default() -> Self {
+        Self {
+            phase: MaestAnalysisProgressPhase::Starting,
+            total_windows: None,
+            prepared_windows: 0,
+            inferred_windows: 0,
+        }
+    }
+}
+
+pub(crate) type SharedMaestAnalysisProgress = Arc<Mutex<MaestAnalysisProgress>>;
+
+fn update_progress(
+    progress: &SharedMaestAnalysisProgress,
+    update: impl FnOnce(&mut MaestAnalysisProgress),
+) {
+    if let Ok(mut current) = progress.lock() {
+        update(&mut current);
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct MaestInferencePipelineError {
@@ -80,6 +125,7 @@ pub(crate) fn analyze_media_sources_cancellable<F>(
     source: F,
     analyzed_at: &str,
     cancel: &AtomicBool,
+    progress: &SharedMaestAnalysisProgress,
 ) -> Result<MaestAnalysisResult, MaestInferencePipelineError>
 where
     F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
@@ -92,6 +138,7 @@ where
         |tensor| run_preprocessed(session, tensor),
         resolve_discogs_class,
         cancel,
+        progress,
     )
 }
 
@@ -119,6 +166,7 @@ fn analyze_media_sources_cancellable_with<F, Run, Resolve>(
     mut run: Run,
     resolve: Resolve,
     cancel: &AtomicBool,
+    progress: &SharedMaestAnalysisProgress,
 ) -> Result<MaestAnalysisResult, MaestInferencePipelineError>
 where
     F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
@@ -126,22 +174,37 @@ where
     Resolve: FnOnce(usize) -> Result<ParsedLabel, AnalysisError>,
 {
     ensure_active(cancel)?;
-    let tensors = preprocess_media_windows_cancellable(duration_seconds, source, cancel).map_err(
-        |error| {
-            if error.code == "analysis_cancelled" {
-                cancellation_error()
-            } else {
-                MaestInferencePipelineError::new(
-                    error.stage,
-                    AnalysisError {
-                        code: error.code,
-                        message: "No se pudo preparar el audio para el análisis.".into(),
-                    },
-                )
-            }
+    let tensors = preprocess_media_windows_cancellable_with_progress(
+        duration_seconds,
+        source,
+        cancel,
+        |total| {
+            update_progress(progress, |current| {
+                current.phase = MaestAnalysisProgressPhase::Preparing;
+                current.total_windows = Some(total);
+                current.prepared_windows = current.prepared_windows.min(total);
+                current.inferred_windows = current.inferred_windows.min(current.prepared_windows);
+            })
         },
-    )?;
+        |prepared| update_progress(progress, |current| current.prepared_windows = prepared),
+    )
+    .map_err(|error| {
+        if error.code == "analysis_cancelled" {
+            cancellation_error()
+        } else {
+            MaestInferencePipelineError::new(
+                error.stage,
+                AnalysisError {
+                    code: error.code,
+                    message: "No se pudo preparar el audio para el análisis.".into(),
+                },
+            )
+        }
+    })?;
     ensure_active(cancel)?;
+    update_progress(progress, |current| {
+        current.phase = MaestAnalysisProgressPhase::Inference
+    });
     let scores = {
         let _permit = gate
             .acquire()
@@ -156,8 +219,12 @@ where
             validate_score_vector(&output)
                 .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
             outputs.push(output);
+            update_progress(progress, |current| current.inferred_windows = outputs.len());
         }
         ensure_active(cancel)?;
+        update_progress(progress, |current| {
+            current.phase = MaestAnalysisProgressPhase::Finalizing
+        });
         aggregate_scores(&outputs)
             .map_err(|error| MaestInferencePipelineError::new("inference", error))?
     };
@@ -329,11 +396,16 @@ mod tests {
         scores
     }
 
+    fn progress() -> SharedMaestAnalysisProgress {
+        Arc::new(Mutex::new(MaestAnalysisProgress::default()))
+    }
+
     #[test]
     fn cancellation_after_inference_discards_output_skips_taxonomy_and_releases_gate() {
         let gate = InferenceGate::default();
         let cancel = AtomicBool::new(false);
         let taxonomy_called = Cell::new(false);
+        let progress = progress();
         let mut source = Some(audio_source());
         let error = analyze_media_sources_cancellable_with(
             &gate,
@@ -349,10 +421,16 @@ mod tests {
                 unreachable!()
             },
             &cancel,
+            &progress,
         )
         .unwrap_err();
         assert_eq!(error.code, "analysis_cancelled");
         assert!(!taxonomy_called.get());
+        assert_eq!(progress.lock().unwrap().inferred_windows, 0);
+        assert_ne!(
+            progress.lock().unwrap().phase,
+            MaestAnalysisProgressPhase::Finalizing
+        );
         assert!(gate.acquire().is_ok());
     }
 
@@ -362,6 +440,7 @@ mod tests {
         let cancel = AtomicBool::new(true);
         let source_calls = Cell::new(0);
         let inference_calls = Cell::new(0);
+        let progress = progress();
         let error = analyze_media_sources_cancellable_with(
             &gate,
             None,
@@ -376,12 +455,47 @@ mod tests {
             },
             |_| unreachable!(),
             &cancel,
+            &progress,
         )
         .unwrap_err();
         assert_eq!(error.code, "analysis_cancelled");
         assert_eq!(source_calls.get(), 0);
         assert_eq!(inference_calls.get(), 0);
         assert!(gate.acquire().is_ok());
+    }
+
+    #[test]
+    fn progress_reaches_finalizing_only_after_valid_inference() {
+        let gate = InferenceGate::default();
+        let cancel = AtomicBool::new(false);
+        let progress = progress();
+        let mut source = Some(audio_source());
+        let result = analyze_media_sources_cancellable_with(
+            &gate,
+            None,
+            || Ok(source.take().unwrap()),
+            "1",
+            |_| Ok(scores(0, 1.0)),
+            |_| {
+                Ok(ParsedLabel {
+                    genre: "Electronic".into(),
+                    subgenre: "Techno".into(),
+                })
+            },
+            &cancel,
+            &progress,
+        )
+        .unwrap();
+        assert_eq!(result.genre.proposed_value.as_deref(), Some("Electronic"));
+        assert_eq!(
+            *progress.lock().unwrap(),
+            MaestAnalysisProgress {
+                phase: MaestAnalysisProgressPhase::Finalizing,
+                total_windows: Some(1),
+                prepared_windows: 1,
+                inferred_windows: 1,
+            }
+        );
     }
 
     #[test]

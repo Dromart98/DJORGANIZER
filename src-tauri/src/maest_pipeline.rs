@@ -135,28 +135,52 @@ where
 
 pub(crate) fn preprocess_media_windows_cancellable<F>(
     duration_seconds: Option<f64>,
-    mut source: F,
+    source: F,
     cancel: &AtomicBool,
 ) -> Result<Vec<Vec<f32>>, MaestPipelineError>
 where
     F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
 {
+    preprocess_media_windows_cancellable_with_progress(
+        duration_seconds,
+        source,
+        cancel,
+        |_| {},
+        |_| {},
+    )
+}
+
+pub(crate) fn preprocess_media_windows_cancellable_with_progress<F, Planned, Prepared>(
+    duration_seconds: Option<f64>,
+    mut source: F,
+    cancel: &AtomicBool,
+    mut planned: Planned,
+    mut prepared: Prepared,
+) -> Result<Vec<Vec<f32>>, MaestPipelineError>
+where
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+    Planned: FnMut(usize),
+    Prepared: FnMut(usize),
+{
     cancelled(cancel)?;
     let offsets = window_offsets(duration_seconds);
+    planned(offsets.len());
     let mut tensors = Vec::with_capacity(offsets.len());
     for (index, offset) in offsets.into_iter().enumerate() {
         cancelled(cancel)?;
-        let prepared =
+        let prepared_tensor =
             source().and_then(|source| preprocess_media_window_cancellable(source, offset, cancel));
-        match prepared {
+        match prepared_tensor {
             Ok(tensor) => {
                 cancelled(cancel)?;
-                tensors.push(tensor)
+                tensors.push(tensor);
+                prepared(tensors.len());
             }
             Err(error)
                 if index > 0 && error.stage == "decode" && error.code == "seek_unsupported" =>
             {
                 tensors.truncate(1);
+                planned(1);
                 break;
             }
             Err(error) => return Err(error),
@@ -441,6 +465,31 @@ mod tests {
             controlled_windows(Some((2, "decode", "seek_unsupported"))).unwrap(),
             vec![vec![0.0]]
         );
+    }
+
+    #[test]
+    fn cancellable_progress_reports_real_windows_and_seek_fallback() {
+        let cancel = AtomicBool::new(false);
+        let planned = std::cell::RefCell::new(Vec::new());
+        let prepared = std::cell::RefCell::new(Vec::new());
+        let mut index = 0;
+        let tensors = preprocess_media_windows_cancellable_with_progress(
+            Some(90.0),
+            || {
+                index += 1;
+                if index == 2 {
+                    return Err(MaestPipelineError::new("decode", "seek_unsupported"));
+                }
+                Ok(source(WAV_16_KHZ))
+            },
+            &cancel,
+            |total| planned.borrow_mut().push(total),
+            |count| prepared.borrow_mut().push(count),
+        )
+        .unwrap();
+        assert_eq!(tensors.len(), 1);
+        assert_eq!(*planned.borrow(), vec![3, 1]);
+        assert_eq!(*prepared.borrow(), vec![1]);
     }
 
     #[test]
