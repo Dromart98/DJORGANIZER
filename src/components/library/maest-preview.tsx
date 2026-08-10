@@ -7,7 +7,7 @@ import {
   createMaestPreviewState,
   invokeMaestPreview,
   invokeMaestCancel,
-  invokeMaestRelease,
+  cleanupMaestPreviewOperation,
   isMaestCancellation,
   maestFormProposal,
   maestSurfaceVisibility,
@@ -59,6 +59,7 @@ export function MaestPreview({
   const requestCounter = useRef(0);
   const currentIdentity = useRef(identity);
   currentIdentity.current = identity;
+  const mountedRef = useRef(false);
 
   function transition(action: MaestPreviewAction) {
     const synchronized = reduceMaestPreviewState(stateRef.current, {
@@ -76,14 +77,17 @@ export function MaestPreview({
   }, []);
 
   useEffect(() => {
-    const previous = stateRef.current.activeRequest;
-    if (previous && stateRef.current.phase === "starting") {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       const core = getTauriCore();
-      if (core) void invokeMaestRelease(core, previous);
-    } else if (previous && (stateRef.current.phase === "analyzing" || stateRef.current.phase === "cancelling")) {
-      const core = getTauriCore();
-      if (core) void invokeMaestCancel(core, previous);
-    }
+      if (core) cleanupMaestPreviewOperation(core, stateRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const core = getTauriCore();
+    if (core) cleanupMaestPreviewOperation(core, stateRef.current);
     transition({ type: "linkChanged", identity });
     setApplied(false);
     // `identity` is deliberately represented by its opaque primitive parts.
@@ -117,7 +121,7 @@ export function MaestPreview({
     try {
       const requestIsCurrent = () => {
         const current = stateRef.current.activeRequest;
-        return Boolean(current && current.requestId === request.requestId && sameMaestLink(current, currentIdentity.current));
+        return Boolean(mountedRef.current && current && current.requestId === request.requestId && sameMaestLink(current, currentIdentity.current));
       };
       const result = await invokeMaestPreview(
         core,
@@ -135,8 +139,9 @@ export function MaestPreview({
           return true;
         },
       );
-      if (result) transition({ type: "succeeded", request, result });
+      if (result && mountedRef.current) transition({ type: "succeeded", request, result });
     } catch (caught) {
+      if (!mountedRef.current) return;
       if (isMaestCancellation(caught)) {
         transition({ type: "cancelled", request });
         return;

@@ -7,6 +7,7 @@ import {
   editMaestFormField,
   invokeMaestPreview,
   invokeMaestCancel,
+  cleanupMaestPreviewOperation,
   isMaestCancellation,
   initialTrackClassification,
   isCurrentMaestRequest,
@@ -457,6 +458,59 @@ describe("MAEST library preview contract", () => {
       "begin_maest_analysis",
       "release_maest_analysis",
     ]);
+  });
+
+  it("releases a begin that finishes after unmount without invoking analysis", async () => {
+    let resolveBegin!: () => void;
+    const begin = new Promise<void>((resolve) => { resolveBegin = resolve; });
+    let mounted = true;
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "begin_maest_analysis") await begin;
+      if (command === "analyze_scanned_track") return publicResult;
+      return { ready: true };
+    });
+    const pending = invokeMaestPreview(
+      { invoke } as TauriCore,
+      "session-opaque",
+      "scan-opaque",
+      "00000000-0000-4000-8000-000000000005",
+      () => mounted,
+      () => mounted,
+    );
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("begin_maest_analysis", expect.anything()));
+    mounted = false;
+    resolveBegin();
+    await expect(pending).resolves.toBeNull();
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual([
+      "prepare_maest_model",
+      "begin_maest_analysis",
+      "release_maest_analysis",
+    ]);
+  });
+
+  it.each([
+    ["starting", "release_maest_analysis"],
+    ["analyzing", "cancel_maest_analysis"],
+    ["cancelling", "cancel_maest_analysis"],
+  ] as const)("cleans up %s on unmount or identity change", async (phase, command) => {
+    const { core, invoke } = coreReturning();
+    const active = prepared(start(createMaestPreviewState(link)));
+    cleanupMaestPreviewOperation(core, { ...active, phase });
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+    expect(invoke).toHaveBeenCalledWith(command, {
+      request: {
+        sessionId: link.sessionId,
+        scanId: link.scanId,
+        operationId: active.activeRequest!.operationId,
+      },
+    });
+  });
+
+  it("does nothing on unmount while preparing or idle", () => {
+    const { core, invoke } = coreReturning();
+    cleanupMaestPreviewOperation(core, start(createMaestPreviewState(link)));
+    cleanupMaestPreviewOperation(core, createMaestPreviewState(link));
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("cancels with exactly the active opaque identity and recognizes the expected error", async () => {

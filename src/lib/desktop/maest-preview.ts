@@ -275,6 +275,16 @@ export function invokeMaestRelease(core: TauriCore, request: MaestRequestIdentit
   return core.invoke("release_maest_analysis", maestCancelArguments(request.sessionId, request.scanId, request.operationId));
 }
 
+export function cleanupMaestPreviewOperation(core: TauriCore, state: MaestPreviewState) {
+  const request = state.activeRequest;
+  if (!request) return;
+  if (state.phase === "starting") {
+    void invokeMaestRelease(core, request);
+  } else if (state.phase === "analyzing" || state.phase === "cancelling") {
+    void invokeMaestCancel(core, request);
+  }
+}
+
 export async function invokeMaestPreview(
   core: TauriCore,
   sessionId: string,
