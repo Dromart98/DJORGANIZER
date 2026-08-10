@@ -15,21 +15,26 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   const [includeAnalyzed, setIncludeAnalyzed] = useState(false);
   const [state, setState] = useState<MaestBatchState | null>(null);
   const [limitError, setLimitError] = useState(false);
+  const [preparationSettling, setPreparationSettling] = useState(false);
   const orchestratorRef = useRef<MaestBatchOrchestrator | null>(null);
   const getTrackLinkRef = useRef(getTrackLink);
   getTrackLinkRef.current = getTrackLink;
   useEffect(() => setDesktopAvailable(Boolean(getTauriCore())), []);
-  useEffect(() => () => orchestratorRef.current?.dispose(), []);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; orchestratorRef.current?.dispose(); };
+  }, []);
   if (!maestBatchActionVisible(desktopAvailable)) return null;
   const busy = state?.phase === "preparing-model" || state?.phase === "running";
 
   function startBatch(batchTracks = tracks) {
-    if (!batchTracks.length || busy) return;
+    if (!batchTracks.length || busy || preparationSettling) return;
     if (batchTracks.length > MAX_MAEST_BATCH_TRACKS) { setLimitError(true); setOpen(true); return; }
     const core = getTauriCore();
     if (!core) return;
     setLimitError(false); setOpen(true);
-    const orchestrator = new MaestBatchOrchestrator({ core, tracks: batchTracks, getTrackLink: (id) => getTrackLinkRef.current(id), includeAnalyzed, locale, onState: setState });
+    const orchestrator = new MaestBatchOrchestrator({ core, tracks: batchTracks, getTrackLink: (id) => getTrackLinkRef.current(id), includeAnalyzed, locale, onState: setState, onPreparationSettlingChange: (settling) => { if (mountedRef.current) setPreparationSettling(settling); } });
     orchestratorRef.current = orchestrator;
     void orchestrator.run();
   }
@@ -48,14 +53,14 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   }, { completed: 0, skipped: 0, failed: 0, pending: 0 });
 
   return <div className="maest-batch">
-    <button className="button button--secondary button--small" disabled={maestBatchActionDisabled(tracks.length, Boolean(busy))} onClick={() => startBatch()} type="button">{locale === "en" ? "Analyze selection with MAEST" : "Analizar selección con MAEST"}</button>
-    {open ? <section aria-label={locale === "en" ? "MAEST batch analysis" : "Análisis por lote MAEST"} className="maest-batch__panel">
+    <button className="button button--secondary button--small" disabled={maestBatchActionDisabled(tracks.length, Boolean(busy), preparationSettling)} onClick={() => startBatch()} type="button">{locale === "en" ? "Analyze genre and subgenre" : "Analizar género y subgénero"}</button>
+    {open ? <section aria-label={locale === "en" ? "Batch genre and subgenre analysis" : "Análisis de género y subgénero por lote"} className="maest-batch__panel">
       <label className="maest-batch__option"><input checked={includeAnalyzed} disabled={busy} onChange={(event) => setIncludeAnalyzed(event.target.checked)} type="checkbox" />{locale === "en" ? "Re-analyze already classified tracks" : "Volver a analizar las ya clasificadas"}</label>
       {limitError ? <p className="form-message form-message--error" role="alert">{locale === "en" ? "Select no more than 25 tracks." : "Selecciona como máximo 25 pistas."}</p> : null}
       {state ? <>
         <div aria-live="polite">
           {state.phase === "preparing-model" ? <p>{locale === "en" ? "Preparing analyzer…" : "Preparando analizador…"}</p> : null}
-          {state.phase === "running" && state.currentIndex !== null ? <p>{locale === "en" ? `Analyzing track ${state.currentIndex + 1} of ${state.items.length}` : `Analizando ${state.currentIndex + 1} de ${state.items.length} pistas`}</p> : null}
+          {state.phase === "running" && state.currentEligibleOrdinal !== null ? <p>{locale === "en" ? `Analyzing track ${state.currentEligibleOrdinal} of ${state.eligibleTotal}` : `Analizando ${state.currentEligibleOrdinal} de ${state.eligibleTotal} pistas`}</p> : null}
           {state.progress ? <p>{maestProgressText(state.progress, locale)}</p> : null}
           {counts ? <p>{locale === "en" ? `Completed: ${counts.completed} · Skipped: ${counts.skipped} · Failed: ${counts.failed} · Pending: ${counts.pending}` : `Completadas: ${counts.completed} · Omitidas: ${counts.skipped} · Fallidas: ${counts.failed} · Pendientes: ${counts.pending}`}</p> : null}
         </div>

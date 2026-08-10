@@ -22,6 +22,7 @@ describe("MAEST selection batch", () => {
     expect(maestBatchActionVisible(true)).toBe(true);
     expect(maestBatchActionDisabled(0, false)).toBe(true);
     expect(maestBatchActionDisabled(1, false)).toBe(false);
+    expect(maestBatchActionDisabled(1, false, true)).toBe(true);
   });
   it("enforces the page-size limit and does not prepare an empty batch", async () => {
     expect(MAX_MAEST_BATCH_TRACKS).toBe(25);
@@ -56,6 +57,35 @@ describe("MAEST selection batch", () => {
     const requests = batch.invoke.mock.calls.filter(([command]) => command === "analyze_scanned_track").map(([, args]) => (args as { request: Record<string, unknown> }).request);
     expect(new Set(requests.map((request) => request.operationId)).size).toBe(3);
     expect(requests.every((request) => Object.keys(request).sort().join() === "operationId,scanId,sessionId")).toBe(true);
+    const progress = batch.states.filter((state) => state.phase === "running" && state.items.some((item) => item.status === "preparing")).map((state) => state.currentEligibleOrdinal);
+    expect(progress).toEqual([1, 2, 3]);
+    expect(batch.orchestrator.snapshot().eligibleTotal).toBe(3);
+  });
+
+  it("counts only eligible tracks in batch progress", async () => {
+    const analyzed = track("analyzed");
+    for (const field of [analyzed.evidence.genre, analyzed.evidence.subgenre]) Object.assign(field, { value: "House", source: "automatic", analyzerId: DESKTOP_MAEST_ANALYZER.id, analyzerVersion: DESKTOP_MAEST_ANALYZER.version, compatibilityKey: DESKTOP_MAEST_COMPATIBILITY_KEY, analyzedAt: 1, rawScore: .4 });
+    const states: ReturnType<MaestBatchOrchestrator["snapshot"]>[] = [];
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => command === "analyze_scanned_track" ? { ...result, scanId: ((args?.request as { scanId: string }).scanId) } : null);
+    const batch = new MaestBatchOrchestrator({ core: { invoke } as TauriCore, tracks: [track("missing"), analyzed, track("eligible")], getTrackLink: (id) => id === "missing" ? null : linked(id), includeAnalyzed: false, locale: "en", onState: (state) => states.push(state) });
+    await batch.run();
+    const running = states.find((state) => state.phase === "running");
+    expect(running).toMatchObject({ currentEligibleOrdinal: 1, eligibleTotal: 1 });
+  });
+
+  it("keeps progress coherent when an eligible link disappears before execution", async () => {
+    let linkedB = true;
+    const states: ReturnType<MaestBatchOrchestrator["snapshot"]>[] = [];
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command !== "analyze_scanned_track") return null;
+      const scanId = (args?.request as { scanId: string }).scanId;
+      if (scanId === "scan-a") linkedB = false;
+      return { ...result, scanId };
+    });
+    const batch = new MaestBatchOrchestrator({ core: { invoke } as TauriCore, tracks: [track("a"), track("b"), track("c")], getTrackLink: (id) => id === "b" && !linkedB ? null : linked(id), includeAnalyzed: false, locale: "en", onState: (state) => states.push(state) });
+    await batch.run();
+    expect(batch.snapshot().items.map((item) => item.status)).toEqual(["completed", "skipped", "completed"]);
+    expect(states.filter((state) => state.phase === "running" && state.items.some((item) => item.status === "preparing")).map((state) => [state.currentEligibleOrdinal, state.eligibleTotal])).toEqual([[1, 3], [2, 2]]);
   });
 
   it("waits for each analysis and continues after a normal partial failure", async () => {
@@ -95,11 +125,41 @@ describe("MAEST selection batch", () => {
     expect(batch.orchestrator.snapshot().items.map((item) => item.status)).toEqual(["cancelled", "cancelled"]);
   });
 
-  it("cancellation during model preparation and disposal prevent late work", async () => {
+  it("cancels model preparation visibly without touching native analysis operations", async () => {
     const preparation = deferred<unknown>();
-    const batch = setup([track("a")], async (command) => command === "prepare_maest_model" ? preparation.promise : null);
-    const running = batch.orchestrator.run(); await Promise.resolve(); await batch.orchestrator.cancel(); preparation.resolve(null); await running;
-    expect(batch.invoke.mock.calls.some(([command]) => command === "begin_maest_analysis")).toBe(false);
+    const settling: boolean[] = [];
+    const invoke = vi.fn(async (command: string) => command === "prepare_maest_model" ? preparation.promise : null);
+    const batch = new MaestBatchOrchestrator({ core: { invoke } as TauriCore, tracks: [track("a"), track("b")], getTrackLink: linked, includeAnalyzed: false, locale: "en", onState: () => {}, onPreparationSettlingChange: (value) => settling.push(value) });
+    const running = batch.run(); await Promise.resolve(); await batch.cancel();
+    expect(batch.snapshot()).toMatchObject({ phase: "cancelled", cancelRequested: true });
+    expect(batch.snapshot().items.map((item) => item.status)).toEqual(["cancelled", "cancelled"]);
+    expect(settling).toEqual([true]);
+    expect(maestBatchActionDisabled(2, false, settling.at(-1))).toBe(true);
+    expect(invoke.mock.calls.some(([command]) => command === "cancel_maest_analysis" || command === "release_maest_analysis")).toBe(false);
+    preparation.resolve(null); await running;
+    expect(settling).toEqual([true, false]);
+    expect(maestBatchActionDisabled(2, false, settling.at(-1))).toBe(false);
+    expect(invoke.mock.calls.some(([command]) => command === "begin_maest_analysis")).toBe(false);
+    expect(invoke.mock.calls.some(([command]) => command === "analyze_scanned_track")).toBe(false);
+  });
+
+  it("unmount during model preparation cancels pending work and ignores its late result", async () => {
+    const preparation = deferred<unknown>();
+    const invoke = vi.fn(async (command: string) => command === "prepare_maest_model" ? preparation.promise : null);
+    const batch = new MaestBatchOrchestrator({ core: { invoke } as TauriCore, tracks: [track("a")], getTrackLink: linked, includeAnalyzed: false, locale: "en", onState: () => {} });
+    const running = batch.run(); await Promise.resolve(); batch.dispose();
+    expect(batch.snapshot().phase).toBe("cancelled");
+    expect(batch.snapshot().items[0].status).toBe("cancelled");
+    preparation.resolve(null); await running;
+    expect(invoke.mock.calls.some(([command]) => command === "begin_maest_analysis" || command === "analyze_scanned_track" || command === "cancel_maest_analysis" || command === "release_maest_analysis")).toBe(false);
+  });
+
+  it("creates retry batches with only failed tracks as eligible", () => {
+    const retried = setup([track("failed-a"), track("failed-b")]);
+    expect(retried.orchestrator.snapshot().eligibleTotal).toBe(2);
+  });
+
+  it("disposal during analysis prevents late results and further tracks", async () => {
     const late = deferred<MaestPublicResult>(); const disposed = setup([track("a"), track("b")], async (command) => command === "analyze_scanned_track" ? late.promise : null);
     const lateRun = disposed.orchestrator.run(); await Promise.resolve(); await Promise.resolve(); disposed.orchestrator.dispose(); late.resolve(result); await lateRun;
     expect(disposed.invoke.mock.calls.filter(([command]) => command === "analyze_scanned_track")).toHaveLength(1);

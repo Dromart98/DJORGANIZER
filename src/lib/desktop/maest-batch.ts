@@ -22,8 +22,8 @@ export function maestBatchActionVisible(desktopAvailable: boolean) {
   return desktopAvailable;
 }
 
-export function maestBatchActionDisabled(selectionSize: number, busy: boolean) {
-  return selectionSize === 0 || busy;
+export function maestBatchActionDisabled(selectionSize: number, busy: boolean, preparationSettling = false) {
+  return selectionSize === 0 || busy || preparationSettling;
 }
 
 export type MaestBatchTrack = {
@@ -53,6 +53,8 @@ export type MaestBatchState = {
   batchId: string;
   phase: MaestBatchPhase;
   currentIndex: number | null;
+  eligibleTotal: number;
+  currentEligibleOrdinal: number | null;
   currentTrackId: string | null;
   currentOperationId: string | null;
   progress: MaestAnalysisProgress | null;
@@ -69,6 +71,7 @@ type BatchOptions = {
   includeAnalyzed: boolean;
   locale: "es" | "en";
   onState(state: MaestBatchState): void;
+  onPreparationSettlingChange?(settling: boolean): void;
 };
 
 function validFieldEvidence(field: MaestBatchFieldEvidence) {
@@ -94,6 +97,7 @@ export class MaestBatchOrchestrator {
   private state: MaestBatchState;
   private stopped = false;
   private active: { request: MaestRequestIdentity; stage: "armed" | "running" } | null = null;
+  private preparationSettling = false;
   private initialLinks = new Map<string, MaestBatchLink>();
 
   constructor(private options: BatchOptions) {
@@ -107,7 +111,7 @@ export class MaestBatchOrchestrator {
         ...(!link ? { error: options.locale === "en" ? "Local file not linked." : "Archivo local no vinculado." } : {}),
       };
     });
-    this.state = { batchId: crypto.randomUUID(), phase: "idle", currentIndex: null, currentTrackId: null, currentOperationId: null, progress: null, cancelRequested: false, error: null, items };
+    this.state = { batchId: crypto.randomUUID(), phase: "idle", currentIndex: null, eligibleTotal: items.filter((item) => item.status === "pending").length, currentEligibleOrdinal: null, currentTrackId: null, currentOperationId: null, progress: null, cancelRequested: false, error: null, items };
     this.emit();
   }
 
@@ -126,10 +130,17 @@ export class MaestBatchOrchestrator {
     const eligible = this.state.items.some((item) => item.status === "pending");
     if (!eligible) { this.update({ phase: "completed" }); return; }
     this.update({ phase: "preparing-model" });
+    this.setPreparationSettling(true);
     try { await prepareMaestModel(this.options.core); }
-    catch (error) { if (!this.stopped) this.update({ phase: "blocked", error: maestErrorMessage(error, this.options.locale) }); return; }
-    if (this.stopped || this.state.cancelRequested) { this.finishCancelled(); return; }
+    catch (error) {
+      if (!this.stopped && !this.state.cancelRequested) this.update({ phase: "blocked", error: maestErrorMessage(error, this.options.locale) });
+      return;
+    } finally {
+      this.setPreparationSettling(false);
+    }
+    if (this.stopped || this.state.cancelRequested) return;
 
+    let eligibleOrdinal = 0;
     for (let index = 0; index < this.state.items.length; index += 1) {
       if (this.stopped || this.state.cancelRequested) break;
       const item = this.state.items[index];
@@ -139,11 +150,13 @@ export class MaestBatchOrchestrator {
       const expected: MaestLinkIdentity | null = originalLink ? { ...originalLink, trackId: item.trackId } : null;
       const current: MaestLinkIdentity | null = currentLink ? { ...currentLink, trackId: item.trackId } : null;
       if (!sameMaestLink(expected, current) || !currentLink) {
+        this.state = { ...this.state, eligibleTotal: this.state.eligibleTotal - 1 };
         this.updateItem(index, { status: "skipped", error: this.options.locale === "en" ? "Local file link changed." : "Cambió el vínculo del archivo local." });
         continue;
       }
+      eligibleOrdinal += 1;
       const request: MaestRequestIdentity = { ...currentLink, trackId: item.trackId, requestId: index + 1, operationId: crypto.randomUUID() };
-      this.update({ phase: "running", currentIndex: index, currentTrackId: item.trackId, currentOperationId: request.operationId, progress: null });
+      this.update({ phase: "running", currentIndex: index, currentEligibleOrdinal: eligibleOrdinal, currentTrackId: item.trackId, currentOperationId: request.operationId, progress: null });
       this.updateItem(index, { status: "preparing" });
       let stopPolling = () => {};
       try {
@@ -169,11 +182,16 @@ export class MaestBatchOrchestrator {
     }
     if (this.stopped) return;
     if (this.state.cancelRequested) this.finishCancelled();
-    else this.update({ phase: "completed", currentIndex: null, currentTrackId: null, currentOperationId: null, progress: null });
+    else this.update({ phase: "completed", currentIndex: null, currentEligibleOrdinal: null, currentTrackId: null, currentOperationId: null, progress: null });
   }
 
   async cancel() {
     if (this.state.cancelRequested || ["completed", "cancelled", "blocked"].includes(this.state.phase)) return;
+    if (this.state.phase === "preparing-model") {
+      this.cancelPending();
+      this.update({ phase: "cancelled", cancelRequested: true, currentIndex: null, currentEligibleOrdinal: null, currentTrackId: null, currentOperationId: null, progress: null });
+      return;
+    }
     this.update({ cancelRequested: true });
     const active = this.active;
     if (!active) return;
@@ -184,6 +202,10 @@ export class MaestBatchOrchestrator {
   }
 
   dispose() {
+    if (this.state.phase === "preparing-model") {
+      this.cancelPending();
+      this.state = { ...this.state, phase: "cancelled", cancelRequested: true, currentIndex: null, currentEligibleOrdinal: null, currentTrackId: null, currentOperationId: null, progress: null };
+    }
     this.stopped = true;
     const active = this.active;
     if (!active) return;
@@ -193,6 +215,12 @@ export class MaestBatchOrchestrator {
 
   private finishCancelled() {
     this.cancelPending();
-    this.update({ phase: "cancelled", currentIndex: null, currentTrackId: null, currentOperationId: null, progress: null });
+    this.update({ phase: "cancelled", currentIndex: null, currentEligibleOrdinal: null, currentTrackId: null, currentOperationId: null, progress: null });
+  }
+
+  private setPreparationSettling(settling: boolean) {
+    if (this.preparationSettling === settling) return;
+    this.preparationSettling = settling;
+    this.options.onPreparationSettlingChange?.(settling);
   }
 }
