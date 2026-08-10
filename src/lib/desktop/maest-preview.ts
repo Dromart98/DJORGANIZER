@@ -22,7 +22,7 @@ export type MaestRequestIdentity = {
 };
 
 export type MaestLinkIdentity = Omit<MaestRequestIdentity, "requestId" | "operationId">;
-export type MaestPreviewPhase = "idle" | "preparing" | "analyzing" | "cancelling";
+export type MaestPreviewPhase = "idle" | "preparing" | "starting" | "analyzing" | "cancelling";
 export type MaestSurfaceVisibility = "hidden" | "unlinked" | "linked";
 export type MaestPreviewState = {
   identity: MaestLinkIdentity | null;
@@ -75,6 +75,7 @@ export type MaestPreviewAction =
   | { type: "linkChanged"; identity: MaestLinkIdentity | null }
   | { type: "start"; requestId: number }
   | { type: "prepared"; request: MaestRequestIdentity }
+  | { type: "armed"; request: MaestRequestIdentity }
   | { type: "cancelRequested"; request: MaestRequestIdentity }
   | { type: "cancelled"; request: MaestRequestIdentity }
   | { type: "succeeded"; request: MaestRequestIdentity; result: MaestPublicResult }
@@ -216,6 +217,10 @@ export function reduceMaestPreviewState(
       };
     case "prepared":
       return requestMatchesState(state, action.request)
+        ? { ...state, phase: "starting" }
+        : state;
+    case "armed":
+      return requestMatchesState(state, action.request) && state.phase === "starting"
         ? { ...state, phase: "analyzing" }
         : state;
     case "cancelRequested":
@@ -266,19 +271,36 @@ export function invokeMaestCancel(core: TauriCore, request: MaestRequestIdentity
   return core.invoke("cancel_maest_analysis", maestCancelArguments(request.sessionId, request.scanId, request.operationId));
 }
 
+export function invokeMaestRelease(core: TauriCore, request: MaestRequestIdentity) {
+  return core.invoke("release_maest_analysis", maestCancelArguments(request.sessionId, request.scanId, request.operationId));
+}
+
 export async function invokeMaestPreview(
   core: TauriCore,
   sessionId: string,
   scanId: string,
   operationId: string,
   onPrepared: () => boolean,
+  onArmed: () => boolean,
 ) {
   await core.invoke("prepare_maest_model");
   if (!onPrepared()) return null;
-  return core.invoke<MaestPublicResult>(
-    "analyze_scanned_track",
-    maestAnalyzeArguments(sessionId, scanId, operationId),
-  );
+  const request = maestAnalyzeArguments(sessionId, scanId, operationId);
+  await core.invoke("begin_maest_analysis", request);
+  if (!onArmed()) {
+    await core.invoke("release_maest_analysis", request);
+    return null;
+  }
+  try {
+    return await core.invoke<MaestPublicResult>("analyze_scanned_track", request);
+  } catch (error) {
+    try {
+      await core.invoke("release_maest_analysis", request);
+    } catch {
+      // Preserve the original analysis error; native analysis also cleans up by RAII.
+    }
+    throw error;
+  }
 }
 
 export function isCurrentMaestRequest(

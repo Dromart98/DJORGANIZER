@@ -517,15 +517,24 @@ mod scanned_track_analysis_tests {
     }
 
     #[test]
-    fn maest_operation_registry_cancels_only_the_exact_identity_and_cleans_up() {
+    fn maest_operation_handshake_arms_cancels_starts_once_and_cleans_up() {
         let state = DesktopState::default();
         let request = AnalyzeScannedTrackRequest {
             session_id: "session-a".into(),
             scan_id: "scan-a".into(),
             operation_id: "00000000-0000-4000-8000-000000000010".into(),
         };
-        let operation = register_maest_operation(&state, &request).unwrap();
-        assert_eq!(state.active_maest_analyses.lock().unwrap().len(), 1);
+        begin_maest_operation(&state, &request).unwrap();
+        {
+            let active = state.active_maest_analyses.lock().unwrap();
+            let operation = active.get(&request.operation_id).unwrap();
+            assert_eq!(operation.state, ActiveMaestAnalysisState::Armed);
+            assert!(!operation.cancel.load(Ordering::Acquire));
+        }
+        assert_eq!(
+            begin_maest_operation(&state, &request).unwrap_err().code,
+            "invalid_request"
+        );
 
         for cancel in [
             CancelMaestAnalysisRequest {
@@ -545,18 +554,83 @@ mod scanned_track_analysis_tests {
             },
         ] {
             request_maest_cancellation(&state, &cancel);
-            assert!(!operation.cancel.load(Ordering::Acquire));
+            assert!(!state
+                .active_maest_analyses
+                .lock()
+                .unwrap()
+                .get(&request.operation_id)
+                .unwrap()
+                .cancel
+                .load(Ordering::Acquire));
         }
         request_maest_cancellation(
             &state,
             &CancelMaestAnalysisRequest {
-                operation_id: request.operation_id,
+                operation_id: request.operation_id.clone(),
                 session_id: "session-a".into(),
                 scan_id: "scan-a".into(),
             },
         );
+        let operation = start_maest_operation(&state, &request).unwrap();
         assert!(operation.cancel.load(Ordering::Acquire));
+        assert_eq!(
+            state
+                .active_maest_analyses
+                .lock()
+                .unwrap()
+                .get(&request.operation_id)
+                .unwrap()
+                .state,
+            ActiveMaestAnalysisState::Running
+        );
+        assert_eq!(
+            start_maest_operation(&state, &request).unwrap_err().code,
+            "invalid_request"
+        );
         drop(operation);
+        assert!(state.active_maest_analyses.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn maest_analysis_requires_an_exact_armed_operation() {
+        let state = DesktopState::default();
+        let request = AnalyzeScannedTrackRequest {
+            session_id: "session-a".into(),
+            scan_id: "scan-a".into(),
+            operation_id: "00000000-0000-4000-8000-000000000030".into(),
+        };
+        assert_eq!(
+            start_maest_operation(&state, &request).unwrap_err().code,
+            "invalid_request"
+        );
+        begin_maest_operation(&state, &request).unwrap();
+        for mismatch in [
+            AnalyzeScannedTrackRequest {
+                operation_id: "00000000-0000-4000-8000-000000000031".into(),
+                ..request.clone()
+            },
+            AnalyzeScannedTrackRequest {
+                session_id: "session-b".into(),
+                ..request.clone()
+            },
+            AnalyzeScannedTrackRequest {
+                scan_id: "scan-b".into(),
+                ..request.clone()
+            },
+        ] {
+            assert_eq!(
+                start_maest_operation(&state, &mismatch).unwrap_err().code,
+                "invalid_request"
+            );
+        }
+        release_maest_operation(
+            &state,
+            &CancelMaestAnalysisRequest {
+                session_id: request.session_id,
+                scan_id: request.scan_id,
+                operation_id: request.operation_id,
+            },
+        );
         assert!(state.active_maest_analyses.lock().unwrap().is_empty());
     }
 
@@ -573,9 +647,73 @@ mod scanned_track_analysis_tests {
             scan_id: old.scan_id.clone(),
             operation_id: "00000000-0000-4000-8000-000000000021".into(),
         };
-        let operation = register_maest_operation(&state, &newer).unwrap();
+        begin_maest_operation(&state, &newer).unwrap();
         request_maest_cancellation(&state, &old);
-        assert!(!operation.cancel.load(Ordering::Acquire));
+        assert!(!state
+            .active_maest_analyses
+            .lock()
+            .unwrap()
+            .get(&newer.operation_id)
+            .unwrap()
+            .cancel
+            .load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn maest_registry_remains_bounded() {
+        let state = DesktopState::default();
+        for index in 0..MAX_ACTIVE_MAEST_ANALYSES {
+            begin_maest_operation(
+                &state,
+                &AnalyzeScannedTrackRequest {
+                    session_id: "session-a".into(),
+                    scan_id: format!("scan-{index}"),
+                    operation_id: format!("00000000-0000-4000-8000-{index:012x}"),
+                },
+            )
+            .unwrap();
+        }
+        let overflow = AnalyzeScannedTrackRequest {
+            session_id: "session-a".into(),
+            scan_id: "overflow".into(),
+            operation_id: "00000000-0000-4000-8000-ffffffffffff".into(),
+        };
+        assert_eq!(
+            begin_maest_operation(&state, &overflow).unwrap_err().code,
+            "analyzer_busy"
+        );
+        assert_eq!(
+            state.active_maest_analyses.lock().unwrap().len(),
+            MAX_ACTIVE_MAEST_ANALYSES
+        );
+    }
+
+    #[test]
+    fn running_maest_operation_cleanup_is_outcome_independent() {
+        for (index, cancelled) in [false, false, true].into_iter().enumerate() {
+            let state = DesktopState::default();
+            let request = AnalyzeScannedTrackRequest {
+                session_id: "session-a".into(),
+                scan_id: "scan-a".into(),
+                operation_id: format!("00000000-0000-4000-8000-{:012x}", 100 + index),
+            };
+            begin_maest_operation(&state, &request).unwrap();
+            let operation = start_maest_operation(&state, &request).unwrap();
+            if cancelled {
+                request_maest_cancellation(
+                    &state,
+                    &CancelMaestAnalysisRequest {
+                        session_id: request.session_id.clone(),
+                        scan_id: request.scan_id.clone(),
+                        operation_id: request.operation_id.clone(),
+                    },
+                );
+                assert!(operation.cancel.load(Ordering::Acquire));
+            }
+            // Dropping the guard models every return path: success, error and cancellation.
+            drop(operation);
+            assert!(state.active_maest_analyses.lock().unwrap().is_empty());
+        }
     }
 }
 
@@ -677,8 +815,16 @@ struct ActiveMaestAnalysis {
     session_id: String,
     scan_id: String,
     cancel: Arc<AtomicBool>,
+    state: ActiveMaestAnalysisState,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActiveMaestAnalysisState {
+    Armed,
+    Running,
+}
+
+#[derive(Debug)]
 struct ActiveMaestOperation<'a> {
     state: &'a DesktopState,
     operation_id: String,
@@ -703,11 +849,14 @@ fn valid_operation_id(value: &str) -> bool {
         })
 }
 
-fn register_maest_operation<'a>(
-    state: &'a DesktopState,
+fn begin_maest_operation(
+    state: &DesktopState,
     request: &AnalyzeScannedTrackRequest,
-) -> Result<ActiveMaestOperation<'a>, AnalyzeScannedTrackError> {
-    if !valid_operation_id(&request.operation_id) {
+) -> Result<(), AnalyzeScannedTrackError> {
+    if request.session_id.is_empty()
+        || request.scan_id.is_empty()
+        || !valid_operation_id(&request.operation_id)
+    {
         return Err(analysis_error(
             "invalid_request",
             None,
@@ -742,8 +891,45 @@ fn register_maest_operation<'a>(
             session_id: request.session_id.clone(),
             scan_id: request.scan_id.clone(),
             cancel: Arc::clone(&cancel),
+            state: ActiveMaestAnalysisState::Armed,
         },
     );
+    Ok(())
+}
+
+fn start_maest_operation<'a>(
+    state: &'a DesktopState,
+    request: &AnalyzeScannedTrackRequest,
+) -> Result<ActiveMaestOperation<'a>, AnalyzeScannedTrackError> {
+    let mut active = state.active_maest_analyses.lock().map_err(|_| {
+        analysis_error(
+            "analysis_task_failed",
+            None,
+            "No se pudo proteger el análisis.",
+        )
+    })?;
+    let operation = active
+        .get_mut(&request.operation_id)
+        .filter(|operation| {
+            operation.session_id == request.session_id && operation.scan_id == request.scan_id
+        })
+        .ok_or_else(|| {
+            analysis_error(
+                "invalid_request",
+                None,
+                "La operación de análisis no está preparada.",
+            )
+        })?;
+    if operation.state != ActiveMaestAnalysisState::Armed {
+        return Err(analysis_error(
+            "invalid_request",
+            None,
+            "La operación de análisis ya fue consumida.",
+        ));
+    }
+    operation.state = ActiveMaestAnalysisState::Running;
+    let cancel = Arc::clone(&operation.cancel);
+    drop(active);
     Ok(ActiveMaestOperation {
         state,
         operation_id: request.operation_id.clone(),
@@ -757,6 +943,26 @@ fn request_maest_cancellation(state: &DesktopState, request: &CancelMaestAnalysi
     }
     if let Ok(active) = state.active_maest_analyses.lock() {
         if let Some(operation) = active.get(&request.operation_id).filter(|operation| {
+            operation.session_id == request.session_id && operation.scan_id == request.scan_id
+        }) {
+            operation.cancel.store(true, Ordering::Release);
+        }
+    }
+}
+
+fn release_maest_operation(state: &DesktopState, request: &CancelMaestAnalysisRequest) {
+    if !valid_operation_id(&request.operation_id) {
+        return;
+    }
+    if let Ok(mut active) = state.active_maest_analyses.lock() {
+        let exact_armed = active.get(&request.operation_id).is_some_and(|operation| {
+            operation.session_id == request.session_id
+                && operation.scan_id == request.scan_id
+                && operation.state == ActiveMaestAnalysisState::Armed
+        });
+        if exact_armed {
+            active.remove(&request.operation_id);
+        } else if let Some(operation) = active.get(&request.operation_id).filter(|operation| {
             operation.session_id == request.session_id && operation.scan_id == request.scan_id
         }) {
             operation.cancel.store(true, Ordering::Release);
@@ -3429,13 +3635,21 @@ fn activate_completed_scan(
 }
 
 #[tauri::command]
+fn begin_maest_analysis(
+    state: State<'_, DesktopState>,
+    request: AnalyzeScannedTrackRequest,
+) -> Result<(), AnalyzeScannedTrackError> {
+    begin_maest_operation(&state, &request)
+}
+
+#[tauri::command]
 async fn analyze_scanned_track(
     app: AppHandle,
     request: AnalyzeScannedTrackRequest,
 ) -> Result<AnalyzeScannedTrackResult, AnalyzeScannedTrackError> {
     let task = tauri::async_runtime::spawn_blocking(move || {
         let desktop = app.state::<DesktopState>();
-        let operation = register_maest_operation(&desktop, &request)?;
+        let operation = start_maest_operation(&desktop, &request)?;
         let result = analyze_confirmed_track_with(
             &desktop,
             request,
@@ -3502,6 +3716,15 @@ fn cancel_maest_analysis(
     request: CancelMaestAnalysisRequest,
 ) -> Result<(), String> {
     request_maest_cancellation(&state, &request);
+    Ok(())
+}
+
+#[tauri::command]
+fn release_maest_analysis(
+    state: State<'_, DesktopState>,
+    request: CancelMaestAnalysisRequest,
+) -> Result<(), String> {
+    release_maest_operation(&state, &request);
     Ok(())
 }
 
@@ -5308,8 +5531,10 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             maest::prepare_maest_model,
+            begin_maest_analysis,
             analyze_scanned_track,
             cancel_maest_analysis,
+            release_maest_analysis,
             choose_and_scan_music_folder,
             scan_music_folder_incrementally,
             link_library_tracks,

@@ -357,6 +357,34 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_before_preprocessing_opens_no_source_and_runs_no_inference() {
+        let gate = InferenceGate::default();
+        let cancel = AtomicBool::new(true);
+        let source_calls = Cell::new(0);
+        let inference_calls = Cell::new(0);
+        let error = analyze_media_sources_cancellable_with(
+            &gate,
+            None,
+            || {
+                source_calls.set(source_calls.get() + 1);
+                Ok(audio_source())
+            },
+            "1",
+            |_| {
+                inference_calls.set(inference_calls.get() + 1);
+                Ok(scores(0, 1.0))
+            },
+            |_| unreachable!(),
+            &cancel,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "analysis_cancelled");
+        assert_eq!(source_calls.get(), 0);
+        assert_eq!(inference_calls.get(), 0);
+        assert!(gate.acquire().is_ok());
+    }
+
+    #[test]
     fn arithmetic_mean_of_two_and_three_score_vectors_drives_the_winner() {
         let mut first = scores(10, 6.0);
         first[11] = 1.0;

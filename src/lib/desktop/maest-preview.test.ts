@@ -57,9 +57,13 @@ function start(state: MaestPreviewState, requestId = 1) {
 }
 
 function prepared(state: MaestPreviewState) {
-  return reduceMaestPreviewState(state, {
+  const starting = reduceMaestPreviewState(state, {
     type: "prepared",
     request: state.activeRequest!,
+  });
+  return reduceMaestPreviewState(starting, {
+    type: "armed",
+    request: starting.activeRequest!,
   });
 }
 
@@ -104,8 +108,21 @@ describe("MAEST preview UI state controller", () => {
     expect(second.activeRequest?.requestId).toBe(1);
   });
 
-  it("moves from preparation to analysis for the active request", () => {
-    expect(prepared(start(createMaestPreviewState(link))).phase).toBe("analyzing");
+  it("is not cancellable until native begin has armed the active request", () => {
+    const preparing = start(createMaestPreviewState(link));
+    const starting = reduceMaestPreviewState(preparing, {
+      type: "prepared",
+      request: preparing.activeRequest!,
+    });
+    expect(starting.phase).toBe("starting");
+    expect(reduceMaestPreviewState(starting, {
+      type: "cancelRequested",
+      request: starting.activeRequest!,
+    })).toBe(starting);
+    expect(reduceMaestPreviewState(starting, {
+      type: "armed",
+      request: starting.activeRequest!,
+    }).phase).toBe("analyzing");
   });
 
   it("enters cancelling once and preserves an earlier proposal after cancellation", () => {
@@ -411,18 +428,35 @@ describe("MAEST library preview contract", () => {
     const { core, invoke } = coreReturning();
     expect(invoke).not.toHaveBeenCalled();
     const prepared = vi.fn(() => true);
-    await expect(invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", prepared)).resolves.toEqual(publicResult);
-    expect(invoke.mock.calls.map(([command]) => command)).toEqual(["prepare_maest_model", "analyze_scanned_track"]);
+    await expect(invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", prepared, () => true)).resolves.toEqual(publicResult);
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual(["prepare_maest_model", "begin_maest_analysis", "analyze_scanned_track"]);
     expect(prepared).toHaveBeenCalledOnce();
   });
 
   it("sends only opaque sessionId, scanId and operationId in the native analysis request", async () => {
     const { core, invoke } = coreReturning();
-    await invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", () => true);
+    await invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", () => true, () => true);
     expect(invoke).toHaveBeenLastCalledWith("analyze_scanned_track", {
       request: { sessionId: "session-opaque", scanId: "scan-opaque", operationId: "00000000-0000-4000-8000-000000000001" },
     });
     expect(Object.keys(maestAnalyzeArguments("s", "t", "o").request)).toEqual(["sessionId", "scanId", "operationId"]);
+  });
+
+  it("releases an armed operation and skips stale analysis after identity changes", async () => {
+    const { core, invoke } = coreReturning();
+    await expect(invokeMaestPreview(
+      core,
+      "session-opaque",
+      "scan-opaque",
+      "00000000-0000-4000-8000-000000000004",
+      () => true,
+      () => false,
+    )).resolves.toBeNull();
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual([
+      "prepare_maest_model",
+      "begin_maest_analysis",
+      "release_maest_analysis",
+    ]);
   });
 
   it("cancels with exactly the active opaque identity and recognizes the expected error", async () => {
@@ -438,9 +472,9 @@ describe("MAEST library preview contract", () => {
 
   it("has no persistence, Supabase, metadata or tag-writing call", async () => {
     const { core, invoke } = coreReturning();
-    await invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", () => true);
+    await invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", () => true, () => true);
     const commands = invoke.mock.calls.map(([command]) => command);
-    expect(commands).toEqual(["prepare_maest_model", "analyze_scanned_track"]);
+    expect(commands).toEqual(["prepare_maest_model", "begin_maest_analysis", "analyze_scanned_track"]);
     expect(commands.join(" ")).not.toMatch(/save|update|supabase|metadata|tag|write/i);
   });
 

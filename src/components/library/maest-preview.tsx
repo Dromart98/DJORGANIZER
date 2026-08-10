@@ -7,6 +7,7 @@ import {
   createMaestPreviewState,
   invokeMaestPreview,
   invokeMaestCancel,
+  invokeMaestRelease,
   isMaestCancellation,
   maestFormProposal,
   maestSurfaceVisibility,
@@ -76,7 +77,10 @@ export function MaestPreview({
 
   useEffect(() => {
     const previous = stateRef.current.activeRequest;
-    if (previous && (stateRef.current.phase === "analyzing" || stateRef.current.phase === "cancelling")) {
+    if (previous && stateRef.current.phase === "starting") {
+      const core = getTauriCore();
+      if (core) void invokeMaestRelease(core, previous);
+    } else if (previous && (stateRef.current.phase === "analyzing" || stateRef.current.phase === "cancelling")) {
       const core = getTauriCore();
       if (core) void invokeMaestCancel(core, previous);
     }
@@ -111,12 +115,26 @@ export function MaestPreview({
     }
 
     try {
-      const result = await invokeMaestPreview(core, sessionId, scanId, request.operationId, () => {
+      const requestIsCurrent = () => {
         const current = stateRef.current.activeRequest;
-        if (!current || current.requestId !== request.requestId || !sameMaestLink(current, currentIdentity.current)) return false;
-        transition({ type: "prepared", request });
-        return true;
-      });
+        return Boolean(current && current.requestId === request.requestId && sameMaestLink(current, currentIdentity.current));
+      };
+      const result = await invokeMaestPreview(
+        core,
+        sessionId,
+        scanId,
+        request.operationId,
+        () => {
+          if (!requestIsCurrent()) return false;
+          transition({ type: "prepared", request });
+          return true;
+        },
+        () => {
+          if (!requestIsCurrent()) return false;
+          transition({ type: "armed", request });
+          return true;
+        },
+      );
       if (result) transition({ type: "succeeded", request, result });
     } catch (caught) {
       if (isMaestCancellation(caught)) {
@@ -241,6 +259,8 @@ export function MaestPreview({
           <button className="button button--secondary" disabled={isBusy} onClick={analyze} type="button">
             {phase === "preparing"
               ? locale === "en" ? "Preparing analyzer…" : "Preparando analizador…"
+              : phase === "starting"
+                ? locale === "en" ? "Preparing analyzer…" : "Preparando analizador…"
               : phase === "analyzing"
                 ? locale === "en" ? "Analyzing track…" : "Analizando pista…"
                 : proposal
@@ -264,6 +284,7 @@ export function MaestPreview({
         <p aria-live="polite" className="organization-muted">
           {phase === "preparing"
             ? locale === "en" ? "Preparing the local analyzer. The first preparation may download about 348 MB." : "Preparando el analizador local. La primera preparación puede descargar unos 348 MB."
+            : phase === "starting" ? (locale === "en" ? "Preparing the local analyzer…" : "Preparando el analizador local…")
             : phase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…")
             : locale === "en" ? "Analyzing the linked track on this device…" : "Analizando la pista vinculada en este dispositivo…"}
         </p>
