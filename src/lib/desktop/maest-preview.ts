@@ -18,10 +18,11 @@ export type MaestRequestIdentity = {
   trackId: string;
   sessionId: string;
   scanId: string;
+  operationId: string;
 };
 
-export type MaestLinkIdentity = Omit<MaestRequestIdentity, "requestId">;
-export type MaestPreviewPhase = "idle" | "preparing" | "analyzing";
+export type MaestLinkIdentity = Omit<MaestRequestIdentity, "requestId" | "operationId">;
+export type MaestPreviewPhase = "idle" | "preparing" | "analyzing" | "cancelling";
 export type MaestSurfaceVisibility = "hidden" | "unlinked" | "linked";
 export type MaestPreviewState = {
   identity: MaestLinkIdentity | null;
@@ -74,6 +75,8 @@ export type MaestPreviewAction =
   | { type: "linkChanged"; identity: MaestLinkIdentity | null }
   | { type: "start"; requestId: number }
   | { type: "prepared"; request: MaestRequestIdentity }
+  | { type: "cancelRequested"; request: MaestRequestIdentity }
+  | { type: "cancelled"; request: MaestRequestIdentity }
   | { type: "succeeded"; request: MaestRequestIdentity; result: MaestPublicResult }
   | { type: "failed"; request: MaestRequestIdentity; error: string }
   | { type: "discard" }
@@ -209,11 +212,19 @@ export function reduceMaestPreviewState(
         ...state,
         phase: "preparing",
         error: null,
-        activeRequest: { ...state.identity, requestId: action.requestId },
+        activeRequest: { ...state.identity, requestId: action.requestId, operationId: crypto.randomUUID() },
       };
     case "prepared":
       return requestMatchesState(state, action.request)
         ? { ...state, phase: "analyzing" }
+        : state;
+    case "cancelRequested":
+      return requestMatchesState(state, action.request) && state.phase === "analyzing"
+        ? { ...state, phase: "cancelling", error: null }
+        : state;
+    case "cancelled":
+      return requestMatchesState(state, action.request)
+        ? { ...state, phase: "idle", error: null, activeRequest: null }
         : state;
     case "succeeded":
       return requestMatchesState(state, action.request) &&
@@ -243,21 +254,30 @@ export function reduceMaestPreviewState(
   }
 }
 
-export function maestAnalyzeArguments(sessionId: string, scanId: string) {
-  return { request: { sessionId, scanId } } as const;
+export function maestAnalyzeArguments(sessionId: string, scanId: string, operationId: string) {
+  return { request: { sessionId, scanId, operationId } } as const;
+}
+
+export function maestCancelArguments(sessionId: string, scanId: string, operationId: string) {
+  return { request: { sessionId, scanId, operationId } } as const;
+}
+
+export function invokeMaestCancel(core: TauriCore, request: MaestRequestIdentity) {
+  return core.invoke("cancel_maest_analysis", maestCancelArguments(request.sessionId, request.scanId, request.operationId));
 }
 
 export async function invokeMaestPreview(
   core: TauriCore,
   sessionId: string,
   scanId: string,
-  onPrepared: () => void,
+  operationId: string,
+  onPrepared: () => boolean,
 ) {
   await core.invoke("prepare_maest_model");
-  onPrepared();
+  if (!onPrepared()) return null;
   return core.invoke<MaestPublicResult>(
     "analyze_scanned_track",
-    maestAnalyzeArguments(sessionId, scanId),
+    maestAnalyzeArguments(sessionId, scanId, operationId),
   );
 }
 
@@ -270,7 +290,12 @@ export function isCurrentMaestRequest(
     request.trackId === current.trackId &&
     request.sessionId === current.sessionId &&
     request.scanId === current.scanId
+    && request.operationId === current.operationId
   );
+}
+
+export function isMaestCancellation(error: unknown) {
+  return Boolean(error && typeof error === "object" && (error as CommandError).code === "analysis_cancelled");
 }
 
 type CommandError = { code?: unknown; stage?: unknown };

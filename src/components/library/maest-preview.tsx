@@ -6,6 +6,8 @@ import { useTranslator } from "@/components/i18n/locale-provider";
 import {
   createMaestPreviewState,
   invokeMaestPreview,
+  invokeMaestCancel,
+  isMaestCancellation,
   maestFormProposal,
   maestSurfaceVisibility,
   maestErrorMessage,
@@ -73,6 +75,11 @@ export function MaestPreview({
   }, []);
 
   useEffect(() => {
+    const previous = stateRef.current.activeRequest;
+    if (previous && (stateRef.current.phase === "analyzing" || stateRef.current.phase === "cancelling")) {
+      const core = getTauriCore();
+      if (core) void invokeMaestCancel(core, previous);
+    }
     transition({ type: "linkChanged", identity });
     setApplied(false);
     // `identity` is deliberately represented by its opaque primitive parts.
@@ -104,17 +111,34 @@ export function MaestPreview({
     }
 
     try {
-      const result = await invokeMaestPreview(core, sessionId, scanId, () => {
+      const result = await invokeMaestPreview(core, sessionId, scanId, request.operationId, () => {
+        const current = stateRef.current.activeRequest;
+        if (!current || current.requestId !== request.requestId || !sameMaestLink(current, currentIdentity.current)) return false;
         transition({ type: "prepared", request });
+        return true;
       });
-      transition({ type: "succeeded", request, result });
+      if (result) transition({ type: "succeeded", request, result });
     } catch (caught) {
+      if (isMaestCancellation(caught)) {
+        transition({ type: "cancelled", request });
+        return;
+      }
       transition({
         type: "failed",
         request,
         error: maestErrorMessage(caught, locale),
       });
     }
+  }
+
+  async function cancelAnalysis() {
+    const request = stateRef.current.activeRequest;
+    if (!request || stateRef.current.phase !== "analyzing") return;
+    const core = getTauriCore();
+    if (!core) return;
+    const cancelling = transition({ type: "cancelRequested", request });
+    if (cancelling.phase !== "cancelling") return;
+    try { await invokeMaestCancel(core, request); } catch { /* Original analysis owns the final state. */ }
   }
 
   const visibleState = sameMaestLink(state.identity, identity)
@@ -213,6 +237,7 @@ export function MaestPreview({
           <h2 id="maest-preview-title">{locale === "en" ? "Genre and subgenre analysis" : "Análisis de género y subgénero"}</h2>
         </div>
         {surface === "linked" ? (
+          <div className="form-actions">
           <button className="button button--secondary" disabled={isBusy} onClick={analyze} type="button">
             {phase === "preparing"
               ? locale === "en" ? "Preparing analyzer…" : "Preparando analizador…"
@@ -222,6 +247,12 @@ export function MaestPreview({
                   ? locale === "en" ? "Analyze again" : "Volver a analizar"
                   : locale === "en" ? "Analyze locally" : "Analizar localmente"}
           </button>
+          {phase === "analyzing" || phase === "cancelling" ? (
+            <button className="button button--secondary" disabled={phase === "cancelling"} onClick={cancelAnalysis} type="button">
+              {phase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…") : (locale === "en" ? "Cancel analysis" : "Cancelar análisis")}
+            </button>
+          ) : null}
+          </div>
         ) : null}
       </div>
       {surface === "unlinked" ? (
@@ -233,6 +264,7 @@ export function MaestPreview({
         <p aria-live="polite" className="organization-muted">
           {phase === "preparing"
             ? locale === "en" ? "Preparing the local analyzer. The first preparation may download about 348 MB." : "Preparando el analizador local. La primera preparación puede descargar unos 348 MB."
+            : phase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…")
             : locale === "en" ? "Analyzing the linked track on this device…" : "Analizando la pista vinculada en este dispositivo…"}
         </p>
       ) : null}

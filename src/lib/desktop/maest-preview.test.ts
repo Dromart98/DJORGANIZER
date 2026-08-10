@@ -6,6 +6,8 @@ import {
   applyMaestFormProposal,
   editMaestFormField,
   invokeMaestPreview,
+  invokeMaestCancel,
+  isMaestCancellation,
   initialTrackClassification,
   isCurrentMaestRequest,
   maestAnalyzeArguments,
@@ -92,7 +94,7 @@ describe("MAEST preview UI state controller", () => {
   it("starts a linked track in preparing state", () => {
     const state = start(createMaestPreviewState(link));
     expect(state.phase).toBe("preparing");
-    expect(state.activeRequest).toEqual({ ...link, requestId: 1 });
+    expect(state.activeRequest).toEqual({ ...link, requestId: 1, operationId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
   });
 
   it("accepts only one start while busy", () => {
@@ -104,6 +106,19 @@ describe("MAEST preview UI state controller", () => {
 
   it("moves from preparation to analysis for the active request", () => {
     expect(prepared(start(createMaestPreviewState(link))).phase).toBe("analyzing");
+  });
+
+  it("enters cancelling once and preserves an earlier proposal after cancellation", () => {
+    const previous = succeeded(prepared(start(createMaestPreviewState(link))));
+    const active = prepared(start(previous, 2));
+    const request = active.activeRequest!;
+    const cancelling = reduceMaestPreviewState(active, { type: "cancelRequested", request });
+    expect(cancelling.phase).toBe("cancelling");
+    expect(reduceMaestPreviewState(cancelling, { type: "cancelRequested", request })).toBe(cancelling);
+    const cancelled = reduceMaestPreviewState(cancelling, { type: "cancelled", request });
+    expect(cancelled.phase).toBe("idle");
+    expect(cancelled.proposal).toBe(publicResult);
+    expect(cancelled.error).toBeNull();
   });
 
   it("stores a successful proposal and returns to idle", () => {
@@ -269,7 +284,7 @@ describe("MAEST preview UI state controller", () => {
     const active = start(createMaestPreviewState(link), 2);
     const stale = reduceMaestPreviewState(active, {
       type: "succeeded",
-      request: { ...link, requestId: 1 },
+      request: { ...active.activeRequest!, requestId: 1 },
       result: publicResult,
     });
     expect(stale).toBe(active);
@@ -395,24 +410,35 @@ describe("MAEST library preview contract", () => {
   it("prepares only after the explicit invocation and then analyzes", async () => {
     const { core, invoke } = coreReturning();
     expect(invoke).not.toHaveBeenCalled();
-    const prepared = vi.fn();
-    await expect(invokeMaestPreview(core, "session-opaque", "scan-opaque", prepared)).resolves.toEqual(publicResult);
+    const prepared = vi.fn(() => true);
+    await expect(invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", prepared)).resolves.toEqual(publicResult);
     expect(invoke.mock.calls.map(([command]) => command)).toEqual(["prepare_maest_model", "analyze_scanned_track"]);
     expect(prepared).toHaveBeenCalledOnce();
   });
 
-  it("sends only opaque sessionId and scanId in the native analysis request", async () => {
+  it("sends only opaque sessionId, scanId and operationId in the native analysis request", async () => {
     const { core, invoke } = coreReturning();
-    await invokeMaestPreview(core, "session-opaque", "scan-opaque", vi.fn());
+    await invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", () => true);
     expect(invoke).toHaveBeenLastCalledWith("analyze_scanned_track", {
-      request: { sessionId: "session-opaque", scanId: "scan-opaque" },
+      request: { sessionId: "session-opaque", scanId: "scan-opaque", operationId: "00000000-0000-4000-8000-000000000001" },
     });
-    expect(Object.keys(maestAnalyzeArguments("s", "t").request)).toEqual(["sessionId", "scanId"]);
+    expect(Object.keys(maestAnalyzeArguments("s", "t", "o").request)).toEqual(["sessionId", "scanId", "operationId"]);
+  });
+
+  it("cancels with exactly the active opaque identity and recognizes the expected error", async () => {
+    const { core, invoke } = coreReturning();
+    const request = { ...link, requestId: 3, operationId: "00000000-0000-4000-8000-000000000003" };
+    await invokeMaestCancel(core, request);
+    expect(invoke).toHaveBeenLastCalledWith("cancel_maest_analysis", {
+      request: { sessionId: link.sessionId, scanId: link.scanId, operationId: request.operationId },
+    });
+    expect(isMaestCancellation({ code: "analysis_cancelled", message: "private details" })).toBe(true);
+    expect(isMaestCancellation({ code: "decode_failed" })).toBe(false);
   });
 
   it("has no persistence, Supabase, metadata or tag-writing call", async () => {
     const { core, invoke } = coreReturning();
-    await invokeMaestPreview(core, "session-opaque", "scan-opaque", vi.fn());
+    await invokeMaestPreview(core, "session-opaque", "scan-opaque", "00000000-0000-4000-8000-000000000001", () => true);
     const commands = invoke.mock.calls.map(([command]) => command);
     expect(commands).toEqual(["prepare_maest_model", "analyze_scanned_track"]);
     expect(commands.join(" ")).not.toMatch(/save|update|supabase|metadata|tag|write/i);
@@ -432,7 +458,7 @@ describe("MAEST library preview contract", () => {
   });
 
   it("rejects stale responses after track, session, scan or request changes", () => {
-    const request = { requestId: 1, trackId: "track-a", sessionId: "session-a", scanId: "scan-a" };
+    const request = { requestId: 1, trackId: "track-a", sessionId: "session-a", scanId: "scan-a", operationId: "operation-a" };
     expect(isCurrentMaestRequest(request, request)).toBe(true);
     expect(isCurrentMaestRequest(request, { ...request, trackId: "track-b" })).toBe(false);
     expect(isCurrentMaestRequest(request, { ...request, sessionId: "session-b" })).toBe(false);

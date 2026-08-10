@@ -3,11 +3,15 @@
 use symphonia::core::{io::MediaSource, units::Time};
 
 use crate::{
-    audio_decoder::{decode_audio, decode_audio_window_with_rate_limit},
+    audio_decoder::{
+        decode_audio, decode_audio_window_with_rate_limit,
+        decode_audio_window_with_rate_limit_and_cancel, DECODE_CANCELLED,
+    },
     audio_resampler::resample_mono_to_16khz,
     maest::{INPUT_BANDS, INPUT_FRAMES},
     maest_preprocessing::preprocess_maest_pcm,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const TARGET_SAMPLES: usize = 480_000;
 const MAX_PIPELINE_SAMPLE_RATE: u32 = 192_000;
@@ -61,6 +65,39 @@ fn preprocess_media_window(
     preprocess_decoded_audio(decoded)
 }
 
+fn cancelled(flag: &AtomicBool) -> Result<(), MaestPipelineError> {
+    if flag.load(Ordering::Acquire) {
+        Err(MaestPipelineError::new("cancel", "analysis_cancelled"))
+    } else {
+        Ok(())
+    }
+}
+
+fn preprocess_media_window_cancellable(
+    source: Box<dyn MediaSource>,
+    offset: Time,
+    cancel: &AtomicBool,
+) -> Result<Vec<f32>, MaestPipelineError> {
+    cancelled(cancel)?;
+    let decoded = decode_audio_window_with_rate_limit_and_cancel(
+        source,
+        offset,
+        |sample_rate| decode_sample_limit(sample_rate, TARGET_DURATION_SECONDS),
+        Some(cancel),
+    )
+    .map_err(|error| {
+        if error.code == DECODE_CANCELLED {
+            MaestPipelineError::new("cancel", "analysis_cancelled")
+        } else {
+            MaestPipelineError::new("decode", error.code)
+        }
+    })?;
+    cancelled(cancel)?;
+    let tensor = preprocess_decoded_audio(decoded)?;
+    cancelled(cancel)?;
+    Ok(tensor)
+}
+
 /// Selects start/centre/end using only confirmed native duration. Nanosecond conversion happens
 /// before deduplication so every offset is an exact media-time value.
 pub(crate) fn window_offsets(duration_seconds: Option<f64>) -> Vec<Time> {
@@ -94,6 +131,38 @@ where
     F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
 {
     preprocess_media_windows_with(duration_seconds, source, preprocess_media_window)
+}
+
+pub(crate) fn preprocess_media_windows_cancellable<F>(
+    duration_seconds: Option<f64>,
+    mut source: F,
+    cancel: &AtomicBool,
+) -> Result<Vec<Vec<f32>>, MaestPipelineError>
+where
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+{
+    cancelled(cancel)?;
+    let offsets = window_offsets(duration_seconds);
+    let mut tensors = Vec::with_capacity(offsets.len());
+    for (index, offset) in offsets.into_iter().enumerate() {
+        cancelled(cancel)?;
+        let prepared =
+            source().and_then(|source| preprocess_media_window_cancellable(source, offset, cancel));
+        match prepared {
+            Ok(tensor) => {
+                cancelled(cancel)?;
+                tensors.push(tensor)
+            }
+            Err(error)
+                if index > 0 && error.stage == "decode" && error.code == "seek_unsupported" =>
+            {
+                tensors.truncate(1);
+                break;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(tensors)
 }
 
 fn preprocess_media_windows_with<F, P>(

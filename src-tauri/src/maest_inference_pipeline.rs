@@ -1,6 +1,7 @@
 //! Internal orchestration from trusted media bytes to one Discogs proposal.
 
 use ort::session::Session;
+use std::sync::atomic::{AtomicBool, Ordering};
 use symphonia::core::io::MediaSource;
 
 use crate::{
@@ -9,7 +10,9 @@ use crate::{
         AnalysisError, AnalyzerIdentity, InferenceGate, MaestAnalysisResult, ParsedLabel,
         ProposedTextField, ANALYZER_ID, ANALYZER_VERSION, COMPATIBILITY_KEY,
     },
-    maest_pipeline::{preprocess_media_windows, MaestPipelineError},
+    maest_pipeline::{
+        preprocess_media_windows, preprocess_media_windows_cancellable, MaestPipelineError,
+    },
 };
 
 #[derive(Debug, PartialEq)]
@@ -68,6 +71,123 @@ where
         |tensor| run_preprocessed(session, tensor),
         resolve_discogs_class,
     )
+}
+
+pub(crate) fn analyze_media_sources_cancellable<F>(
+    session: &Session,
+    gate: &InferenceGate,
+    duration_seconds: Option<f64>,
+    source: F,
+    analyzed_at: &str,
+    cancel: &AtomicBool,
+) -> Result<MaestAnalysisResult, MaestInferencePipelineError>
+where
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+{
+    analyze_media_sources_cancellable_with(
+        gate,
+        duration_seconds,
+        source,
+        analyzed_at,
+        |tensor| run_preprocessed(session, tensor),
+        resolve_discogs_class,
+        cancel,
+    )
+}
+
+fn cancellation_error() -> MaestInferencePipelineError {
+    MaestInferencePipelineError {
+        stage: "cancel",
+        code: "analysis_cancelled".into(),
+        message: "El análisis fue cancelado.".into(),
+    }
+}
+
+fn ensure_active(cancel: &AtomicBool) -> Result<(), MaestInferencePipelineError> {
+    if cancel.load(Ordering::Acquire) {
+        Err(cancellation_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn analyze_media_sources_cancellable_with<F, Run, Resolve>(
+    gate: &InferenceGate,
+    duration_seconds: Option<f64>,
+    source: F,
+    analyzed_at: &str,
+    mut run: Run,
+    resolve: Resolve,
+    cancel: &AtomicBool,
+) -> Result<MaestAnalysisResult, MaestInferencePipelineError>
+where
+    F: FnMut() -> Result<Box<dyn MediaSource>, MaestPipelineError>,
+    Run: FnMut(Vec<f32>) -> Result<Vec<f32>, AnalysisError>,
+    Resolve: FnOnce(usize) -> Result<ParsedLabel, AnalysisError>,
+{
+    ensure_active(cancel)?;
+    let tensors = preprocess_media_windows_cancellable(duration_seconds, source, cancel).map_err(
+        |error| {
+            if error.code == "analysis_cancelled" {
+                cancellation_error()
+            } else {
+                MaestInferencePipelineError::new(
+                    error.stage,
+                    AnalysisError {
+                        code: error.code,
+                        message: "No se pudo preparar el audio para el análisis.".into(),
+                    },
+                )
+            }
+        },
+    )?;
+    ensure_active(cancel)?;
+    let scores = {
+        let _permit = gate
+            .acquire()
+            .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
+        ensure_active(cancel)?;
+        let mut outputs = Vec::with_capacity(tensors.len());
+        for tensor in tensors {
+            ensure_active(cancel)?;
+            let output = run(tensor)
+                .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
+            ensure_active(cancel)?;
+            validate_score_vector(&output)
+                .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
+            outputs.push(output);
+        }
+        ensure_active(cancel)?;
+        aggregate_scores(&outputs)
+            .map_err(|error| MaestInferencePipelineError::new("inference", error))?
+    };
+    ensure_active(cancel)?;
+    let winner = validate_output(&scores)
+        .map_err(|error| MaestInferencePipelineError::new("inference", error))?;
+    let score = scores[winner];
+    ensure_active(cancel)?;
+    let label =
+        resolve(winner).map_err(|error| MaestInferencePipelineError::new("taxonomy", error))?;
+    ensure_active(cancel)?;
+    let proposed_field = |field, proposed_value| ProposedTextField {
+        field,
+        status: "completed",
+        source: "automatic",
+        proposed_value: Some(proposed_value),
+        score: Some(score),
+        error: None,
+        analyzed_at: analyzed_at.into(),
+    };
+    Ok(MaestAnalysisResult {
+        analyzer: AnalyzerIdentity {
+            id: ANALYZER_ID,
+            version: ANALYZER_VERSION,
+        },
+        compatibility_key: COMPATIBILITY_KEY,
+        genre: proposed_field("genre", label.genre),
+        subgenre: proposed_field("subgenre", label.subgenre),
+        partial_errors: Vec::new(),
+    })
 }
 
 fn analyze_media_sources_with<F, Run, Resolve>(
@@ -192,7 +312,7 @@ mod tests {
     use super::*;
     use crate::maest::{load_session, verify_model, LEGACY_COMPATIBILITY_KEY};
     use base64::{engine::general_purpose::STANDARD, Engine as _};
-    use std::{cell::Cell, io::Cursor, path::Path};
+    use std::{cell::Cell, io::Cursor, path::Path, sync::atomic::AtomicBool};
 
     const WAV_16_KHZ: &str = include_str!("../tests/fixtures/maest-pipeline-16khz.wav.b64");
 
@@ -207,6 +327,33 @@ mod tests {
         let mut scores = vec![0.0; crate::maest::CLASS_COUNT];
         scores[winner] = score;
         scores
+    }
+
+    #[test]
+    fn cancellation_after_inference_discards_output_skips_taxonomy_and_releases_gate() {
+        let gate = InferenceGate::default();
+        let cancel = AtomicBool::new(false);
+        let taxonomy_called = Cell::new(false);
+        let mut source = Some(audio_source());
+        let error = analyze_media_sources_cancellable_with(
+            &gate,
+            None,
+            || Ok(source.take().unwrap()),
+            "1",
+            |_| {
+                cancel.store(true, Ordering::Release);
+                Ok(scores(0, 1.0))
+            },
+            |_| {
+                taxonomy_called.set(true);
+                unreachable!()
+            },
+            &cancel,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "analysis_cancelled");
+        assert!(!taxonomy_called.get());
+        assert!(gate.acquire().is_ok());
     }
 
     #[test]
