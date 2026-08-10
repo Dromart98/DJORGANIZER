@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-08-05.
+Actualizado: 2026-08-10.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -206,9 +206,10 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   un analizador completo de canciones.
   Referencia: [`docs/desktop-maest-foundation.md`](desktop-maest-foundation.md).
 - [x] Exponer el análisis MAEST seguro de una única pista confirmada por la
-  sesión nativa de escaneo. El comando resuelve `sessionId + scanId` dentro de
-  Rust, revalida el archivo antes y después, exige el modelo ya preparado y
-  devuelve una propuesta revisable que no se aplica ni persiste.
+  sesión nativa de escaneo. El flujo resuelve `sessionId + scanId + operationId`
+  dentro de Rust, arma la operación nativa antes de permitir cancelarla, revalida
+  el archivo antes y después, exige el modelo ya preparado y devuelve una
+  propuesta revisable que no se aplica ni persiste.
 - [x] Integrar el análisis MAEST por pista con la edición de Biblioteca como
   previsualización efímera de género y subgénero, disponible solo
   para vínculos de la sesión de escaneo activa y sin persistencia ni escritura.
@@ -233,10 +234,17 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   la primera ventana y solo la falta de seek seguro permite fallback; errores
   reales de decode/resample/preprocess se propagan. Los resultados nuevos usan
   compatibility key v3 y la evidencia legacy v2 sigue aceptada.
+- [x] Cancelar cooperativamente un análisis MAEST de una pista mediante un
+  `operationId` UUID opaco y efímero. El handshake `prepare → begin → armed →
+  analyze` garantiza que la operación exacta existe antes de mostrar el control de
+  cancelación; Rust comprueba el flag entre ventanas y paquetes y antes/después de
+  inferencia, descarta cualquier salida parcial y libera `InferenceGate` y el
+  registro por RAII. Cambios de identidad y desmontaje de la vista liberan o
+  cancelan la operación exacta sin afectar análisis posteriores.
 - [ ] Completar la clasificación local de escritorio con MAEST: escritura de
-  subgénero u otras etiquetas portables, cancelación, progreso y lotes. Conservar
-  audio y rutas exclusivamente en el dispositivo y comparar CPU y aceleración
-  disponible antes de habilitar análisis masivo.
+  subgénero u otras etiquetas portables, progreso y lotes. Conservar audio y rutas
+  exclusivamente en el dispositivo y comparar CPU y aceleración disponible antes
+  de habilitar análisis masivo.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
 - [x] Verificar y documentar la licencia de `discogs-effnet-bs64-1`: modelo y
   derivados bajo CC BY-NC-SA 4.0, con atribución separada, ShareAlike y uso
@@ -441,4 +449,4 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera, la aplicación explícita al formulario y la persistencia validada por campo de identidad/version/compatibility key/fecha/score bruto MAEST están implementados; la propuesta nunca se guarda automáticamente y las ediciones manuales invalidan la evidencia correspondiente. La escritura explícita y segura de la etiqueta estándar `Genre` desde un género MAEST persistido también está implementada mediante previsualización, confirmación, backup, verificación, historial/deshacer y aliases locales acotados. El análisis de pistas largas usa hasta tres ventanas deterministas de 30 s (inicio, centro y final), deduplicadas y agregadas por media aritmética bajo un único `InferenceGate`; solo una incapacidad real de seek seguro degrada a la primera ventana, mientras que errores de decode/resample/preprocess se propagan. Los resultados multi-ventana usan una compatibility key v3 y la evidencia legacy v2 continúa aceptada sin migración. La escritura de subgénero u otras etiquetas, cancelación, progreso y lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera, la aplicación explícita al formulario y la persistencia validada por campo de identidad/version/compatibility key/fecha/score bruto MAEST están implementados; la propuesta nunca se guarda automáticamente y las ediciones manuales invalidan la evidencia correspondiente. La escritura explícita y segura de la etiqueta estándar `Genre` desde un género MAEST persistido también está implementada mediante previsualización, confirmación, backup, verificación, historial/deshacer y aliases locales acotados. El análisis de pistas largas usa hasta tres ventanas deterministas de 30 s (inicio, centro y final), deduplicadas y agregadas por media aritmética bajo un único `InferenceGate`; solo una incapacidad real de seek seguro degrada a la primera ventana, mientras que errores de decode/resample/preprocess se propagan. Los resultados multi-ventana usan una compatibility key v3 y la evidencia legacy v2 continúa aceptada sin migración. La cancelación cooperativa por pista también está implementada con `operationId` efímero, handshake nativo previo a la ejecución, checkpoints acotados de cancelación, cleanup de lifecycle y descarte de resultados parciales sin bloquear el `InferenceGate`. La escritura de subgénero u otras etiquetas, progreso y lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
