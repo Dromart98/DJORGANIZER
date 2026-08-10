@@ -30,6 +30,14 @@ export type MaestPreviewState = {
   proposal: MaestPublicResult | null;
   error: string | null;
   activeRequest: MaestRequestIdentity | null;
+  progress: MaestAnalysisProgress | null;
+};
+
+export type MaestAnalysisProgress = {
+  phase: "starting" | "preparing" | "inference" | "finalizing";
+  totalWindows: number | null;
+  preparedWindows: number;
+  inferredWindows: number;
 };
 
 export type MaestFormFields = {
@@ -76,6 +84,7 @@ export type MaestPreviewAction =
   | { type: "start"; requestId: number }
   | { type: "prepared"; request: MaestRequestIdentity }
   | { type: "armed"; request: MaestRequestIdentity }
+  | { type: "progress"; request: MaestRequestIdentity; progress: MaestAnalysisProgress }
   | { type: "cancelRequested"; request: MaestRequestIdentity }
   | { type: "cancelled"; request: MaestRequestIdentity }
   | { type: "succeeded"; request: MaestRequestIdentity; result: MaestPublicResult }
@@ -106,6 +115,7 @@ export function createMaestPreviewState(
     proposal: null,
     error: null,
     activeRequest: null,
+    progress: null,
   };
 }
 
@@ -214,6 +224,7 @@ export function reduceMaestPreviewState(
         phase: "preparing",
         error: null,
         activeRequest: { ...state.identity, requestId: action.requestId, operationId: crypto.randomUUID() },
+        progress: null,
       };
     case "prepared":
       return requestMatchesState(state, action.request)
@@ -223,13 +234,17 @@ export function reduceMaestPreviewState(
       return requestMatchesState(state, action.request) && state.phase === "starting"
         ? { ...state, phase: "analyzing" }
         : state;
+    case "progress":
+      return requestMatchesState(state, action.request) && state.phase === "analyzing"
+        ? { ...state, progress: action.progress }
+        : state;
     case "cancelRequested":
       return requestMatchesState(state, action.request) && state.phase === "analyzing"
         ? { ...state, phase: "cancelling", error: null }
         : state;
     case "cancelled":
       return requestMatchesState(state, action.request)
-        ? { ...state, phase: "idle", error: null, activeRequest: null }
+        ? { ...state, phase: "idle", error: null, activeRequest: null, progress: null }
         : state;
     case "succeeded":
       return requestMatchesState(state, action.request) &&
@@ -240,6 +255,7 @@ export function reduceMaestPreviewState(
             proposal: action.result,
             error: null,
             activeRequest: null,
+            progress: null,
           }
         : state;
     case "failed":
@@ -250,6 +266,7 @@ export function reduceMaestPreviewState(
             proposal: null,
             error: action.error,
             activeRequest: null,
+            progress: null,
           }
         : state;
     case "discard":
@@ -265,6 +282,58 @@ export function maestAnalyzeArguments(sessionId: string, scanId: string, operati
 
 export function maestCancelArguments(sessionId: string, scanId: string, operationId: string) {
   return { request: { sessionId, scanId, operationId } } as const;
+}
+
+export function maestProgressArguments(sessionId: string, scanId: string, operationId: string) {
+  return { request: { sessionId, scanId, operationId } } as const;
+}
+
+export function invokeMaestProgress(core: TauriCore, request: MaestRequestIdentity) {
+  return core.invoke<MaestAnalysisProgress | null>(
+    "get_maest_analysis_progress",
+    maestProgressArguments(request.sessionId, request.scanId, request.operationId),
+  );
+}
+
+export function startMaestProgressPolling(
+  core: TauriCore,
+  request: MaestRequestIdentity,
+  onProgress: (progress: MaestAnalysisProgress) => void,
+  delayMs = 250,
+) {
+  let stopped = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const poll = async () => {
+    try {
+      const progress = await invokeMaestProgress(core, request);
+      if (!stopped && progress) onProgress(progress);
+    } catch {
+      // Progress is advisory; the analysis request remains authoritative.
+    }
+    if (!stopped) timeout = setTimeout(poll, delayMs);
+  };
+  void poll();
+  return () => {
+    stopped = true;
+    if (timeout) clearTimeout(timeout);
+  };
+}
+
+export function maestPollingRequest(state: MaestPreviewState) {
+  return state.phase === "analyzing" ? state.activeRequest : null;
+}
+
+export function maestProgressText(progress: MaestAnalysisProgress | null, locale: "es" | "en") {
+  const en = locale === "en";
+  if (!progress || progress.phase === "starting" || progress.totalWindows === null) {
+    return en ? "Starting analysis…" : "Iniciando análisis…";
+  }
+  if (progress.phase === "finalizing") return en ? "Finalizing analysis…" : "Finalizando análisis…";
+  const completed = progress.phase === "preparing" ? progress.preparedWindows : progress.inferredWindows;
+  const current = Math.min(progress.totalWindows, completed + 1);
+  return progress.phase === "preparing"
+    ? en ? `Preparing audio ${current} of ${progress.totalWindows}…` : `Preparando audio ${current} de ${progress.totalWindows}…`
+    : en ? `Analyzing window ${current} of ${progress.totalWindows}…` : `Analizando ventana ${current} de ${progress.totalWindows}…`;
 }
 
 export function invokeMaestCancel(core: TauriCore, request: MaestRequestIdentity) {

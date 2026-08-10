@@ -639,6 +639,60 @@ mod scanned_track_analysis_tests {
     }
 
     #[test]
+    fn maest_progress_requires_the_exact_operation_and_is_removed_on_cleanup() {
+        let state = DesktopState::default();
+        let request = AnalyzeScannedTrackRequest {
+            session_id: "session-a".into(),
+            scan_id: "scan-a".into(),
+            operation_id: "00000000-0000-4000-8000-000000000032".into(),
+        };
+        begin_maest_operation(&state, &request).unwrap();
+        let progress_request = CancelMaestAnalysisRequest {
+            session_id: request.session_id.clone(),
+            scan_id: request.scan_id.clone(),
+            operation_id: request.operation_id.clone(),
+        };
+        assert_eq!(
+            maest_analysis_progress(&state, &progress_request),
+            Some(maest_inference_pipeline::MaestAnalysisProgress::default())
+        );
+        let operation = start_maest_operation(&state, &request).unwrap();
+        assert_eq!(
+            maest_analysis_progress(&state, &progress_request),
+            Some(maest_inference_pipeline::MaestAnalysisProgress::default())
+        );
+        for mismatch in [
+            CancelMaestAnalysisRequest {
+                operation_id: "00000000-0000-4000-8000-000000000033".into(),
+                ..progress_request.clone()
+            },
+            CancelMaestAnalysisRequest {
+                session_id: "session-b".into(),
+                ..progress_request.clone()
+            },
+            CancelMaestAnalysisRequest {
+                scan_id: "scan-b".into(),
+                ..progress_request.clone()
+            },
+        ] {
+            assert_eq!(maest_analysis_progress(&state, &mismatch), None);
+        }
+        let serialized =
+            serde_json::to_value(maest_analysis_progress(&state, &progress_request)).unwrap();
+        assert_eq!(
+            serialized.as_object().unwrap().keys().collect::<Vec<_>>(),
+            vec![
+                "inferredWindows",
+                "phase",
+                "preparedWindows",
+                "totalWindows"
+            ]
+        );
+        drop(operation);
+        assert_eq!(maest_analysis_progress(&state, &progress_request), None);
+    }
+
+    #[test]
     fn old_maest_cancellation_cannot_cancel_a_later_operation_for_the_same_track() {
         let state = DesktopState::default();
         let old = CancelMaestAnalysisRequest {
@@ -819,6 +873,7 @@ struct ActiveMaestAnalysis {
     session_id: String,
     scan_id: String,
     cancel: Arc<AtomicBool>,
+    progress: maest_inference_pipeline::SharedMaestAnalysisProgress,
     state: ActiveMaestAnalysisState,
 }
 
@@ -833,6 +888,7 @@ struct ActiveMaestOperation<'a> {
     state: &'a DesktopState,
     operation_id: String,
     cancel: Arc<AtomicBool>,
+    progress: maest_inference_pipeline::SharedMaestAnalysisProgress,
 }
 
 impl Drop for ActiveMaestOperation<'_> {
@@ -868,6 +924,9 @@ fn begin_maest_operation(
         ));
     }
     let cancel = Arc::new(AtomicBool::new(false));
+    let progress = Arc::new(Mutex::new(
+        maest_inference_pipeline::MaestAnalysisProgress::default(),
+    ));
     let mut active = state.active_maest_analyses.lock().map_err(|_| {
         analysis_error(
             "analysis_task_failed",
@@ -895,6 +954,7 @@ fn begin_maest_operation(
             session_id: request.session_id.clone(),
             scan_id: request.scan_id.clone(),
             cancel: Arc::clone(&cancel),
+            progress,
             state: ActiveMaestAnalysisState::Armed,
         },
     );
@@ -933,11 +993,13 @@ fn start_maest_operation<'a>(
     }
     operation.state = ActiveMaestAnalysisState::Running;
     let cancel = Arc::clone(&operation.cancel);
+    let progress = Arc::clone(&operation.progress);
     drop(active);
     Ok(ActiveMaestOperation {
         state,
         operation_id: request.operation_id.clone(),
         cancel,
+        progress,
     })
 }
 
@@ -1016,6 +1078,24 @@ struct CancelMaestAnalysisRequest {
     session_id: String,
     scan_id: String,
     operation_id: String,
+}
+
+fn maest_analysis_progress(
+    state: &DesktopState,
+    request: &CancelMaestAnalysisRequest,
+) -> Option<maest_inference_pipeline::MaestAnalysisProgress> {
+    if !valid_operation_id(&request.operation_id) {
+        return None;
+    }
+    let progress = {
+        let active = state.active_maest_analyses.lock().ok()?;
+        let operation = active.get(&request.operation_id).filter(|operation| {
+            operation.session_id == request.session_id && operation.scan_id == request.scan_id
+        })?;
+        Arc::clone(&operation.progress)
+    };
+    let snapshot = *progress.lock().ok()?;
+    Some(snapshot)
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -3697,6 +3777,7 @@ async fn analyze_scanned_track(
                             },
                             analyzed_at,
                             &operation.cancel,
+                            &operation.progress,
                         )
                     })
                     .ok_or_else(|| {
@@ -3727,6 +3808,14 @@ async fn analyze_scanned_track(
     })
     .await;
     map_analysis_task_result(task)?
+}
+
+#[tauri::command]
+fn get_maest_analysis_progress(
+    state: State<'_, DesktopState>,
+    request: CancelMaestAnalysisRequest,
+) -> Option<maest_inference_pipeline::MaestAnalysisProgress> {
+    maest_analysis_progress(&state, &request)
 }
 
 #[tauri::command]
@@ -5552,6 +5641,7 @@ pub fn run() {
             maest::prepare_maest_model,
             begin_maest_analysis,
             analyze_scanned_track,
+            get_maest_analysis_progress,
             cancel_maest_analysis,
             release_maest_analysis,
             choose_and_scan_music_folder,

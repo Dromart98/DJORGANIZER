@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { TauriCore } from "./tauri";
@@ -7,11 +7,16 @@ import {
   editMaestFormField,
   invokeMaestPreview,
   invokeMaestCancel,
+  invokeMaestProgress,
+  startMaestProgressPolling,
   cleanupMaestPreviewOperation,
   isMaestCancellation,
   initialTrackClassification,
   isCurrentMaestRequest,
   maestAnalyzeArguments,
+  maestProgressArguments,
+  maestProgressText,
+  maestPollingRequest,
   maestErrorMessage,
   maestGenreWriteArguments,
   maestGenreWriteAvailability,
@@ -52,6 +57,18 @@ const link: MaestLinkIdentity = {
   sessionId: "session-opaque",
   scanId: "scan-opaque",
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
+afterEach(() => vi.useRealTimers());
 
 function start(state: MaestPreviewState, requestId = 1) {
   return reduceMaestPreviewState(state, { type: "start", requestId });
@@ -441,6 +458,168 @@ describe("MAEST library preview contract", () => {
       request: { sessionId: "session-opaque", scanId: "scan-opaque", operationId: "00000000-0000-4000-8000-000000000001" },
     });
     expect(Object.keys(maestAnalyzeArguments("s", "t", "o").request)).toEqual(["sessionId", "scanId", "operationId"]);
+  });
+
+  it("queries progress with only the exact opaque operation identity", async () => {
+    const { core, invoke } = coreReturning();
+    const request = { ...link, requestId: 7, operationId: "00000000-0000-4000-8000-000000000007" };
+    await invokeMaestProgress(core, request);
+    expect(invoke).toHaveBeenLastCalledWith("get_maest_analysis_progress", {
+      request: { sessionId: link.sessionId, scanId: link.scanId, operationId: request.operationId },
+    });
+    expect(Object.keys(maestProgressArguments("s", "t", "o").request)).toEqual(["sessionId", "scanId", "operationId"]);
+    expect(JSON.stringify(maestProgressArguments("s", "t", "o"))).not.toMatch(/path|duration|offset|audio|tensor/i);
+  });
+
+  it("accepts progress only for the exact active request and clears it on reanalysis", () => {
+    const active = prepared(start(createMaestPreviewState(link)));
+    const request = active.activeRequest!;
+    const progress = { phase: "preparing", totalWindows: 3, preparedWindows: 1, inferredWindows: 0 } as const;
+    const updated = reduceMaestPreviewState(active, { type: "progress", request, progress });
+    expect(updated.progress).toEqual(progress);
+    expect(reduceMaestPreviewState(updated, { type: "progress", request: { ...request, operationId: "stale" }, progress })).toBe(updated);
+    const completed = succeeded(updated);
+    expect(start(completed, 2).progress).toBeNull();
+  });
+
+  it("renders structural progress in Spanish and English, including fallback 3 to 1", () => {
+    expect(maestProgressText({ phase: "preparing", totalWindows: 3, preparedWindows: 0, inferredWindows: 0 }, "es")).toBe("Preparando audio 1 de 3…");
+    expect(maestProgressText({ phase: "inference", totalWindows: 3, preparedWindows: 3, inferredWindows: 1 }, "en")).toBe("Analyzing window 2 of 3…");
+    expect(maestProgressText({ phase: "preparing", totalWindows: 1, preparedWindows: 1, inferredWindows: 0 }, "en")).toBe("Preparing audio 1 of 1…");
+    expect(maestProgressText({ phase: "finalizing", totalWindows: 1, preparedWindows: 1, inferredWindows: 1 }, "es")).toBe("Finalizando análisis…");
+  });
+
+  describe("sequential progress polling", () => {
+    const progress = { phase: "preparing", totalWindows: 3, preparedWindows: 1, inferredWindows: 0 } as const;
+    const request = { ...link, requestId: 8, operationId: "00000000-0000-4000-8000-000000000008" };
+
+    it("starts immediately, waits for settlement and keeps exactly one request in flight", async () => {
+      vi.useFakeTimers();
+      const first = deferred<typeof progress | null>();
+      const second = deferred<typeof progress | null>();
+      const third = deferred<typeof progress | null>();
+      const invoke = vi.fn()
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => second.promise)
+        .mockImplementationOnce(() => third.promise);
+      const onProgress = vi.fn();
+      const stop = startMaestProgressPolling({ invoke } as TauriCore, request, onProgress);
+
+      expect(invoke).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(invoke).toHaveBeenCalledOnce();
+
+      first.resolve(progress);
+      await Promise.resolve();
+      expect(onProgress).toHaveBeenCalledWith(progress);
+      await vi.advanceTimersByTimeAsync(249);
+      expect(invoke).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(invoke).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(invoke).toHaveBeenCalledTimes(2);
+
+      second.resolve(progress);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(250);
+      expect(invoke).toHaveBeenCalledTimes(3);
+      stop();
+    });
+
+    it("continues after an isolated progress rejection", async () => {
+      vi.useFakeTimers();
+      const first = deferred<typeof progress | null>();
+      const second = deferred<typeof progress | null>();
+      const invoke = vi.fn()
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => second.promise);
+      const stop = startMaestProgressPolling({ invoke } as TauriCore, request, vi.fn());
+      first.reject(new Error("progress unavailable"));
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(invoke).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(invoke).toHaveBeenCalledTimes(2);
+      stop();
+    });
+
+    it("stop cancels a pending timeout", async () => {
+      vi.useFakeTimers();
+      const invoke = vi.fn().mockResolvedValue(progress);
+      const stop = startMaestProgressPolling({ invoke } as TauriCore, request, vi.fn());
+      await Promise.resolve();
+      stop();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(invoke).toHaveBeenCalledOnce();
+    });
+
+    it("stop during an in-flight read suppresses its callback and every later read", async () => {
+      vi.useFakeTimers();
+      const pending = deferred<typeof progress | null>();
+      const invoke = vi.fn(() => pending.promise);
+      const onProgress = vi.fn();
+      const stop = startMaestProgressPolling({ invoke } as TauriCore, request, onProgress);
+      stop();
+      pending.resolve(progress);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(onProgress).not.toHaveBeenCalled();
+      expect(invoke).toHaveBeenCalledOnce();
+    });
+
+    it("keeps replacement operation polling independent from a stopped stale operation", async () => {
+      vi.useFakeTimers();
+      const oldPending = deferred<typeof progress | null>();
+      const newPending = deferred<typeof progress | null>();
+      const oldInvoke = vi.fn((command: string, args: unknown) => {
+        void command;
+        void args;
+        return oldPending.promise;
+      });
+      const newInvoke = vi.fn((command: string, args: unknown) => {
+        void command;
+        void args;
+        return newPending.promise;
+      });
+      const oldProgress = vi.fn();
+      const newProgress = vi.fn();
+      const stopOld = startMaestProgressPolling({ invoke: oldInvoke } as TauriCore, request, oldProgress);
+      stopOld();
+      const newRequest = { ...request, operationId: "00000000-0000-4000-8000-000000000009" };
+      const stopNew = startMaestProgressPolling({ invoke: newInvoke } as TauriCore, newRequest, newProgress);
+
+      oldPending.resolve(progress);
+      newPending.resolve(progress);
+      await Promise.resolve();
+      expect(oldProgress).not.toHaveBeenCalled();
+      expect(newProgress).toHaveBeenCalledWith(progress);
+      expect(oldInvoke.mock.calls[0]?.[1]).toEqual({ request: expect.objectContaining({ operationId: request.operationId }) });
+      expect(newInvoke.mock.calls[0]?.[1]).toEqual({ request: expect.objectContaining({ operationId: newRequest.operationId }) });
+      stopNew();
+    });
+
+    it("stops eligibility on cancelling, success and analysis error", () => {
+      const analyzing = prepared(start(createMaestPreviewState(link)));
+      const request = analyzing.activeRequest!;
+      expect(maestPollingRequest(analyzing)).toEqual(request);
+      expect(maestPollingRequest(reduceMaestPreviewState(analyzing, { type: "cancelRequested", request }))).toBeNull();
+      expect(maestPollingRequest(reduceMaestPreviewState(analyzing, { type: "succeeded", request, result: publicResult }))).toBeNull();
+      expect(maestPollingRequest(reduceMaestPreviewState(analyzing, { type: "failed", request, error: "safe" }))).toBeNull();
+    });
+
+    it("uses stop as unmount cleanup", async () => {
+      vi.useFakeTimers();
+      const pending = deferred<typeof progress | null>();
+      const invoke = vi.fn(() => pending.promise);
+      const onProgress = vi.fn();
+      const unmount = startMaestProgressPolling({ invoke } as TauriCore, request, onProgress);
+      unmount();
+      pending.resolve(progress);
+      await Promise.resolve();
+      await vi.runAllTimersAsync();
+      expect(invoke).toHaveBeenCalledOnce();
+      expect(onProgress).not.toHaveBeenCalled();
+    });
   });
 
   it("releases an armed operation and skips stale analysis after identity changes", async () => {
