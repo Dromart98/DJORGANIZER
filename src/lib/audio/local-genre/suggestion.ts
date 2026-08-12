@@ -5,14 +5,24 @@ export function applyLocalGenreSuggestion(
   input: ImportTrackInput,
   suggestion: LocalGenreSuggestion,
 ): ImportTrackInput {
+  const appliesGenre = !input.genre || input.genre_source !== "manual";
+  const appliesSubgenre = !input.subgenre || input.subgenre_source !== "manual";
   return {
     ...input,
-    genre: suggestion.label,
-    genre_confidence: suggestion.score,
-    // The existing database contract has no "automatic" value and migrations are
-    // deliberately outside this proof of concept. Manual acceptance is the
-    // Provider-neutral persisted provenance; analyzer details remain internal.
-    genre_source: "automatic",
+    ...(appliesGenre && !input.genre
+      ? {
+          genre: suggestion.genre,
+          genre_confidence: suggestion.score,
+          genre_source: "automatic" as const,
+        }
+      : {}),
+    ...(appliesSubgenre && !input.subgenre
+      ? {
+          subgenre: suggestion.subgenre,
+          subgenre_confidence: suggestion.score,
+          subgenre_source: "automatic" as const,
+        }
+      : {}),
   };
 }
 

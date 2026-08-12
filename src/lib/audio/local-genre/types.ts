@@ -1,10 +1,17 @@
 export type LocalGenreModelStatus = "preparing" | "ready" | "error";
 
 export type LocalGenreSuggestion = {
-  alternatives: Array<{ label: string; score: number }>;
+  alternatives: LocalGenrePrediction[];
   backend: string;
-  label: string;
+  genre: string;
   score: number;
+  subgenre: string;
+};
+
+export type LocalGenrePrediction = {
+  genre: string;
+  score: number;
+  subgenre: string;
 };
 
 export type ModelIntegrityFile = {

@@ -1,7 +1,11 @@
-import type { LocalGenreSuggestion } from "./types";
+import type { LocalGenrePrediction, LocalGenreSuggestion } from "./types";
 
-export function displayDiscogsClass(label: string) {
-  return label.replace("---", " · ");
+export function parseDiscogsClass(label: string): Omit<LocalGenrePrediction, "score"> {
+  const parts = label.split("---");
+  if (parts.length !== 2 || !parts[0]?.trim() || !parts[1]?.trim()) {
+    throw new Error("La clase Discogs no contiene género y subgénero válidos.");
+  }
+  return { genre: parts[0].trim(), subgenre: parts[1].trim() };
 }
 
 export function aggregateGenrePredictions(
@@ -27,7 +31,7 @@ export function aggregateGenrePredictions(
       total += value;
     }
     return {
-      label: displayDiscogsClass(label),
+      ...parseDiscogsClass(label),
       score: total / patchCount,
     };
   });
@@ -37,7 +41,8 @@ export function aggregateGenrePredictions(
   return {
     alternatives,
     backend,
-    label: primary.label,
+    genre: primary.genre,
     score: primary.score,
+    subgenre: primary.subgenre,
   };
 }

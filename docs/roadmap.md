@@ -175,9 +175,11 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
 - [x] Completar la prueba de concepto web local con el modelo oficial
   `discogs-effnet-bs64-1`, convertido sin cuantización a TensorFlow.js. La
   conversión y equivalencia ya están demostradas; Importar prepara el modelo en
-  segundo plano, ejecuta Mel/inferencia en un Worker, verifica SHA-256, reutiliza
-  una caché offline versionada y exige aceptación manual por pista. OpenAI sigue
-  como alternativa independiente. La inferencia real, la caché y el fallback
+  segundo plano, ejecuta Mel/inferencia en un Worker tras comprobar duplicados,
+  verifica SHA-256 y reutiliza una caché offline versionada. La cola secuencial
+  comparte progreso y cancelación con el resto del análisis automático; presenta
+  género y subgénero por separado y exige aceptación manual por pista antes de
+  rellenar solo campos vacíos. OpenAI sigue como alternativa independiente. La inferencia real, la caché y el fallback
   WASM están registrados en Chrome y Edge de escritorio; Firefox, Safari y
   móvil quedan fuera del alcance de esta prueba de concepto.
   Referencia: [`docs/local-web-genre-classification.md`](local-web-genre-classification.md).

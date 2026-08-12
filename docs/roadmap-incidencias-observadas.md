@@ -92,16 +92,16 @@ rechazable.
 
 ### 4. Calcular género y subgénero automáticamente durante la importación
 
-- [ ] Iniciar el cálculo de género y subgénero automáticamente después de
+- [x] Iniciar el cálculo de género y subgénero automáticamente después de
   seleccionar las canciones, sin exigir pulsar **Sugerir género localmente**.
-- [ ] Integrar el progreso en la misma cola de análisis de BPM, tonalidad y
+- [x] Integrar el progreso en la misma cola de análisis de BPM, tonalidad y
   energía, con límites de concurrencia para bibliotecas grandes y equipos con
   pocos recursos.
-- [ ] Permitir cancelar, reintentar solo las pistas fallidas y guardar las pistas
+- [x] Permitir cancelar, reintentar solo las pistas fallidas y guardar las pistas
   cuyos demás campos ya estén correctos.
-- [ ] Mostrar género y subgénero como resultados separados y revisables; no
+- [x] Mostrar género y subgénero como resultados separados y revisables; no
   inventar subgénero cuando la confianza o la taxonomía no permitan distinguirlo.
-- [ ] Conservar correcciones manuales y no volver a analizar pistas ya aceptadas
+- [x] Conservar correcciones manuales y no volver a analizar pistas ya aceptadas
   salvo acción explícita del usuario.
 
 ### 5. Retirar la sugerencia de género con OpenAI

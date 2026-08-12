@@ -26,6 +26,7 @@ import type {
   LocalGenreSuggestion,
 } from "@/lib/audio/local-genre/types";
 import { applyLocalGenreSuggestion } from "@/lib/audio/local-genre/suggestion";
+import { needsLocalGenreSuggestion } from "@/lib/audio/local-genre/import-analysis";
 import { isAutomaticAnalysisEligibleStatus } from "@/lib/import/automatic-analysis";
 import {
   detectBpmFromAudioBuffer,
@@ -188,6 +189,7 @@ export function AudioImporter() {
   const automaticAudioContextRef = useRef<AudioContext | null>(null);
   const localGenreAudioContextRef = useRef<AudioContext | null>(null);
   const localGenreClientRef = useRef<LocalGenreClient | null>(null);
+  const localGenrePreparationRef = useRef<Promise<string> | null>(null);
   const [automaticAnalysisProgress, setAutomaticAnalysisProgress] =
     useState<AutomaticAnalysisProgress | null>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
@@ -215,8 +217,9 @@ export function AudioImporter() {
     localGenreClientRef.current = client;
     setLocalGenreModelStatus("preparing");
     setLocalGenreModelError(null);
-    void client
-      .prepare()
+    const preparation = client.prepare();
+    localGenrePreparationRef.current = preparation;
+    void preparation
       .then((selectedBackend) => {
         if (localGenreClientRef.current !== client) return;
         setLocalGenreBackend(selectedBackend);
@@ -235,6 +238,7 @@ export function AudioImporter() {
       });
     return () => {
       localGenreClientRef.current = null;
+      localGenrePreparationRef.current = null;
       client.dispose();
       const audioContext = localGenreAudioContextRef.current;
       localGenreAudioContextRef.current = null;
@@ -569,9 +573,13 @@ export function AudioImporter() {
           keyStatus:
             field === "musical_key" ? "idle" : item.keyStatus,
           localGenreStatus:
-            field === "genre" ? "idle" : item.localGenreStatus,
+            field === "genre" || field === "subgenre"
+              ? "idle"
+              : item.localGenreStatus,
           localGenreSuggestion:
-            field === "genre" ? undefined : item.localGenreSuggestion,
+            field === "genre" || field === "subgenre"
+              ? undefined
+              : item.localGenreSuggestion,
           status: error ? "invalid" : "ready",
         };
       }),
@@ -586,11 +594,16 @@ export function AudioImporter() {
     if (audioContext && audioContext.state !== "closed") {
       void audioContext.close().catch(() => undefined);
     }
+    cancelLocalGenreAnalysis();
     setItems((current) =>
       current.map((item) => ({
         ...item,
         bpmStatus: item.bpmStatus === "analyzing" ? "idle" : item.bpmStatus,
         keyStatus: item.keyStatus === "analyzing" ? "idle" : item.keyStatus,
+        localGenreStatus:
+          item.localGenreStatus === "analyzing"
+            ? "cancelled"
+            : item.localGenreStatus,
       })),
     );
     setAutomaticAnalysisProgress(null);
@@ -608,12 +621,13 @@ export function AudioImporter() {
         file: File;
       } =>
         isAutomaticAnalysisEligibleStatus(item.status) &&
-        Boolean(item.data) &&
-        Boolean(item.file) &&
-        (item.data?.bpm === null ||
-          item.data?.musical_key === null ||
-          item.data?.energy === null ||
-          item.data?.acoustic_fingerprint === null),
+        item.data !== undefined &&
+        item.file !== undefined &&
+        (item.data.bpm === null ||
+          item.data.musical_key === null ||
+          item.data.energy === null ||
+          item.data.acoustic_fingerprint === null ||
+          needsLocalGenreSuggestion(item.data)),
     );
     if (!analyzable.length) return;
 
@@ -653,7 +667,7 @@ export function AudioImporter() {
       total: analyzable.length,
     });
     setNotice(
-      t("Analizando automáticamente BPM y tonalidad en este dispositivo…"),
+      t("Analizando automáticamente BPM, tonalidad, energía, género y subgénero en este dispositivo…"),
     );
 
     let audioContext: AudioContext | null = null;
@@ -670,6 +684,7 @@ export function AudioImporter() {
         const shouldAnalyzeKey = item.data.musical_key === null;
         const shouldAnalyzeEnergy =
           item.data.energy === null && item.data.energy_source !== "manual";
+        const shouldAnalyzeLocalGenre = needsLocalGenreSuggestion(item.data);
         updateItem(item.id, {
           bpmError: shouldAnalyzeBpm ? undefined : item.bpmError,
           bpmStatus: shouldAnalyzeBpm ? "analyzing" : item.bpmStatus,
@@ -774,6 +789,13 @@ export function AudioImporter() {
               };
             }),
           );
+
+          if (
+            shouldAnalyzeLocalGenre &&
+            automaticAnalysisRunRef.current === runId
+          ) {
+            await suggestGenreLocally(item, runId);
+          }
         } catch {
           updateItem(item.id, {
             bpmError: shouldAnalyzeBpm
@@ -1243,14 +1265,14 @@ export function AudioImporter() {
     }
   }
 
-  async function suggestGenreLocally(item: ImportItem) {
+  async function suggestGenreLocally(item: ImportItem, automaticRunId?: number) {
     const client = localGenreClientRef.current;
     if (
       !client ||
-      localGenreModelStatus !== "ready" ||
       !item.file ||
       !item.data ||
-      !isAutomaticAnalysisEligibleStatus(item.status)
+      !isAutomaticAnalysisEligibleStatus(item.status) ||
+      (automaticRunId === undefined && localGenreModelStatus !== "ready")
     ) {
       return;
     }
@@ -1261,11 +1283,24 @@ export function AudioImporter() {
     });
     let audioContext: AudioContext | null = null;
     try {
+      await localGenrePreparationRef.current;
+      if (
+        automaticRunId !== undefined &&
+        automaticAnalysisRunRef.current !== automaticRunId
+      ) {
+        return;
+      }
       audioContext = new AudioContext({ sampleRate: 16_000 });
       localGenreAudioContextRef.current = audioContext;
       const decoded = await audioContext.decodeAudioData(
         await item.file.arrayBuffer(),
       );
+      if (
+        automaticRunId !== undefined &&
+        automaticAnalysisRunRef.current !== automaticRunId
+      ) {
+        return;
+      }
       if (decoded.sampleRate !== 16_000) {
         throw new Error(t("El navegador no pudo remuestrear el audio a 16 kHz."));
       }
@@ -1277,6 +1312,12 @@ export function AudioImporter() {
         }
       }
       const suggestion = await client.analyze(mono);
+      if (
+        automaticRunId !== undefined &&
+        automaticAnalysisRunRef.current !== automaticRunId
+      ) {
+        return;
+      }
       updateItem(item.id, {
         localGenreStatus: "suggested",
         localGenreSuggestion: suggestion,
@@ -1301,7 +1342,7 @@ export function AudioImporter() {
     }
   }
 
-  function cancelLocalGenre(item: ImportItem) {
+  function cancelLocalGenreAnalysis() {
     const audioContext = localGenreAudioContextRef.current;
     localGenreAudioContextRef.current = null;
     if (audioContext && audioContext.state !== "closed") {
@@ -1309,16 +1350,12 @@ export function AudioImporter() {
     }
     const client = localGenreClientRef.current;
     client?.cancel();
-    updateItem(item.id, {
-      localGenreError: undefined,
-      localGenreStatus: "cancelled",
-      localGenreSuggestion: undefined,
-    });
     if (!client) return;
     setLocalGenreModelStatus("preparing");
     setLocalGenreBackend(null);
-    void client
-      .prepare()
+    const preparation = client.prepare();
+    localGenrePreparationRef.current = preparation;
+    void preparation
       .then((selectedBackend) => {
         if (localGenreClientRef.current !== client) return;
         setLocalGenreBackend(selectedBackend);
@@ -1335,6 +1372,15 @@ export function AudioImporter() {
         );
         setLocalGenreModelStatus("error");
       });
+  }
+
+  function cancelLocalGenre(item: ImportItem) {
+    cancelLocalGenreAnalysis();
+    updateItem(item.id, {
+      localGenreError: undefined,
+      localGenreStatus: "cancelled",
+      localGenreSuggestion: undefined,
+    });
   }
 
   function acceptLocalGenreSuggestion(item: ImportItem) {
@@ -1404,7 +1450,7 @@ export function AudioImporter() {
           <p className="eyebrow">{t("Importación privada")}</p>
           <h2>{t("El audio no sale de este dispositivo")}</h2>
           <p>
-            {t("DJOrganizer calcula una huella digital del archivo para detectar copias exactas y estima BPM y tonalidad al seleccionarlo. El análisis ocurre en el navegador. Solo guarda los datos que revises; no sube audio ni portadas.")}
+            {t("DJOrganizer calcula una huella digital del archivo para detectar copias exactas y estima BPM, tonalidad, energía, género y subgénero al seleccionarlo. El análisis ocurre en el navegador. Solo guarda los datos que revises; no sube audio ni portadas.")}
           </p>
         </div>
         <input
@@ -1412,7 +1458,11 @@ export function AudioImporter() {
           accept="audio/*,.aac,.aif,.aiff,.ape,.flac,.m4a,.mp3,.mp4,.ogg,.opus,.wav,.webm,.wma"
           className="visually-hidden"
           disabled={
-            isReading || isSaving || isAnalyzingBpm || isAnalyzingKey
+            isReading ||
+            isSaving ||
+            isAnalyzingBpm ||
+            isAnalyzingKey ||
+            automaticAnalysisProgress !== null
           }
           id="audio-files"
           multiple
@@ -1606,7 +1656,9 @@ export function AudioImporter() {
                         value={item.data.genre ?? ""}
                       />
                       {item.file &&
-                      isAutomaticAnalysisEligibleStatus(item.status) ? (
+                      isAutomaticAnalysisEligibleStatus(item.status) &&
+                      (item.localGenreStatus === "error" ||
+                        item.localGenreStatus === "cancelled") ? (
                         <button
                           className="import-analyze-link"
                           disabled={
@@ -1619,15 +1671,17 @@ export function AudioImporter() {
                         >
                           {localGenreModelStatus === "preparing"
                             ? t("Preparando análisis local…")
-                            : item.localGenreStatus === "analyzing"
-                              ? t("Analizando género localmente…")
-                              : t("Sugerir género localmente")}
+                            : t("Reintentar análisis de género y subgénero")}
                         </button>
                       ) : null}
                       {item.localGenreStatus === "analyzing" ? (
                         <button
                           className="import-analyze-link"
-                          onClick={() => cancelLocalGenre(item)}
+                          onClick={() =>
+                            automaticAnalysisProgress
+                              ? cancelAutomaticAnalysis()
+                              : cancelLocalGenre(item)
+                          }
                           type="button"
                         >
                           {t("Cancelar")}
@@ -1642,7 +1696,8 @@ export function AudioImporter() {
                             {t("Análisis local")}
                           </small>
                           <strong>
-                            {item.localGenreSuggestion.label} ·{" "}
+                            {t("Género")}: {item.localGenreSuggestion.genre} ·{" "}
+                            {t("Subgénero")}: {item.localGenreSuggestion.subgenre} ·{" "}
                             {Math.round(item.localGenreSuggestion.score * 100)}%
                           </strong>
                           {item.localGenreSuggestion.alternatives.length ? (
@@ -1650,7 +1705,7 @@ export function AudioImporter() {
                               {t("Alternativas")}: {item.localGenreSuggestion.alternatives
                                 .map(
                                   (alternative) =>
-                                    `${alternative.label} (${Math.round(alternative.score * 100)}%)`,
+                                    `${alternative.genre} / ${alternative.subgenre} (${Math.round(alternative.score * 100)}%)`,
                                 )
                                 .join(", ")}
                             </small>
