@@ -21,6 +21,9 @@ import {
   maestGenreWriteArguments,
   maestGenreWriteAvailability,
   invokeMaestGenreWritePreview,
+  invokeMaestSubgenreWritePreview,
+  maestSubgenreWriteArguments,
+  maestSubgenreWriteAvailability,
   metadataWriteErrorMessage,
   maestFormProposal,
   maestSurfaceVisibility,
@@ -422,6 +425,30 @@ describe("MAEST library preview contract", () => {
     });
     expect(Object.keys(maestGenreWriteArguments("s", "x", "g").request)).toEqual(["sessionId", "scanId", "genre"]);
     expect(JSON.stringify(preview)).not.toMatch(/path|subgenre|score|analyzer/i);
+  });
+
+  it("offers and previews an independent persisted MAEST subgenre write", async () => {
+    const track = {
+      subgenre: "Deep House",
+      subgenre_source: "automatic",
+      subgenre_analyzer_id: DESKTOP_MAEST_ANALYZER.id,
+      subgenre_analyzer_version: DESKTOP_MAEST_ANALYZER.version,
+      subgenre_compatibility_key: DESKTOP_MAEST_COMPATIBILITY_KEY,
+      subgenre_analyzed_at_ms: 1785542400000,
+      subgenre_raw_score: 0.8,
+    } as Parameters<typeof maestSubgenreWriteAvailability>[0];
+    expect(maestSubgenreWriteAvailability(track, "Deep House", true)).toBe("available");
+    expect(maestSubgenreWriteAvailability(track, "Tech House", true)).toBe("needs-save");
+    expect(maestSubgenreWriteAvailability({ ...track, subgenre_source: "manual" }, "Deep House", true)).toBe("unavailable");
+    const preview = { scanId: "scan", field: "subgenre" as const, before: null, after: "Deep House", changed: true };
+    const invoke = vi.fn(async () => preview);
+    await expect(invokeMaestSubgenreWritePreview({ invoke } as TauriCore, "session", "scan", "Deep House")).resolves.toEqual(preview);
+    expect(invoke).toHaveBeenCalledWith("preview_maest_subgenre_write", {
+      request: { sessionId: "session", scanId: "scan", subgenre: "Deep House" },
+    });
+    expect(Object.keys(maestSubgenreWriteArguments("s", "x", "sg").request)).toEqual(["sessionId", "scanId", "subgenre"]);
+    expect(Object.keys(preview)).toEqual(["scanId", "field", "before", "after", "changed"]);
+    expect(JSON.stringify(preview)).not.toMatch(/path|genreRaw|score|analyzer/i);
   });
 
   it("maps a missing native preview to a safe recovery message", () => {

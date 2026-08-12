@@ -449,6 +449,10 @@ export type MaestGenreWritePreview = {
   changed: boolean;
 };
 
+export type MaestSubgenreWritePreview = Omit<MaestGenreWritePreview, "field"> & {
+  field: "subgenre";
+};
+
 export type MaestGenreWriteResult = {
   appliedFiles: number;
   runId: string | null;
@@ -473,6 +477,27 @@ export function maestGenreWriteAvailability(
     Number.isFinite(track.genre_raw_score);
   if (!linked || !validEvidence) return "unavailable";
   return formGenre === track.genre ? "available" : "needs-save";
+}
+
+export function maestSubgenreWriteAvailability(
+  track: Tables<"tracks">,
+  formSubgenre: string,
+  linked: boolean,
+): MaestGenreWriteAvailability {
+  const persisted = track.subgenre?.trim();
+  const validEvidence =
+    persisted &&
+    track.subgenre_source === "automatic" &&
+    track.subgenre_analyzer_id === DESKTOP_MAEST_ANALYZER.id &&
+    track.subgenre_analyzer_version === DESKTOP_MAEST_ANALYZER.version &&
+    isDesktopMaestCompatibilityKey(track.subgenre_compatibility_key) &&
+    typeof track.subgenre_analyzed_at_ms === "number" &&
+    Number.isSafeInteger(track.subgenre_analyzed_at_ms) &&
+    track.subgenre_analyzed_at_ms >= 0 &&
+    typeof track.subgenre_raw_score === "number" &&
+    Number.isFinite(track.subgenre_raw_score);
+  if (!linked || !validEvidence) return "unavailable";
+  return formSubgenre === track.subgenre ? "available" : "needs-save";
 }
 
 export function maestGenreWriteArguments(sessionId: string, scanId: string, genre: string) {
@@ -500,6 +525,34 @@ export function invokeMaestGenreWrite(
   return core.invoke<MaestGenreWriteResult>(
     "apply_maest_genre_write",
     maestGenreWriteArguments(sessionId, scanId, genre),
+  );
+}
+
+export function maestSubgenreWriteArguments(sessionId: string, scanId: string, subgenre: string) {
+  return { request: { sessionId, scanId, subgenre } } as const;
+}
+
+export function invokeMaestSubgenreWritePreview(
+  core: TauriCore,
+  sessionId: string,
+  scanId: string,
+  subgenre: string,
+) {
+  return core.invoke<MaestSubgenreWritePreview>(
+    "preview_maest_subgenre_write",
+    maestSubgenreWriteArguments(sessionId, scanId, subgenre),
+  );
+}
+
+export function invokeMaestSubgenreWrite(
+  core: TauriCore,
+  sessionId: string,
+  scanId: string,
+  subgenre: string,
+) {
+  return core.invoke<MaestGenreWriteResult>(
+    "apply_maest_subgenre_write",
+    maestSubgenreWriteArguments(sessionId, scanId, subgenre),
   );
 }
 

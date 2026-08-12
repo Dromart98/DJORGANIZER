@@ -52,6 +52,7 @@ struct AudioMetadata {
     artist: Option<String>,
     album: Option<String>,
     genre: Option<String>,
+    subgenre: Option<String>,
     duration_seconds: Option<f64>,
     bpm: Option<f64>,
     musical_key: Option<String>,
@@ -1054,6 +1055,7 @@ fn release_maest_operation(state: &DesktopState, request: &CancelMaestAnalysisRe
 struct MaestGenrePreviewKey {
     session_id: String,
     scan_id: String,
+    field: &'static str,
     genre: String,
 }
 
@@ -1336,6 +1338,14 @@ struct MaestGenreWriteRequest {
     genre: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MaestSubgenreWriteRequest {
+    session_id: String,
+    scan_id: String,
+    subgenre: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MaestGenreWritePreview {
@@ -1553,6 +1563,7 @@ fn read_mp4_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
         metadata.artist = ilst.artist().as_deref().and_then(cleaned_text);
         metadata.album = ilst.album().as_deref().and_then(cleaned_text);
         metadata.genre = ilst.genre().as_deref().and_then(cleaned_text);
+        metadata.subgenre = mp4_text(ilst, ItemKey::ContentGroup);
         metadata.bpm = mp4_text(ilst, ItemKey::Bpm)
             .as_deref()
             .and_then(parse_bpm)
@@ -1590,6 +1601,7 @@ fn read_audio_metadata(path: &Path) -> Result<AudioMetadata, String> {
         metadata.artist = tag.artist().as_deref().and_then(cleaned_text);
         metadata.album = tag.album().as_deref().and_then(cleaned_text);
         metadata.genre = tag.genre().as_deref().and_then(cleaned_text);
+        metadata.subgenre = tag.get_string(ItemKey::ContentGroup).and_then(cleaned_text);
         metadata.bpm = tag
             .get_string(ItemKey::Bpm)
             .or_else(|| tag.get_string(ItemKey::IntegerBpm))
@@ -2548,9 +2560,10 @@ fn ensure_metadata_writable(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn confirmed_maest_genre_preview(
+fn confirmed_maest_field_preview(
     session: &ScanSession,
     request: &MaestGenreWriteRequest,
+    field: &'static str,
 ) -> Result<
     (
         MaestGenreWritePreview,
@@ -2621,17 +2634,31 @@ fn confirmed_maest_genre_preview(
             "El formato no admite escritura de etiquetas.",
         )
     })?;
+    if field == "subgenre" && !subgenre_tag_is_writable(&track.absolute_path) {
+        return Err(SafeMetadataWriteError::new(
+            "tag_not_writable",
+            "El formato no admite un subgénero independiente.",
+        ));
+    }
     let file_identity = analysis_file_identity(&file).ok_or_else(|| {
         SafeMetadataWriteError::new("track_changed", "No se pudo confirmar el archivo.")
     })?;
     let fingerprint = hash_open_file(&file, current.len()).map_err(|_| {
         SafeMetadataWriteError::new("track_changed", "El archivo cambió al previsualizar.")
     })?;
-    let before = track.track.genre.clone();
+    let before = if field == "subgenre" {
+        read_audio_metadata(&track.absolute_path)
+            .map_err(|_| {
+                SafeMetadataWriteError::new("track_changed", "No se pudieron releer las etiquetas.")
+            })?
+            .subgenre
+    } else {
+        track.track.genre.clone()
+    };
     Ok((
         MaestGenreWritePreview {
             scan_id: request.scan_id.clone(),
-            field: "genre",
+            field,
             changed: before.as_deref() != Some(genre.as_str()),
             before,
             after: genre,
@@ -2643,6 +2670,42 @@ fn confirmed_maest_genre_preview(
             fingerprint,
         },
     ))
+}
+
+fn confirmed_maest_genre_preview(
+    session: &ScanSession,
+    request: &MaestGenreWriteRequest,
+) -> Result<
+    (
+        MaestGenreWritePreview,
+        SessionTrack,
+        MaestGenrePreviewReceipt,
+    ),
+    SafeMetadataWriteError,
+> {
+    confirmed_maest_field_preview(session, request, "genre")
+}
+
+fn confirmed_maest_subgenre_preview(
+    session: &ScanSession,
+    request: &MaestSubgenreWriteRequest,
+) -> Result<
+    (
+        MaestGenreWritePreview,
+        SessionTrack,
+        MaestGenrePreviewReceipt,
+    ),
+    SafeMetadataWriteError,
+> {
+    confirmed_maest_field_preview(
+        session,
+        &MaestGenreWriteRequest {
+            session_id: request.session_id.clone(),
+            scan_id: request.scan_id.clone(),
+            genre: request.subgenre.clone(),
+        },
+        "subgenre",
+    )
 }
 
 fn write_genre_only(path: &Path, genre: &str) -> Result<AudioMetadata, &'static str> {
@@ -2664,6 +2727,53 @@ fn write_genre_only(path: &Path, genre: &str) -> Result<AudioMetadata, &'static 
         .map_err(|_| "write_failed")?;
     let after = read_audio_metadata(path).map_err(|_| "verification_failed")?;
     if after.genre.as_deref() != Some(genre)
+        || after.title != before.title
+        || after.artist != before.artist
+        || after.album != before.album
+        || after.bpm != before.bpm
+        || after.musical_key != before.musical_key
+    {
+        return Err("verification_failed");
+    }
+    Ok(after)
+}
+
+fn subgenre_tag_is_writable(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "flac" | "m4a" | "mp3" | "ogg" | "opus"
+            )
+        })
+}
+
+fn write_subgenre_only(path: &Path, subgenre: &str) -> Result<AudioMetadata, &'static str> {
+    if !subgenre_tag_is_writable(path) {
+        return Err("tag_not_writable");
+    }
+    let before = read_audio_metadata(path).map_err(|_| "write_failed")?;
+    let mut tagged_file = read_from_path(path).map_err(|_| "write_failed")?;
+    let tag_type = tagged_file.primary_tag_type();
+    if !tagged_file.tag_support(tag_type).is_writable()
+        || ItemKey::ContentGroup.map_key(tag_type).is_none()
+    {
+        return Err("tag_not_writable");
+    }
+    if tagged_file.primary_tag().is_none() {
+        tagged_file.insert_tag(Tag::new(tag_type));
+    }
+    tagged_file
+        .primary_tag_mut()
+        .ok_or("tag_not_writable")?
+        .insert_text(ItemKey::ContentGroup, subgenre.to_owned());
+    tagged_file
+        .save_to_path(path, WriteOptions::default())
+        .map_err(|_| "write_failed")?;
+    let after = read_audio_metadata(path).map_err(|_| "verification_failed")?;
+    if after.subgenre.as_deref() != Some(subgenre)
+        || after.genre != before.genre
         || after.title != before.title
         || after.artist != before.artist
         || after.album != before.album
@@ -4119,7 +4229,20 @@ fn maest_genre_preview_key(
     MaestGenrePreviewKey {
         session_id: request.session_id.clone(),
         scan_id: request.scan_id.clone(),
+        field: "genre",
         genre,
+    }
+}
+
+fn maest_subgenre_preview_key(
+    request: &MaestSubgenreWriteRequest,
+    subgenre: String,
+) -> MaestGenrePreviewKey {
+    MaestGenrePreviewKey {
+        session_id: request.session_id.clone(),
+        scan_id: request.scan_id.clone(),
+        field: "subgenre",
+        genre: subgenre,
     }
 }
 
@@ -4170,6 +4293,28 @@ fn preview_maest_genre_write_state(
     Ok(preview)
 }
 
+fn preview_maest_subgenre_write_state(
+    state: &DesktopState,
+    request: &MaestSubgenreWriteRequest,
+) -> Result<MaestGenreWritePreview, SafeMetadataWriteError> {
+    let current_session = state.scan_session.lock().map_err(|_| {
+        SafeMetadataWriteError::new("scan_session_unavailable", "El escaneo no está disponible.")
+    })?;
+    let session = current_session
+        .as_ref()
+        .filter(|session| session.id == request.session_id)
+        .ok_or_else(|| {
+            SafeMetadataWriteError::new(
+                "scan_session_unavailable",
+                "El escaneo no está disponible.",
+            )
+        })?;
+    let (preview, _, receipt) = confirmed_maest_subgenre_preview(session, request)?;
+    let key = maest_subgenre_preview_key(request, preview.after.clone());
+    store_maest_genre_preview(state, key, preview.changed.then_some(receipt))?;
+    Ok(preview)
+}
+
 fn restore_maest_genre_backup(
     session: &mut ScanSession,
     track: &SessionTrack,
@@ -4216,6 +4361,7 @@ fn apply_maest_genre_write_state_with<W, P>(
     state: &DesktopState,
     request: MaestGenreWriteRequest,
     alias_path: &Path,
+    field: &'static str,
     writer: W,
     persist_aliases: P,
 ) -> Result<MaestGenreWriteResult, SafeMetadataWriteError>
@@ -4226,7 +4372,12 @@ where
     let normalized_genre = normalized_metadata_text(&request.genre, "El género", 120)
         .map_err(|_| SafeMetadataWriteError::new("invalid_genre", "El género no es válido."))?
         .ok_or_else(|| SafeMetadataWriteError::new("invalid_genre", "El género no es válido."))?;
-    let key = maest_genre_preview_key(&request, normalized_genre);
+    let key = MaestGenrePreviewKey {
+        session_id: request.session_id.clone(),
+        scan_id: request.scan_id.clone(),
+        field,
+        genre: normalized_genre,
+    };
     let mut current_session = state.scan_session.lock().map_err(|_| {
         SafeMetadataWriteError::new("scan_session_unavailable", "El escaneo no está disponible.")
     })?;
@@ -4249,7 +4400,8 @@ where
         .ok_or_else(|| {
             SafeMetadataWriteError::new("preview_required", "Previsualiza antes de confirmar.")
         })?;
-    let (preview, track, current_receipt) = confirmed_maest_genre_preview(session, &request)?;
+    let (preview, track, current_receipt) =
+        confirmed_maest_field_preview(session, &request, field)?;
     if !preview.changed || current_receipt != expected_receipt {
         return Err(SafeMetadataWriteError::new(
             "track_changed",
@@ -4383,7 +4535,27 @@ fn apply_maest_genre_write_state(
         state,
         request,
         alias_path,
+        "genre",
         write_genre_only,
+        persist_local_aliases,
+    )
+}
+
+fn apply_maest_subgenre_write_state(
+    state: &DesktopState,
+    request: MaestSubgenreWriteRequest,
+    alias_path: &Path,
+) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
+    apply_maest_genre_write_state_with(
+        state,
+        MaestGenreWriteRequest {
+            session_id: request.session_id,
+            scan_id: request.scan_id,
+            genre: request.subgenre,
+        },
+        alias_path,
+        "subgenre",
+        write_subgenre_only,
         persist_local_aliases,
     )
 }
@@ -4410,6 +4582,30 @@ async fn apply_maest_genre_write(
         })?
         .join(LIBRARY_FILE_ALIASES_NAME);
     apply_maest_genre_write_state(&state, request, &alias_path)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn preview_maest_subgenre_write(
+    state: State<'_, DesktopState>,
+    request: MaestSubgenreWriteRequest,
+) -> Result<MaestGenreWritePreview, SafeMetadataWriteError> {
+    preview_maest_subgenre_write_state(&state, &request)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn apply_maest_subgenre_write(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    request: MaestSubgenreWriteRequest,
+) -> Result<MaestGenreWriteResult, SafeMetadataWriteError> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| {
+            SafeMetadataWriteError::new("link_state_failed", "No se pudo abrir el vínculo local.")
+        })?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    apply_maest_subgenre_write_state(&state, request, &alias_path)
 }
 
 fn apply_metadata_writes_state(
@@ -5649,6 +5845,8 @@ pub fn run() {
             link_library_tracks,
             preview_maest_genre_write,
             apply_maest_genre_write,
+            preview_maest_subgenre_write,
+            apply_maest_subgenre_write,
             preview_metadata_writes,
             apply_metadata_writes,
             undo_metadata_writes,
@@ -5677,21 +5875,24 @@ mod tests {
     use super::export_path_text;
     use super::{
         apply_maest_genre_write_state, apply_maest_genre_write_state_with,
-        apply_metadata_write_batch, apply_metadata_writes_state, audio_extension,
-        build_metadata_write_preview, build_rekordbox_xml, build_reorganization_plan,
-        build_virtualdj_list_xml, build_virtualdj_m3u8, confirmed_maest_genre_preview,
-        count_incremental_changes, create_track_path_id, file_version, fingerprint_text, hash_file,
-        link_library_candidates, link_library_candidates_with_aliases, parse_bpm,
-        parse_mp4_bpm_value, parse_virtualdj_paths, persist_local_aliases,
-        preview_maest_genre_write_state, read_audio_metadata, read_local_alias_store,
+        apply_maest_subgenre_write_state, apply_metadata_write_batch, apply_metadata_writes_state,
+        audio_extension, build_metadata_write_preview, build_rekordbox_xml,
+        build_reorganization_plan, build_virtualdj_list_xml, build_virtualdj_m3u8,
+        confirmed_maest_genre_preview, count_incremental_changes, create_track_path_id,
+        file_version, fingerprint_text, hash_file, link_library_candidates,
+        link_library_candidates_with_aliases, parse_bpm, parse_mp4_bpm_value,
+        parse_virtualdj_paths, persist_local_aliases, preview_maest_genre_write_state,
+        preview_maest_subgenre_write_state, read_audio_metadata, read_local_alias_store,
         register_local_alias, rekordbox_file_uri, restore_metadata_backups, safe_export_file_name,
         safe_path_segment, scan_music_folder, scan_music_folder_with_previous,
-        undo_metadata_writes_state, undo_metadata_writes_state_with, update_alias_anchors,
-        write_genre_only, write_local_alias_store, write_metadata_to_file,
-        write_rekordbox_xml_no_clobber, DesktopState, LibraryLinkCandidate, LocalFileIdentity,
-        LocalLibraryFileAliases, LocalTrackAliases, MaestGenreWriteRequest, MetadataEditInput,
-        MetadataWriteRequest, OrganizationScheme, RekordboxCrateInput, ScanSession,
-        ScannedAudioFile, SessionTrack, MAX_LIBRARY_FILE_ALIASES_PER_TRACK,
+        subgenre_tag_is_writable, undo_metadata_writes_state, undo_metadata_writes_state_with,
+        update_alias_anchors, update_session_track_after_write, write_genre_only,
+        write_local_alias_store, write_metadata_to_file, write_rekordbox_xml_no_clobber,
+        write_subgenre_only, DesktopState, LibraryLinkCandidate, LocalFileIdentity,
+        LocalLibraryFileAliases, LocalTrackAliases, MaestGenreWriteRequest,
+        MaestSubgenreWriteRequest, MetadataEditInput, MetadataWriteRequest, OrganizationScheme,
+        RekordboxCrateInput, ScanSession, ScannedAudioFile, SessionTrack,
+        MAX_LIBRARY_FILE_ALIASES_PER_TRACK,
     };
     const TEST_LIBRARY_TRACK_ID: &str = "11111111-1111-4111-8111-111111111111";
     use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -5949,6 +6150,133 @@ mod tests {
     }
 
     #[test]
+    fn maest_subgenre_preview_apply_and_undo_round_trip_independently() {
+        let (root, file, state, genre_request, before, original) =
+            maest_genre_fixture("subgenre-session", "subgenre.flac");
+        let request = MaestSubgenreWriteRequest {
+            session_id: genre_request.session_id,
+            scan_id: genre_request.scan_id,
+            subgenre: "Deep House".into(),
+        };
+        let preview = preview_maest_subgenre_write_state(&state, &request).unwrap();
+        assert_eq!(preview.field, "subgenre");
+        assert_eq!(preview.before, None);
+        assert_eq!(preview.after, "Deep House");
+        assert!(preview.changed);
+        let run_id = apply_maest_subgenre_write_state(&state, request, &root.join("aliases.json"))
+            .unwrap()
+            .run_id
+            .unwrap();
+        let written = read_audio_metadata(&file).unwrap();
+        assert_eq!(written.subgenre.as_deref(), Some("Deep House"));
+        assert_eq!(written.genre, before.genre);
+        undo_metadata_writes_state(
+            &state,
+            "subgenre-session".into(),
+            run_id,
+            &root.join("aliases.json"),
+        )
+        .unwrap();
+        assert_eq!(fs::read(&file).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_subgenre_noop_has_no_backup_or_history() {
+        let (root, file, state, genre_request, _, _) =
+            maest_genre_fixture("subgenre-noop", "noop.flac");
+        write_subgenre_only(&file, "Deep House").unwrap();
+        let metadata = fs::metadata(&file).unwrap();
+        {
+            let mut session = state.scan_session.lock().unwrap();
+            let session = session.as_mut().unwrap();
+            let updated = update_session_track_after_write(
+                session,
+                &genre_request.scan_id,
+                read_audio_metadata(&file).unwrap(),
+                metadata.len(),
+            )
+            .unwrap();
+            session
+                .file_versions
+                .insert(updated.relative_path, file_version(&metadata));
+        }
+        let request = MaestSubgenreWriteRequest {
+            session_id: genre_request.session_id,
+            scan_id: genre_request.scan_id,
+            subgenre: "Deep House".into(),
+        };
+        assert!(
+            !preview_maest_subgenre_write_state(&state, &request)
+                .unwrap()
+                .changed
+        );
+        assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        assert!(!root.join(super::METADATA_BACKUP_DIRECTORY).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_subgenre_blocks_external_changes_and_unsupported_formats() {
+        let (root, file, state, genre_request, _, _) =
+            maest_genre_fixture("subgenre-changed", "changed.flac");
+        let request = MaestSubgenreWriteRequest {
+            session_id: genre_request.session_id,
+            scan_id: genre_request.scan_id,
+            subgenre: "Deep House".into(),
+        };
+        preview_maest_subgenre_write_state(&state, &request).unwrap();
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all(b"x")
+            .unwrap();
+        assert_eq!(
+            apply_maest_subgenre_write_state(&state, request, &root.join("aliases.json"))
+                .unwrap_err()
+                .code,
+            "track_changed"
+        );
+        assert!(!subgenre_tag_is_writable(Path::new("track.wav")));
+        assert!(!subgenre_tag_is_writable(Path::new("track.aiff")));
+        assert!(!subgenre_tag_is_writable(Path::new("track.aac")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn maest_subgenre_verification_failure_restores_backup() {
+        let (root, file, state, genre_request, _, original) =
+            maest_genre_fixture("subgenre-rollback", "rollback.flac");
+        let request = MaestSubgenreWriteRequest {
+            session_id: genre_request.session_id,
+            scan_id: genre_request.scan_id,
+            subgenre: "Deep House".into(),
+        };
+        preview_maest_subgenre_write_state(&state, &request).unwrap();
+        let error = apply_maest_genre_write_state_with(
+            &state,
+            MaestGenreWriteRequest {
+                session_id: request.session_id,
+                scan_id: request.scan_id,
+                genre: request.subgenre,
+            },
+            &root.join("aliases.json"),
+            "subgenre",
+            |path, subgenre| {
+                write_subgenre_only(path, subgenre).unwrap();
+                Err("verification_failed")
+            },
+            persist_local_aliases,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "verification_failed");
+        assert_eq!(fs::read(&file).unwrap(), original);
+        assert!(state.metadata_write_history.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn maest_genre_apply_requires_and_consumes_the_matching_preview() {
         let (root, file, state, request, original, _) =
             maest_genre_fixture("genre-session", "genre-only.flac");
@@ -6161,6 +6489,7 @@ mod tests {
             &state,
             request,
             &root.join("aliases.json"),
+            "genre",
             |path, genre| {
                 write_genre_only(path, genre).unwrap();
                 Err("verification_failed")
@@ -6515,6 +6844,7 @@ mod tests {
             &state,
             request,
             &root.join("aliases.json"),
+            "genre",
             write_genre_only,
             |_, _| Err(()),
         )
@@ -6532,6 +6862,7 @@ mod tests {
             &state,
             request,
             &root.join("aliases.json"),
+            "genre",
             write_genre_only,
             move |_, _| {
                 fs::remove_file(&sabotaged).unwrap();

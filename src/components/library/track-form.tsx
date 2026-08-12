@@ -106,6 +106,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
       {mode === "update" && track ? (
         <MaestPreview
           formGenre={classification.genre}
+          formSubgenre={classification.subgenre}
           onApply={applyMaestProposal}
           track={track}
         />
