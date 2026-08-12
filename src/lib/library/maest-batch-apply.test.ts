@@ -64,7 +64,7 @@ describe("MAEST batch apply contract", () => {
     const current = new Map([[id(1), { genre: "Electronic", subgenre: "House" }]]);
     const store: MaestBatchApplyStore = {
       read: vi.fn(async (trackId) => current.get(trackId) ?? null),
-      compareAndSet: vi.fn(async (_trackId, field) => field === "genre" ? "applied" : "failed"),
+      compareAndSet: vi.fn(async (_trackId, field) => field === "genre" ? "applied" as const : "failed" as const),
     };
     const request = parseMaestBatchApplyRequest({ items: [{
       trackId: id(1),
@@ -77,7 +77,7 @@ describe("MAEST batch apply contract", () => {
   });
 
   it("detects a stale field before writing and a race during compare-and-set", async () => {
-    const compareAndSet = vi.fn(async (_trackId, field) => field === "subgenre" ? "conflict" : "applied");
+    const compareAndSet = vi.fn(async (_trackId, field) => field === "subgenre" ? "conflict" as const : "applied" as const);
     const store: MaestBatchApplyStore = {
       read: vi.fn(async () => ({ genre: "Manual edit", subgenre: "House" })),
       compareAndSet,
@@ -96,7 +96,7 @@ describe("MAEST batch apply contract", () => {
   it("does not let a missing or inaccessible track abort other tracks", async () => {
     const store: MaestBatchApplyStore = {
       read: vi.fn(async (trackId) => trackId === id(1) ? null : { genre: null, subgenre: null }),
-      compareAndSet: vi.fn(async () => "applied"),
+      compareAndSet: vi.fn(async () => "applied" as const),
     };
     const request = parseMaestBatchApplyRequest({ items: [
       { trackId: id(1), genre: { expectedValue: null, evidence: evidence("House") } },
