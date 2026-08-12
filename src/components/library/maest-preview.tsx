@@ -16,8 +16,11 @@ import {
   maestProgressText,
   maestPollingRequest,
   maestGenreWriteAvailability,
+  maestSubgenreWriteAvailability,
   invokeMaestGenreWrite,
   invokeMaestGenreWritePreview,
+  invokeMaestSubgenreWrite,
+  invokeMaestSubgenreWritePreview,
   metadataWriteErrorMessage,
   reduceMaestPreviewState,
   sameMaestLink,
@@ -30,10 +33,12 @@ import type { Tables } from "@/types/database";
 
 export function MaestPreview({
   formGenre,
+  formSubgenre,
   onApply,
   track,
 }: {
   formGenre: string;
+  formSubgenre: string;
   onApply: (proposal: MaestFormProposal) => void;
   track: Tables<"tracks">;
 }) {
@@ -53,8 +58,10 @@ export function MaestPreview({
   const [writeMessage, setWriteMessage] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const [writeRunId, setWriteRunId] = useState<string | null>(null);
+  const [subgenreWritePreview, setSubgenreWritePreview] = useState<Awaited<ReturnType<typeof invokeMaestSubgenreWritePreview>> | null>(null);
+  const [subgenreWriteRunId, setSubgenreWriteRunId] = useState<string | null>(null);
   const writeBusyRef = useRef(false);
-  const writeIdentity = `${trackId}\u0000${sessionId ?? ""}\u0000${scanId ?? ""}\u0000${formGenre}`;
+  const writeIdentity = `${trackId}\u0000${sessionId ?? ""}\u0000${scanId ?? ""}\u0000${formGenre}\u0000${formSubgenre}`;
   const writeIdentityRef = useRef(writeIdentity);
   writeIdentityRef.current = writeIdentity;
   const stateRef = useRef(state);
@@ -102,7 +109,9 @@ export function MaestPreview({
     setWriteMessage(null);
     setWriteError(null);
     setWriteRunId(null);
-  }, [formGenre, scanId, sessionId, trackId]);
+    setSubgenreWritePreview(null);
+    setSubgenreWriteRunId(null);
+  }, [formGenre, formSubgenre, scanId, sessionId, trackId]);
 
   const pollingRequest = maestPollingRequest(state);
   useEffect(() => {
@@ -197,6 +206,7 @@ export function MaestPreview({
   }
 
   const writeAvailability = maestGenreWriteAvailability(track, formGenre, Boolean(identity));
+  const subgenreWriteAvailability = maestSubgenreWriteAvailability(track, formSubgenre, Boolean(identity));
   const writeBusy = writePhase !== "idle";
 
   async function previewGenreWrite() {
@@ -258,6 +268,72 @@ export function MaestPreview({
       await core.invoke("undo_maest_genre_write", { sessionId, runId: writeRunId });
       if (writeIdentityRef.current !== requestedIdentity) return;
       setWriteRunId(null);
+      setWriteMessage(locale === "en" ? "The file was restored from its backup." : "El archivo se restauró desde su copia de seguridad.");
+    } catch (error) {
+      setWriteError(metadataWriteErrorMessage(error, locale));
+    } finally {
+      writeBusyRef.current = false;
+      setWritePhase("idle");
+    }
+  }
+
+  async function previewSubgenreWrite() {
+    if (!sessionId || !scanId || subgenreWriteAvailability !== "available" || writeBusyRef.current) return;
+    const core = getTauriCore();
+    if (!core) return;
+    const requestedIdentity = writeIdentity;
+    writeBusyRef.current = true;
+    setWritePhase("previewing");
+    setWriteError(null);
+    setWriteMessage(null);
+    try {
+      const next = await invokeMaestSubgenreWritePreview(core, sessionId, scanId, formSubgenre);
+      if (writeIdentityRef.current !== requestedIdentity) return;
+      setSubgenreWritePreview(next);
+      setWriteMessage(next.changed
+        ? locale === "en" ? "Review the current and new subgenre, then confirm the write." : "Revisa el subgénero actual y el nuevo antes de confirmar la escritura."
+        : locale === "en" ? "The file already has this subgenre. No backup or write is needed." : "El archivo ya tiene este subgénero. No se necesita copia ni escritura.");
+    } catch (error) {
+      setSubgenreWritePreview(null);
+      setWriteError(metadataWriteErrorMessage(error, locale));
+    } finally {
+      writeBusyRef.current = false;
+      setWritePhase("idle");
+    }
+  }
+
+  async function writeSubgenre() {
+    if (!sessionId || !scanId || !subgenreWritePreview?.changed || writeBusyRef.current) return;
+    const core = getTauriCore();
+    if (!core) return;
+    const requestedIdentity = writeIdentity;
+    writeBusyRef.current = true;
+    setWritePhase("writing");
+    setWriteError(null);
+    try {
+      const result = await invokeMaestSubgenreWrite(core, sessionId, scanId, formSubgenre);
+      if (writeIdentityRef.current !== requestedIdentity) return;
+      setSubgenreWritePreview(null);
+      setSubgenreWriteRunId(result.runId);
+      setWriteMessage(locale === "en" ? "Subgenre written and verified." : "Subgénero escrito y verificado.");
+    } catch (error) {
+      setWriteError(metadataWriteErrorMessage(error, locale));
+    } finally {
+      writeBusyRef.current = false;
+      setWritePhase("idle");
+    }
+  }
+
+  async function undoSubgenreWrite() {
+    if (!sessionId || !subgenreWriteRunId || writeBusyRef.current) return;
+    const core = getTauriCore();
+    if (!core) return;
+    writeBusyRef.current = true;
+    setWritePhase("undoing");
+    setWriteError(null);
+    try {
+      await core.invoke("undo_maest_genre_write", { sessionId, runId: subgenreWriteRunId });
+      setSubgenreWriteRunId(null);
       setWriteMessage(locale === "en" ? "The file was restored from its backup." : "El archivo se restauró desde su copia de seguridad.");
     } catch (error) {
       setWriteError(metadataWriteErrorMessage(error, locale));
@@ -360,6 +436,31 @@ export function MaestPreview({
           {writePreview?.changed ? <dl><div><dt>{locale === "en" ? "Current genre" : "Género actual"}</dt><dd>{writePreview.before ?? "—"}</dd></div><div><dt>{locale === "en" ? "New genre" : "Género nuevo"}</dt><dd>{writePreview.after}</dd></div></dl> : null}
           {writeMessage ? <p aria-live="polite" className="form-message form-message--success" role="status">{writeMessage}</p> : null}
           {writeError ? <p className="form-message form-message--error" role="alert">{writeError}</p> : null}
+        </section>
+      ) : null}
+      {subgenreWriteAvailability !== "unavailable" ? (
+        <section aria-labelledby="maest-subgenre-write-title" className="maest-proposal">
+          <h3 id="maest-subgenre-write-title">{locale === "en" ? "Subgenre in local file" : "Subgénero en el archivo local"}</h3>
+          {subgenreWriteAvailability === "needs-save" ? (
+            <p className="organization-muted" role="status">{locale === "en" ? "Save the form changes before writing the persisted subgenre." : "Guarda primero los cambios del formulario para escribir el subgénero persistido."}</p>
+          ) : (
+            <div className="form-actions">
+              <button className="button button--secondary button--small" disabled={writeBusy} onClick={previewSubgenreWrite} type="button">
+                {writePhase === "previewing" ? (locale === "en" ? "Previewing…" : "Previsualizando…") : (locale === "en" ? "Preview subgenre write" : "Previsualizar escritura de subgénero")}
+              </button>
+              {subgenreWritePreview?.changed ? (
+                <button className="button button--primary button--small" disabled={writeBusy} onClick={writeSubgenre} type="button">
+                  {writePhase === "writing" ? (locale === "en" ? "Writing…" : "Escribiendo…") : (locale === "en" ? "Write subgenre to file" : "Escribir subgénero en archivo")}
+                </button>
+              ) : null}
+              {subgenreWriteRunId ? (
+                <button className="button button--secondary button--small" disabled={writeBusy} onClick={undoSubgenreWrite} type="button">
+                  {writePhase === "undoing" ? (locale === "en" ? "Undoing…" : "Deshaciendo…") : (locale === "en" ? "Undo write" : "Deshacer escritura")}
+                </button>
+              ) : null}
+            </div>
+          )}
+          {subgenreWritePreview?.changed ? <dl><div><dt>{locale === "en" ? "Current subgenre" : "Subgénero actual"}</dt><dd>{subgenreWritePreview.before ?? "—"}</dd></div><div><dt>{locale === "en" ? "New subgenre" : "Subgénero nuevo"}</dt><dd>{subgenreWritePreview.after}</dd></div></dl> : null}
         </section>
       ) : null}
     </section>
