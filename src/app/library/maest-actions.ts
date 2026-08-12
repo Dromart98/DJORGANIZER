@@ -52,7 +52,11 @@ export async function applyMaestBatchProposalsAction(
   };
 
   const items = await executeMaestBatchApply(request, store);
-  if (items.some((item) => item.status === "applied")) {
+  if (
+    items.some(
+      (item) => item.genre === "applied" || item.subgenre === "applied",
+    )
+  ) {
     revalidatePath("/library");
   }
   return { status: "ok", items };
