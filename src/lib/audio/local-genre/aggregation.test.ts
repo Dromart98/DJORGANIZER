@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateGenrePredictions } from "./aggregation";
+import { aggregateGenrePredictions, parseDiscogsClass } from "./aggregation";
 
 const classes = Array.from({ length: 400 }, (_, index) => `Genre---Style ${index}`);
 
@@ -11,10 +11,21 @@ describe("local genre aggregation", () => {
     values[3] = 0.5;
     values[403] = 0.5;
     const suggestion = aggregateGenrePredictions(values, 2, classes, "wasm");
-    expect(suggestion.label).toBe("Genre · Style 4");
+    expect(suggestion.genre).toBe("Genre");
+    expect(suggestion.subgenre).toBe("Style 4");
     expect(suggestion.score).toBeCloseTo(0.7);
     expect(suggestion.alternatives).toHaveLength(4);
     expect(suggestion.backend).toBe("wasm");
+  });
+
+  it("parses exactly one Discogs separator", () => {
+    expect(parseDiscogsClass("Electronic---Techno")).toEqual({
+      genre: "Electronic",
+      subgenre: "Techno",
+    });
+    expect(() => parseDiscogsClass("Electronic")).toThrow(/Discogs/);
+    expect(() => parseDiscogsClass("A---B---C")).toThrow(/Discogs/);
+    expect(() => parseDiscogsClass("---Techno")).toThrow(/Discogs/);
   });
 
   it("rejects non-finite model values", () => {

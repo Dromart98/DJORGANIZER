@@ -37,18 +37,36 @@ const input: ImportTrackInput = {
 const suggestion = {
   alternatives: [],
   backend: "wasm",
-  label: "Electronic · Techno",
+  genre: "Electronic",
   score: 0.82,
+  subgenre: "Techno",
 };
 
 describe("local suggestion review", () => {
-  it("changes only temporary genre fields when accepted", () => {
+  it("preserves a manual genre and fills only the missing subgenre", () => {
     const accepted = applyLocalGenreSuggestion(input, suggestion);
-    expect(accepted.genre).toBe("Electronic · Techno");
-    expect(accepted.genre_confidence).toBe(0.82);
-    expect(accepted.genre_source).toBe("automatic");
+    expect(accepted.genre).toBe("Previous");
+    expect(accepted.genre_source).toBe("manual");
+    expect(accepted.subgenre).toBe("Techno");
+    expect(accepted.subgenre_confidence).toBe(0.82);
+    expect(accepted.subgenre_source).toBe("automatic");
     expect(accepted.title).toBe(input.title);
     expect(input.genre).toBe("Previous");
+  });
+
+  it("fills both empty fields independently with automatic provenance", () => {
+    const accepted = applyLocalGenreSuggestion(
+      { ...input, genre: null, genre_source: null },
+      suggestion,
+    );
+    expect(accepted).toMatchObject({
+      genre: "Electronic",
+      genre_confidence: 0.82,
+      genre_source: "automatic",
+      subgenre: "Techno",
+      subgenre_confidence: 0.82,
+      subgenre_source: "automatic",
+    });
   });
 
   it("preserves the previous genre when rejected", () => {

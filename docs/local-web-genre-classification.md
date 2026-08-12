@@ -98,12 +98,17 @@ El navegador decodifica/remuestrea con `AudioContext({ sampleRate: 16000 })`. Me
 
 ## Arquitectura y revisión
 
-- Importar prepara el modelo en segundo plano, sin botón de descarga ni selector técnico.
+- Importar prepara el modelo en segundo plano e inicia la clasificación elegible
+  tras comprobar duplicados. La cola es secuencial, comparte la cancelación del
+  análisis automático y solo muestra reintento para pistas fallidas o canceladas.
 - Cada backend requiere una inferencia real finita: WebGPU, WebGL, WASM, CPU.
 - El Worker recibe PCM transferible, nunca nombre, metadata o ruta.
 - Cancelar termina el Worker y su cómputo; las inferencias terminadas liberan tensores.
-- Se promedian parches reales y se muestra una sugerencia y hasta cuatro alternativas. La puntuación es orientativa, no probabilidad calibrada.
-- Aceptar cambia solo el formulario temporal. Guardar es una acción separada; rechazar conserva el valor previo.
+- Se promedian parches reales y se muestra una sugerencia y hasta cuatro alternativas.
+  Cada clase válida contiene exactamente un separador `---` y se presenta como
+  género y subgénero independientes. La puntuación es orientativa, no probabilidad calibrada.
+- Aceptar cambia solo los campos vacíos del formulario temporal y protege las
+  correcciones manuales. Guardar es una acción separada; rechazar conserva los valores previos.
 - El contrato PostgreSQL neutral registra una sugerencia aceptada como `automatic`; no reinterpreta sugerencias antiguas guardadas como `manual`. El nombre de Discogs-EffNet permanece como detalle interno del analizador.
 
 ## Caché, offline y privacidad
@@ -115,7 +120,7 @@ El navegador decodifica/remuestrea con `AudioContext({ sampleRate: 16000 })`. Me
 - Tras la primera carga correcta, la caché permite reutilización offline.
 - Audio, rutas, nombres y metadata no se cachean, registran ni suben.
 - Un error local no bloquea edición, guardado, importación ni OpenAI.
-- No incluye lotes, MAEST, ONNX, Tauri, Supabase ni migraciones.
+- No incluye MAEST, ONNX, Tauri, Supabase ni migraciones.
 
 ## Validación real en navegadores
 

@@ -195,6 +195,8 @@ const english = {
   "Solo duplicados": "Duplicates only",
   "Sugerir género con OpenAI": "Suggest genre with OpenAI",
   "Sugerir género localmente": "Suggest genre locally",
+  "Reintentar análisis de género y subgénero":
+    "Retry genre and subgenre analysis",
   "Todas las pistas": "All tracks",
   "Tonalidad": "Key",
   "Tonalidad / BPM": "Key / BPM",
@@ -522,6 +524,8 @@ const english = {
     "Key analysis finished. Review the estimates before saving.",
   "Analizando automáticamente BPM y tonalidad en este dispositivo…":
     "Automatically analyzing BPM and key on this device…",
+  "Analizando automáticamente BPM, tonalidad, energía, género y subgénero en este dispositivo…":
+    "Automatically analyzing BPM, key, energy, genre, and subgenre on this device…",
   "Analizando": "Analyzing",
   "Calculando huella": "Calculating fingerprint",
   "El formato del archivo no parece ser de audio.":
@@ -577,6 +581,8 @@ const english = {
   "versión o remix": "version or remix",
   "DJOrganizer calcula una huella digital del archivo para detectar copias exactas y estima BPM y tonalidad al seleccionarlo. El análisis ocurre en el navegador. Solo guarda los datos que revises; no sube audio ni portadas.":
     "DJOrganizer calculates a file fingerprint to detect exact copies and estimates BPM and key when you select it. Analysis runs in the browser. It only stores the data you review; it does not upload audio or artwork.",
+  "DJOrganizer calcula una huella digital del archivo para detectar copias exactas y estima BPM, tonalidad, energía, género y subgénero al seleccionarlo. El análisis ocurre en el navegador. Solo guarda los datos que revises; no sube audio ni portadas.":
+    "DJOrganizer calculates a file fingerprint to detect exact copies and estimates BPM, key, energy, genre, and subgenre when you select it. Analysis runs in the browser. It only stores the data you review; it does not upload audio or artwork.",
   "guardados": "saved",
   "listos": "ready",
   "Agrupar por": "Group by",
