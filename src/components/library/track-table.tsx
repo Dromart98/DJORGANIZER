@@ -9,6 +9,7 @@ import {
 import { deleteTracksAction } from "@/app/library/actions";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import { BulkEditForm } from "@/components/library/bulk-edit-form";
+import { MaestBatchAnalysis } from "@/components/library/maest-batch-analysis";
 import { DesktopExportLink } from "@/components/desktop/desktop-export-link";
 import {
   formatDeleteTracksConfirmation,
@@ -82,6 +83,13 @@ export function TrackTable({
           {formatSelectedCount(locale, selected.size)}
         </span>
         <div className="bulk-actions">
+          <MaestBatchAnalysis tracks={tracks.filter((track) => selected.has(track.id)).map((track) => ({
+            trackId: track.id, title: track.title, artist: track.artist,
+            evidence: {
+              genre: { value: track.genre, source: track.genre_source, analyzerId: track.genre_analyzer_id, analyzerVersion: track.genre_analyzer_version, compatibilityKey: track.genre_compatibility_key, analyzedAt: track.genre_analyzed_at_ms, rawScore: track.genre_raw_score },
+              subgenre: { value: track.subgenre, source: track.subgenre_source, analyzerId: track.subgenre_analyzer_id, analyzerVersion: track.subgenre_analyzer_version, compatibilityKey: track.subgenre_compatibility_key, analyzedAt: track.subgenre_analyzed_at_ms, rawScore: track.subgenre_raw_score },
+            },
+          }))} />
           <DesktopExportLink request={{ trackIds: Array.from(selected) }} />
           <BulkEditForm
             returnTo={returnTo}
