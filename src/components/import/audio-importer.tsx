@@ -27,7 +27,10 @@ import type {
 } from "@/lib/audio/local-genre/types";
 import { applyLocalGenreSuggestion } from "@/lib/audio/local-genre/suggestion";
 import { needsLocalGenreSuggestion } from "@/lib/audio/local-genre/import-analysis";
-import { isAutomaticAnalysisEligibleStatus } from "@/lib/import/automatic-analysis";
+import {
+  isAutomaticAnalysisActive,
+  isAutomaticAnalysisEligibleStatus,
+} from "@/lib/import/automatic-analysis";
 import {
   detectBpmFromAudioBuffer,
   detectBpmFromFile,
@@ -1044,6 +1047,8 @@ export function AudioImporter() {
   }
 
   async function saveReadyTracks() {
+    if (isAutomaticAnalysisActive(automaticAnalysisProgress)) return;
+
     const ready = items.filter(
       (item): item is ImportItem & { data: ImportTrackInput } =>
         item.status === "ready" && Boolean(item.data),
@@ -1442,7 +1447,8 @@ export function AudioImporter() {
         isSaving ||
         isAnalyzingBpm ||
         isAnalyzingKey ||
-        isLocalGenreAnalyzing
+        isLocalGenreAnalyzing ||
+        isAutomaticAnalysisActive(automaticAnalysisProgress)
       }
     >
       <div className="card import-dropzone">
@@ -1531,7 +1537,8 @@ export function AudioImporter() {
                   isSaving ||
                   isReading ||
                   isAnalyzingBpm ||
-                  isAnalyzingKey
+                  isAnalyzingKey ||
+                  isAutomaticAnalysisActive(automaticAnalysisProgress)
                 }
                 onClick={() => void saveReadyTracks()}
                 type="button"

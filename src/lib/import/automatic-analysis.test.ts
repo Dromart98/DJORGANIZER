@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { isAutomaticAnalysisEligibleStatus } from "@/lib/import/automatic-analysis";
+import {
+  isAutomaticAnalysisActive,
+  isAutomaticAnalysisEligibleStatus,
+} from "@/lib/import/automatic-analysis";
+
+describe("isAutomaticAnalysisActive", () => {
+  it("keeps saving blocked until automatic analysis clears its progress", () => {
+    expect(isAutomaticAnalysisActive({ completed: 1, total: 2 })).toBe(true);
+    expect(isAutomaticAnalysisActive(null)).toBe(false);
+  });
+});
 
 describe("isAutomaticAnalysisEligibleStatus", () => {
   it("analyzes files even when required metadata still needs review", () => {
