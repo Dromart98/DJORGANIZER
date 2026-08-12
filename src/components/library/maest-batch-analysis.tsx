@@ -105,7 +105,13 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
       if (!mountedRef.current) return;
       setApplyResult(result);
       setReviewSelection({});
-      if (result.items.some((item) => item.status === "applied")) router.refresh();
+      if (
+        result.items.some(
+          (item) => item.genre === "applied" || item.subgenre === "applied",
+        )
+      ) {
+        router.refresh();
+      }
     } finally {
       if (mountedRef.current) setApplying(false);
     }
