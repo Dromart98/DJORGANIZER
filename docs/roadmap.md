@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-08-10.
+Actualizado: 2026-08-12.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -248,10 +248,18 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   corrige el total a una ventana. La UI consulta ese snapshot con polling
   secuencial no solapado, lo asocia a la identidad exacta de la operación y limpia
   el polling en cancelación, cambio de identidad, éxito, error o desmontaje.
+- [x] Analizar secuencialmente con MAEST la selección visible de Biblioteca, con
+  un máximo defensivo de 25 pistas. El orquestador frontend prepara el modelo una
+  sola vez, genera un `operationId` por pista, reutiliza cancelación y progreso
+  nativos, omite por defecto pistas ya clasificadas o no vinculadas, continúa tras
+  fallos parciales normales, se detiene ante `analyzer_busy` y conserva los
+  resultados exclusivamente en memoria sin aplicarlos ni persistirlos.
 - [ ] Completar la clasificación local de escritorio con MAEST: escritura de
-  subgénero u otras etiquetas portables y lotes. Conservar audio y rutas
-  exclusivamente en el dispositivo y comparar CPU y aceleración disponible antes
-  de habilitar análisis masivo.
+  subgénero u otras etiquetas portables, revisión/aplicación masiva de propuestas
+  y ampliación del lote más allá de la selección visible cuando el rendimiento y
+  la experiencia estén validados. Conservar audio y rutas exclusivamente en el
+  dispositivo y comparar CPU y aceleración disponible antes de habilitar análisis
+  masivo de toda la biblioteca.
   Referencia: [MAEST Discogs519](https://essentia.upf.edu/models.html#genre-discogs519).
 - [x] Verificar y documentar la licencia de `discogs-effnet-bs64-1`: modelo y
   derivados bajo CC BY-NC-SA 4.0, con atribución separada, ShareAlike y uso
@@ -266,13 +274,12 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
   audio completo a Supabase, no analizar en segundo plano y ofrecer una salida
   segura cuando el equipo no pueda cargar el modelo.
   Referencia: [laion/larger_clap_music](https://huggingface.co/laion/larger_clap_music).
-- [ ] Añadir después el análisis de género por lotes para varias pistas o toda
-  la biblioteca. Debe usar el proveedor local compatible con el dispositivo,
-  procesar por ventanas acotadas, mostrar modelo, licencia, confianza, coste
-  estimado cuando use API, progreso, cancelación, errores parciales y canciones
-  omitidas. No reenviar pistas ya clasificadas sin autorización ni aplicar
-  géneros automáticamente: las sugerencias se revisan individualmente o
-  mediante una confirmación masiva explícita.
+- [ ] Ampliar después el análisis local por lotes desde la selección visible a
+  conjuntos mayores o toda la biblioteca. Debe mantener procesamiento acotado,
+  progreso, cancelación, errores parciales y canciones omitidas, sin reenviar
+  pistas ya clasificadas sin autorización ni aplicar géneros automáticamente.
+  Las sugerencias seguirán siendo revisables individualmente o mediante una
+  confirmación masiva explícita.
 - [x] Calcular energía real con una escala documentada y editable.
 - [x] Detectar duplicados acústicos o versiones recodificadas, además de copias
   binarias exactas.
@@ -456,7 +463,7 @@ recogidos en [`docs/ux-ui-roadmap.md`](./ux-ui-roadmap.md).
 - Subgénero persistente e independiente, integrado en importación, edición y consultas de Biblioteca.
 - Energía visible y persistida como entero 0–10, con migración determinista de datos 0–100.
 - Procedencia neutral (`automatic`, `metadata`, `manual`, `unknown`) y contrato TypeScript por campo para analizadores presentes y futuros.
-- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera, la aplicación explícita al formulario y la persistencia validada por campo de identidad/version/compatibility key/fecha/score bruto MAEST están implementados; la propuesta nunca se guarda automáticamente y las ediciones manuales invalidan la evidencia correspondiente. La escritura explícita y segura de la etiqueta estándar `Genre` desde un género MAEST persistido también está implementada mediante previsualización, confirmación, backup, verificación, historial/deshacer y aliases locales acotados. El análisis de pistas largas usa hasta tres ventanas deterministas de 30 s (inicio, centro y final), deduplicadas y agregadas por media aritmética bajo un único `InferenceGate`; solo una incapacidad real de seek seguro degrada a la primera ventana, mientras que errores de decode/resample/preprocess se propagan. Los resultados multi-ventana usan una compatibility key v3 y la evidencia legacy v2 continúa aceptada sin migración. La cancelación cooperativa por pista también está implementada con `operationId` efímero, handshake nativo previo a la ejecución, checkpoints acotados de cancelación, cleanup de lifecycle y descarte de resultados parciales sin bloquear el `InferenceGate`. El progreso estructural de una pista también está implementado sobre el mismo `operationId`: expone solo fase y contadores de ventanas, corrige el total efectivo tras fallback y la UI lo consulta mediante polling secuencial sin solapamiento que se detiene al finalizar, cancelar o cambiar de identidad. La escritura de subgénero u otras etiquetas y los lotes siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
+- La base del runtime MAEST y el pipeline interno acotado por contenido —decodificación a PCM mono `f32`, remuestreo a exactamente 480 000 muestras a 16 kHz, preprocesamiento a `1876 × 96`, inferencia ONNX de 519 scores internos y propuesta Discogs— están implementados y validados. El análisis por pista, su previsualización efímera, la aplicación explícita al formulario y la persistencia validada por campo de identidad/version/compatibility key/fecha/score bruto MAEST están implementados; la propuesta nunca se guarda automáticamente y las ediciones manuales invalidan la evidencia correspondiente. La escritura explícita y segura de la etiqueta estándar `Genre` desde un género MAEST persistido también está implementada mediante previsualización, confirmación, backup, verificación, historial/deshacer y aliases locales acotados. El análisis de pistas largas usa hasta tres ventanas deterministas de 30 s (inicio, centro y final), deduplicadas y agregadas por media aritmética bajo un único `InferenceGate`; solo una incapacidad real de seek seguro degrada a la primera ventana, mientras que errores de decode/resample/preprocess se propagan. Los resultados multi-ventana usan una compatibility key v3 y la evidencia legacy v2 continúa aceptada sin migración. La cancelación cooperativa por pista también está implementada con `operationId` efímero, handshake nativo previo a la ejecución, checkpoints acotados de cancelación, cleanup de lifecycle y descarte de resultados parciales sin bloquear el `InferenceGate`. El progreso estructural de una pista también está implementado sobre el mismo `operationId`: expone solo fase y contadores de ventanas, corrige el total efectivo tras fallback y la UI lo consulta mediante polling secuencial sin solapamiento que se detiene al finalizar, cancelar o cambiar de identidad. El lote secuencial de la selección visible de Biblioteca también está implementado: prepara el modelo una sola vez, procesa hasta 25 pistas en orden, conserva progreso/cancelación por operación, omite pistas ya analizadas o no vinculadas por defecto y mantiene resultados efímeros revisables sin persistencia ni aplicación automática. La escritura de subgénero u otras etiquetas, la aplicación masiva y los lotes de toda la biblioteca siguen pendientes. OpenAI permanece disponible sin definir el dominio persistido.
 
 ## Gate de distribución pública — orden obligatorio
 
