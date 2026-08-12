@@ -45,6 +45,8 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await page.addInitScript(() => {
     const NativeWorker = window.Worker;
     class LocalGenreWorkerStub extends EventTarget {
+      private analyzeCount = 0;
+
       postMessage(message: unknown) {
         const request = message as { id: string; type: string };
         const mode = window.localStorage.getItem("e2e-local-genre-mode") ?? "ready";
@@ -70,7 +72,13 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
           }, 750);
           return;
         }
-        if (mode === "hang") return;
+        this.analyzeCount += 1;
+        if (
+          mode === "hang" ||
+          (mode === "hang-second" && this.analyzeCount === 2)
+        ) {
+          return;
+        }
         queueMicrotask(() => {
           this.dispatchEvent(
             new MessageEvent("message", {
@@ -85,12 +93,21 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
                       id: request.id,
                       suggestion: {
                         alternatives: [
-                          { label: "Electronic · House", score: 0.64 },
-                          { label: "Electronic · Tech House", score: 0.53 },
+                          {
+                            genre: "Electronic",
+                            score: 0.64,
+                            subgenre: "House",
+                          },
+                          {
+                            genre: "Electronic",
+                            score: 0.53,
+                            subgenre: "Tech House",
+                          },
                         ],
                         backend: "wasm",
-                        label: "Electronic · Techno",
+                        genre: "Electronic",
                         score: 0.82,
+                        subgenre: "Techno",
                       },
                       type: "result",
                     },
@@ -232,6 +249,9 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     page.getByText("Folder in the desktop app", { exact: true }),
   ).toBeVisible();
 
+  await page.evaluate(() =>
+    window.localStorage.setItem("e2e-local-genre-mode", "hang-second"),
+  );
   await page.locator("#audio-files").setInputFiles([
     {
       buffer: createTestWav(220),
@@ -261,37 +281,51 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   ).toHaveCount(2);
   await expect(
     page.getByRole("button", { name: "Suggest genre locally" }),
-  ).toHaveCount(2);
+  ).toHaveCount(0);
 
-  await firstItem.getByRole("button", { name: "Suggest genre locally" }).click();
-  await expect(firstItem.getByText("Electronic · Techno")).toBeVisible();
+  await expect(
+    firstItem.getByText(/Genre: Electronic · Subgenre: Techno/),
+  ).toBeVisible({ timeout: 30_000 });
   await expect(firstItem.getByText("Local analysis", { exact: true })).toBeVisible();
-  await expect(firstItem.getByText(/Alternatives: Electronic · House/)).toBeVisible();
-  await firstItem.getByRole("button", { name: "Reject" }).click();
-  await expect(firstItem.getByText("Electronic · Techno")).toHaveCount(0);
+  await expect(firstItem.getByText(/Alternatives: Electronic \/ House/)).toBeVisible();
 
-  await firstItem.getByRole("button", { name: "Suggest genre locally" }).click();
-  await firstItem.getByRole("button", { name: "Accept suggestion" }).click();
-  await expect(firstItem.getByLabel("Genre", { exact: true })).toHaveValue("Electronic · Techno");
-  await expect(firstItem.getByLabel("Subgenre", { exact: true })).toHaveValue("");
-
-  await page.evaluate(() =>
-    window.localStorage.setItem("e2e-local-genre-mode", "hang"),
-  );
-  await secondItem.getByRole("button", { name: "Suggest genre locally" }).click();
+  await expect(secondItem.getByRole("button", { name: "Cancel" })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByRole("button", { name: "Save 2 tracks" })).toBeDisabled();
   await secondItem.getByRole("button", { name: "Cancel" }).click();
   await expect(secondItem.getByText("Local analysis cancelled.")).toBeVisible();
-
-  await expect(page.getByText(/Local analysis ready · WASM/)).toBeVisible();
-  await page.evaluate(() =>
-    window.localStorage.setItem("e2e-local-genre-mode", "error"),
-  );
-  await secondItem.getByRole("button", { name: "Suggest genre locally" }).click();
   await expect(
-    secondItem.getByRole("alert").filter({
-      hasText: "A local genre suggestion could not be produced.",
+    secondItem.getByRole("button", {
+      name: "Retry genre and subgenre analysis",
     }),
   ).toBeVisible();
+
+  await page.evaluate(() =>
+    window.localStorage.setItem("e2e-local-genre-mode", "ready"),
+  );
+  await expect(page.getByText(/Local analysis ready · WASM/)).toBeVisible();
+  await secondItem
+    .getByRole("button", { name: "Retry genre and subgenre analysis" })
+    .click();
+  await expect(
+    secondItem.getByText(/Genre: Electronic · Subgenre: Techno/),
+  ).toBeVisible({ timeout: 30_000 });
+
+  await firstItem.getByRole("button", { name: "Accept suggestion" }).click();
+  await expect(firstItem.getByLabel("Genre", { exact: true })).toHaveValue(
+    "Electronic",
+  );
+  await expect(firstItem.getByLabel("Subgenre", { exact: true })).toHaveValue(
+    "Techno",
+  );
+  await secondItem.getByRole("button", { name: "Reject" }).click();
+  await expect(
+    secondItem.getByText(/Genre: Electronic · Subgenre: Techno/),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Retry genre and subgenre analysis" }),
+  ).toHaveCount(0);
   await expect(
     secondItem.getByRole("button", { name: "Suggest genre with OpenAI" }),
   ).toBeEnabled();
