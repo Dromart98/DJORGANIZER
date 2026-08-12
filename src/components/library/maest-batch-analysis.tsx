@@ -1,21 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { applyMaestBatchAction } from "@/app/library/actions";
 import { useDesktopScanSession } from "@/components/desktop/scan-session-provider";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import { MAX_MAEST_BATCH_TRACKS, MaestBatchOrchestrator, maestBatchActionDisabled, maestBatchActionVisible, type MaestBatchState, type MaestBatchTrack } from "@/lib/desktop/maest-batch";
-import { maestProgressText } from "@/lib/desktop/maest-preview";
+import { maestFormProposal, maestProgressText } from "@/lib/desktop/maest-preview";
+import type { MaestBatchApplicationResult } from "@/lib/library/maest-batch-apply";
 import { getTauriCore } from "@/lib/desktop/tauri";
 
 export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   const { getTrackLink } = useDesktopScanSession();
   const { locale } = useTranslator();
+  const router = useRouter();
   const [desktopAvailable, setDesktopAvailable] = useState(false);
   const [open, setOpen] = useState(false);
   const [includeAnalyzed, setIncludeAnalyzed] = useState(false);
   const [state, setState] = useState<MaestBatchState | null>(null);
   const [limitError, setLimitError] = useState(false);
   const [preparationSettling, setPreparationSettling] = useState(false);
+  const [selected, setSelected] = useState<Record<string, { genre: boolean; subgenre: boolean }>>({});
+  const [applicationResults, setApplicationResults] = useState<MaestBatchApplicationResult[]>([]);
+  const [applying, setApplying] = useState(false);
   const orchestratorRef = useRef<MaestBatchOrchestrator | null>(null);
   const getTrackLinkRef = useRef(getTrackLink);
   getTrackLinkRef.current = getTrackLink;
@@ -34,6 +41,7 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
     const core = getTauriCore();
     if (!core) return;
     setLimitError(false); setOpen(true);
+    setSelected({}); setApplicationResults([]);
     const orchestrator = new MaestBatchOrchestrator({ core, tracks: batchTracks, getTrackLink: (id) => getTrackLinkRef.current(id), includeAnalyzed, locale, onState: setState, onPreparationSettlingChange: (settling) => { if (mountedRef.current) setPreparationSettling(settling); } });
     orchestratorRef.current = orchestrator;
     void orchestrator.run();
@@ -43,6 +51,33 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   function retryFailed() {
     if (!state) return;
     startBatch(state.items.filter((item) => item.status === "failed").map(({ trackId, title, artist, evidence }) => ({ trackId, title, artist, evidence })));
+  }
+  function toggleField(trackId: string, field: "genre" | "subgenre", checked: boolean) {
+    setSelected((current) => ({ ...current, [trackId]: { genre: current[trackId]?.genre ?? false, subgenre: current[trackId]?.subgenre ?? false, [field]: checked } }));
+  }
+  async function applySelected() {
+    if (!state || applying) return;
+    const payload = state.items.flatMap((item) => {
+      if (item.status !== "completed") return [];
+      const proposal = maestFormProposal(item.result ?? null);
+      const choice = selected[item.trackId];
+      if (!proposal || !choice || (!choice.genre && !choice.subgenre)) return [];
+      const fields = {
+        ...(choice.genre && proposal.genre ? { genre: proposal.genre } : {}),
+        ...(choice.subgenre && proposal.subgenre ? { subgenre: proposal.subgenre } : {}),
+      };
+      if (!fields.genre && !fields.subgenre) return [];
+      return [{ trackId: item.trackId, expected: { genre: item.evidence.genre.value, subgenre: item.evidence.subgenre.value }, fields }];
+    });
+    if (!payload.length) return;
+    const confirmed = window.confirm(locale === "en" ? `Save the selected proposals for ${payload.length} tracks?` : `¿Guardar las propuestas seleccionadas de ${payload.length} pistas?`);
+    if (!confirmed) return;
+    setApplying(true);
+    try {
+      const results = await applyMaestBatchAction(payload);
+      setApplicationResults(results);
+      router.refresh();
+    } finally { setApplying(false); }
   }
   const counts = state?.items.reduce((result, item) => {
     if (item.status === "completed") result.completed += 1;
@@ -65,20 +100,30 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
           {counts ? <p>{locale === "en" ? `Completed: ${counts.completed} · Skipped: ${counts.skipped} · Failed: ${counts.failed} · Pending: ${counts.pending}` : `Completadas: ${counts.completed} · Omitidas: ${counts.skipped} · Fallidas: ${counts.failed} · Pendientes: ${counts.pending}`}</p> : null}
         </div>
         {state.error ? <p className="form-message form-message--error" role="alert">{state.error}</p> : null}
-        <ul className="maest-batch__results">{state.items.map((item) => <li key={item.trackId}>
+        <ul className="maest-batch__results">{state.items.map((item) => {
+          const proposal = item.status === "completed" ? maestFormProposal(item.result ?? null) : null;
+          const application = applicationResults.find((result) => result.trackId === item.trackId);
+          return <li key={item.trackId}>
           <strong>{item.title}</strong><span>{item.artist ?? (locale === "en" ? "Unknown artist" : "Artista desconocido")}</span><span>{batchStatus(item.status, locale)}</span>
-          {item.result?.analysis.genre.proposedValue ? <span>{locale === "en" ? "Proposed genre" : "Género propuesto"}: {item.result.analysis.genre.proposedValue}</span> : null}
-          {item.result?.analysis.subgenre.proposedValue ? <span>{locale === "en" ? "Proposed subgenre" : "Subgénero propuesto"}: {item.result.analysis.subgenre.proposedValue}</span> : null}
+          {proposal?.genre ? <label><input checked={selected[item.trackId]?.genre ?? false} disabled={applying || Boolean(application)} onChange={(event) => toggleField(item.trackId, "genre", event.target.checked)} type="checkbox" /> {locale === "en" ? "Genre" : "Género"}: {item.evidence.genre.value || "—"} → <strong>{proposal.genre.value}</strong></label> : null}
+          {proposal?.subgenre ? <label><input checked={selected[item.trackId]?.subgenre ?? false} disabled={applying || Boolean(application)} onChange={(event) => toggleField(item.trackId, "subgenre", event.target.checked)} type="checkbox" /> {locale === "en" ? "Subgenre" : "Subgénero"}: {item.evidence.subgenre.value || "—"} → <strong>{proposal.subgenre.value}</strong></label> : null}
+          {application ? <span role="status">{applicationStatus(application.status, locale)}</span> : null}
           {item.error ? <span className="form-message--error">{item.error}</span> : null}
-        </li>)}</ul>
+        </li>; })}</ul>
       </> : null}
       <div className="form-actions">
         {busy ? <button className="button button--secondary button--small" onClick={cancelBatch} type="button">{locale === "en" ? "Cancel batch" : "Cancelar lote"}</button> : null}
         {state?.items.some((item) => item.status === "failed") && !busy ? <button className="button button--secondary button--small" onClick={retryFailed} type="button">{locale === "en" ? "Retry failed" : "Reintentar fallidas"}</button> : null}
+        {state?.phase === "completed" && state.items.some((item) => item.status === "completed") ? <button className="button button--primary button--small" disabled={applying || !Object.values(selected).some((choice) => choice.genre || choice.subgenre)} onClick={applySelected} type="button">{applying ? (locale === "en" ? "Saving…" : "Guardando…") : (locale === "en" ? "Save selected proposals" : "Guardar propuestas seleccionadas")}</button> : null}
         {!busy ? <button className="button button--secondary button--small" onClick={closeResults} type="button">{locale === "en" ? "Close results" : "Cerrar resultados"}</button> : null}
       </div>
     </section> : null}
   </div>;
+}
+
+function applicationStatus(status: MaestBatchApplicationResult["status"], locale: "es" | "en") {
+  const labels = locale === "en" ? { applied: "Applied", omitted: "Skipped", conflict: "Conflict: the current value changed", failed: "Could not apply" } : { applied: "Aplicada", omitted: "Omitida", conflict: "Conflicto: cambió el valor actual", failed: "No se pudo aplicar" };
+  return labels[status];
 }
 
 function batchStatus(status: MaestBatchState["items"][number]["status"], locale: "es" | "en") {

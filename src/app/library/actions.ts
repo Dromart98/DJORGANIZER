@@ -8,6 +8,11 @@ import { translate, translateKnown } from "@/lib/i18n/functional";
 import { getCurrentLocale } from "@/lib/i18n/server";
 import { bulkTrackUpdateFromFormData } from "@/lib/library/bulk-track-update";
 import {
+  maestBatchTrackUpdate,
+  parseMaestBatchApplications,
+  type MaestBatchApplicationResult,
+} from "@/lib/library/maest-batch-apply";
+import {
   toTrackInsert,
   toTrackUpdate,
   maestEvidenceFromFormData,
@@ -213,4 +218,33 @@ export async function bulkUpdateTracksAction(formData: FormData) {
 
   revalidatePath("/library");
   redirect(withLibraryStatus(returnTo, "bulkUpdated"));
+}
+
+export async function applyMaestBatchAction(payload: unknown): Promise<MaestBatchApplicationResult[]> {
+  const user = await requireUser();
+  const parsed = parseMaestBatchApplications(payload);
+  const supabase = await createClient();
+  const results: MaestBatchApplicationResult[] = parsed.rejectedTrackIds.map((trackId) => ({ trackId, status: "failed" }));
+
+  for (const application of parsed.applications) {
+    const { update, appliedFields } = maestBatchTrackUpdate(application);
+    if (!appliedFields.length) {
+      results.push({ trackId: application.trackId, status: "omitted" });
+      continue;
+    }
+    let query = supabase.from("tracks").update(update)
+      .eq("id", application.trackId)
+      .eq("user_id", user.id);
+    for (const field of appliedFields) {
+      const expected = application.expected[field];
+      query = expected === null ? query.is(field, null) : query.eq(field, expected);
+    }
+    const { data, error } = await query.select("id").maybeSingle();
+    if (error) results.push({ trackId: application.trackId, status: "failed" });
+    else if (!data) results.push({ trackId: application.trackId, status: "conflict" });
+    else results.push({ trackId: application.trackId, status: "applied", appliedFields });
+  }
+
+  if (results.some((result) => result.status === "applied")) revalidatePath("/library");
+  return results;
 }
