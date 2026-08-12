@@ -1333,3 +1333,4 @@ td strong { color: #f0f3f4; font-weight: 650; }
 .maest-batch__results { display:grid;gap:8px;margin:0;padding:0;list-style:none }
 .maest-batch__results li { display:grid;grid-template-columns:minmax(120px,1fr) minmax(100px,1fr) auto;gap:4px 12px;padding:10px;background:var(--surface-2);border-radius:var(--radius-sm) }
 .maest-batch__results li span { color:var(--muted) }
+.maest-batch__results li label { display:flex;align-items:center;gap:6px;grid-column:1/-1;color:var(--muted) }
