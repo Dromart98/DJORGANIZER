@@ -79,15 +79,15 @@ rechazable.
 
 ### 3. Añadir análisis completo desde Ver o editar canción
 
-- [ ] Añadir una acción única **Analizar pista** en la vista o edición de una
+- [x] Añadir una acción única **Analizar pista** en la vista o edición de una
   canción para calcular los campos disponibles: BPM, tonalidad, Camelot,
   energía, género y subgénero.
-- [ ] Ejecutarla solo cuando el archivo asociado esté disponible en la sesión
+- [x] Ejecutarla solo cuando el archivo asociado esté disponible en la sesión
   confirmada del dispositivo. La interfaz no debe solicitar ni mostrar rutas
   arbitrarias.
-- [ ] Mostrar progreso, cancelación, resultado por campo, confianza y errores
+- [x] Mostrar progreso, cancelación, resultado por campo, confianza y errores
   parciales. Un fallo de género no debe descartar BPM o tonalidad correctos.
-- [ ] No sobrescribir valores editados manualmente; presentar comparación entre
+- [x] No sobrescribir valores editados manualmente; presentar comparación entre
   valor actual y resultado calculado antes de guardar cambios.
 
 ### 4. Calcular género y subgénero automáticamente durante la importación

@@ -11,6 +11,7 @@ import {
   toTrackInsert,
   toTrackUpdate,
   maestEvidenceFromFormData,
+  nativeAnalysisEvidenceFromFormData,
   trackIdSchema,
   trackIdsSchema,
   trackValuesFromFormData,
@@ -120,7 +121,7 @@ export async function updateTrackAction(
   }
   const { data, error } = await supabase
     .from("tracks")
-    .update(toTrackUpdate(values, persisted, maestEvidenceFromFormData(formData)))
+    .update(toTrackUpdate(values, persisted, maestEvidenceFromFormData(formData), nativeAnalysisEvidenceFromFormData(formData)))
     .eq("id", idResult.data)
     .eq("user_id", user.id)
     .select("id")

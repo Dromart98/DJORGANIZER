@@ -5,8 +5,10 @@ import {
   DESKTOP_MAEST_ANALYZER,
   DESKTOP_MAEST_COMPATIBILITY_KEYS,
 } from "@/lib/desktop/maest-analysis";
+import { DESKTOP_TRACK_ANALYZER } from "@/lib/desktop/track-analysis";
 
 export const MAEST_EVIDENCE_FIELD = "maest_evidence";
+export const NATIVE_ANALYSIS_EVIDENCE_FIELD = "native_analysis_evidence";
 const MAX_MAEST_EVIDENCE_LENGTH = 2_048;
 
 const maestFieldEvidenceSchema = z.object({
@@ -26,6 +28,47 @@ const maestFormEvidenceSchema = z.object({
 }).strict();
 
 export type MaestFormEvidence = z.infer<typeof maestFormEvidenceSchema>;
+
+const nativeEvidenceBase = z.object({
+  analyzerId: z.literal(DESKTOP_TRACK_ANALYZER.id),
+  analyzerVersion: z.literal(DESKTOP_TRACK_ANALYZER.version),
+  confidence: z.number().finite().min(0).max(1),
+}).strict();
+const nativeAnalysisEvidenceSchema = z.object({
+  bpm: nativeEvidenceBase.extend({ value: z.number().finite().min(20).max(300) }).strict().optional(),
+  energy: nativeEvidenceBase.extend({ value: z.number().int().min(0).max(10) }).strict().optional(),
+  key: nativeEvidenceBase.extend({ value: z.string(), camelotValue: z.string() }).strict()
+    .refine((evidence) => {
+      const key = normalizeMusicalKey(evidence.value);
+      const camelot = normalizeMusicalKey(evidence.camelotValue);
+      return Boolean(key && camelot && key.musicalKey === camelot.musicalKey && key.camelotKey === camelot.camelotKey);
+    }).optional(),
+}).strict();
+export type NativeAnalysisFormEvidence = z.infer<typeof nativeAnalysisEvidenceSchema>;
+
+export function nativeAnalysisEvidenceFromFormData(formData: FormData): NativeAnalysisFormEvidence {
+  const raw = formData.get(NATIVE_ANALYSIS_EVIDENCE_FIELD);
+  if (typeof raw !== "string" || raw.length > 2_048) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const record = parsed as Record<string, unknown>;
+    if (Object.keys(record).some((key) => key !== "bpm" && key !== "energy" && key !== "key")) return {};
+    return nativeAnalysisEvidenceSchema.parse({
+      ...(nativeAnalysisEvidenceSchema.shape.bpm.safeParse(record.bpm).data
+        ? { bpm: nativeAnalysisEvidenceSchema.shape.bpm.parse(record.bpm) }
+        : {}),
+      ...(nativeAnalysisEvidenceSchema.shape.energy.safeParse(record.energy).data
+        ? { energy: nativeAnalysisEvidenceSchema.shape.energy.parse(record.energy) }
+        : {}),
+      ...(nativeAnalysisEvidenceSchema.shape.key.safeParse(record.key).data
+        ? { key: nativeAnalysisEvidenceSchema.shape.key.parse(record.key) }
+        : {}),
+    });
+  } catch {
+    return {};
+  }
+}
 
 export function maestEvidenceFromFormData(formData: FormData): MaestFormEvidence {
   const raw = formData.get(MAEST_EVIDENCE_FIELD);
@@ -184,6 +227,7 @@ export function toTrackUpdate(
   values: TrackFormValues,
   persisted: TrackAnalysisEvidence,
   maestEvidence: MaestFormEvidence = {},
+  nativeEvidence: NativeAnalysisFormEvidence = {},
 ): TablesUpdate<"tracks"> {
   const normalizedKey = normalizeMusicalKey(
     values.musical_key ?? values.camelot_key,
@@ -202,6 +246,16 @@ export function toTrackUpdate(
   const keyChanged =
     musicalKey !== (persistedKey?.musicalKey ?? persisted.musical_key) ||
     camelotKey !== (persistedKey?.camelotKey ?? persisted.camelot_key);
+  const acceptedBpmEvidence = nativeEvidence.bpm?.value === bpm
+    ? nativeEvidence.bpm
+    : undefined;
+  const acceptedEnergyEvidence = nativeEvidence.energy?.value === energy
+    ? nativeEvidence.energy
+    : undefined;
+  const acceptedKeyEvidence = nativeEvidence.key?.value === musicalKey &&
+    nativeEvidence.key.camelotValue === camelotKey
+    ? nativeEvidence.key
+    : undefined;
 
   const classificationEvidence = (
     field: "genre" | "subgenre",
@@ -237,30 +291,30 @@ export function toTrackUpdate(
   return {
     ...values,
     bpm,
-    ...(bpmChanged
+    ...(bpmChanged || acceptedBpmEvidence
       ? {
-          bpm_confidence: null,
-          bpm_explanation: bpm === null ? null : "Valor revisado manualmente.",
-          bpm_source: bpm === null ? null : "manual",
+          bpm_confidence: acceptedBpmEvidence?.confidence ?? null,
+          bpm_explanation: bpm === null ? null : acceptedBpmEvidence ? "Analizado automáticamente en el dispositivo." : "Valor revisado manualmente.",
+          bpm_source: bpm === null ? null : acceptedBpmEvidence ? "automatic" : "manual",
         }
       : {}),
     duration_seconds: values.duration_seconds ?? null,
     energy,
-    ...(energyChanged
+    ...(energyChanged || acceptedEnergyEvidence
       ? {
-          energy_confidence: null,
-          energy_source: energy === null ? null : "manual",
+          energy_confidence: acceptedEnergyEvidence?.confidence ?? null,
+          energy_source: energy === null ? null : acceptedEnergyEvidence ? "automatic" : "manual",
         }
       : {}),
     ...classificationEvidence("genre", genreChanged),
     ...classificationEvidence("subgenre", subgenreChanged),
     camelot_key: camelotKey,
-    ...(keyChanged
+    ...(keyChanged || acceptedKeyEvidence
       ? {
-          key_confidence: null,
+          key_confidence: acceptedKeyEvidence?.confidence ?? null,
           key_explanation:
-            normalizedKey === null ? null : "Valor revisado manualmente.",
-          key_source: normalizedKey === null ? null : "manual",
+            normalizedKey === null ? null : acceptedKeyEvidence ? "Analizado automáticamente en el dispositivo." : "Valor revisado manualmente.",
+          key_source: normalizedKey === null ? null : acceptedKeyEvidence ? "automatic" : "manual",
         }
       : {}),
     musical_key: musicalKey,

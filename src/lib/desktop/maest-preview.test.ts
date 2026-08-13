@@ -364,25 +364,28 @@ describe("MAEST preview UI state controller", () => {
       fileURLToPath(new URL("../../components/library/track-form.tsx", import.meta.url)),
       "utf8",
     );
-    expect(component).toContain("Analizar localmente");
+    expect(component).toContain("Analizar pista");
+    expect(component).not.toContain("Analizar localmente");
     expect(component).toContain("Preparando analizador…");
     expect(component).toContain("Analizando pista…");
     expect(component).toContain("Volver a analizar");
     expect(component).toContain("Descartar propuesta");
     expect(component).toContain("Aplicar al formulario");
     expect(component).toContain("Revísala antes de guardar los cambios.");
-    expect(component).toMatch(/formProposal \? \([\s\S]*Aplicar al formulario/);
+    expect(component).toMatch(/formProposal \|\| nativeProposal \? \([\s\S]*Aplicar al formulario/);
     expect(component).toMatch(/onClick=\{applyToForm\} type="button"/);
     expect(component).not.toMatch(/document\.|querySelector|requestSubmit|type="submit"/);
     expect(component).toContain("setDesktopAvailable(Boolean(getTauriCore()))");
     expect(component).toContain('if (surface === "hidden") return null');
-    expect(component).not.toMatch(/<dt>Score<\/dt>|confidence|confianza|%|0\.812345/);
+    expect(component).not.toMatch(/<dt>Score<\/dt>|0\.812345/);
     expect(component).not.toMatch(/Guardar propuesta|Escribir etiquetas|supabase|updateTrackAction/);
     expect(form).toContain("value={classification.genre}");
     expect(form).toContain("value={classification.subgenre}");
     expect(form).toContain("applyMaestFormProposal(current, proposal)");
     expect(form).toContain("onReset={resetClassification}");
     expect(form).toContain("initialTrackClassification(mode, track?.genre, track?.subgenre)");
+    expect(form).toContain("delete evidence[field]");
+    expect(form).not.toMatch(/evidence: \{ \.\.\.current\.evidence, (?:bpm|energy|key): null \}/);
     expect(form).toMatch(/<MaestPreview[\s\S]*formGenre=\{classification\.genre\}[\s\S]*onApply=\{applyMaestProposal\}[\s\S]*track=\{track\}[\s\S]*\/>/);
     expect(form).toMatch(/<SaveButton mode=\{mode\} \/>/);
     expect(form).toContain('mode === "create" ? createTrackAction : updateTrackAction');
