@@ -4,6 +4,7 @@ mod maest;
 mod maest_inference_pipeline;
 mod maest_pipeline;
 mod maest_preprocessing;
+mod track_analysis;
 
 use lofty::{
     config::{ParseOptions, WriteOptions},
@@ -40,6 +41,7 @@ const MAX_REKORDBOX_XML_BYTES: usize = 20_000_000;
 const METADATA_BACKUP_DIRECTORY: &str = ".djorganizer-backups";
 const MAX_PENDING_MAEST_GENRE_PREVIEWS: usize = 64;
 const MAX_ACTIVE_MAEST_ANALYSES: usize = 8;
+const MAX_ACTIVE_TRACK_ANALYSES: usize = 8;
 const LIBRARY_FILE_ALIASES_VERSION: u8 = 1;
 const MAX_LIBRARY_FILE_ALIAS_TRACKS: usize = 10_000;
 const MAX_LIBRARY_FILE_ALIASES_PER_TRACK: usize = 8;
@@ -511,6 +513,76 @@ mod scanned_track_analysis_tests {
     }
 
     #[test]
+    fn library_analysis_validates_operation_and_serializes_only_fields() {
+        let (root, state, mut request, _) = fixture();
+        request.operation_id = "not-an-operation".into();
+        assert_eq!(
+            analyze_library_track_with(&state, request.clone(), |_, _| unreachable!())
+                .unwrap_err()
+                .code,
+            "invalid_request"
+        );
+        request.operation_id = "00000000-0000-4000-8000-000000000041".into();
+        request.session_id = "expired".into();
+        assert_eq!(
+            analyze_library_track_with(&state, request.clone(), |_, _| unreachable!())
+                .unwrap_err()
+                .code,
+            "scan_session_unavailable"
+        );
+        request.session_id = "opaque-session".into();
+        request.scan_id = "unknown".into();
+        assert_eq!(
+            analyze_library_track_with(&state, request.clone(), |_, _| unreachable!())
+                .unwrap_err()
+                .code,
+            "track_not_in_session"
+        );
+        request.scan_id = "opaque-track".into();
+        let result =
+            analyze_library_track_with(&state, request, |_, _| Ok(track_analysis::test_analysis()))
+                .unwrap();
+        let json = serde_json::to_string(&result).unwrap();
+        for forbidden in [
+            "sessionId",
+            "operationId",
+            "path",
+            "audio",
+            "pcm",
+            "samples",
+        ] {
+            assert!(!json.contains(forbidden));
+        }
+        for expected in ["bpm", "musicalKey", "camelotKey", "energy", "confidence"] {
+            assert!(json.contains(expected));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn library_analysis_rejects_changed_file_and_honors_cancellation() {
+        let (root, state, request, _) = fixture();
+        fs::write(root.join("track.wav"), b"changed-size").unwrap();
+        assert_eq!(
+            analyze_library_track_with(&state, request, |_, _| unreachable!())
+                .unwrap_err()
+                .code,
+            "track_changed"
+        );
+        fs::remove_dir_all(root).unwrap();
+
+        let (root, state, request, _) = fixture();
+        let error = analyze_library_track_with(&state, request, |_, cancel| {
+            cancel.store(true, Ordering::Release);
+            Ok(track_analysis::test_analysis())
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "analysis_cancelled");
+        assert!(state.active_track_analyses.lock().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn unprepared_model_is_not_used() {
         assert!(maest::MaestState::default()
             .with_ready_session(|_, _| ())
@@ -862,11 +934,33 @@ struct IncrementalScanResult {
 
 #[derive(Debug, Default)]
 struct DesktopState {
+    active_track_analyses: Mutex<HashMap<String, ActiveTrackAnalysis>>,
     active_maest_analyses: Mutex<HashMap<String, ActiveMaestAnalysis>>,
     metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
     pending_maest_genre_previews: Mutex<HashMap<MaestGenrePreviewKey, MaestGenrePreviewReceipt>>,
     reorganization_history: Mutex<Vec<ReorganizationRun>>,
     scan_session: Mutex<Option<ScanSession>>,
+}
+
+#[derive(Debug)]
+struct ActiveTrackAnalysis {
+    session_id: String,
+    scan_id: String,
+    cancel: Arc<AtomicBool>,
+}
+
+struct ActiveTrackOperation<'a> {
+    state: &'a DesktopState,
+    operation_id: String,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for ActiveTrackOperation<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.state.active_track_analyses.lock() {
+            active.remove(&self.operation_id);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1113,6 +1207,16 @@ struct AnalyzeScannedTrackError {
 struct AnalyzeScannedTrackResult {
     scan_id: String,
     analysis: maest::MaestAnalysisResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeLibraryTrackResult {
+    scan_id: String,
+    bpm: track_analysis::AnalysisField<f64>,
+    musical_key: track_analysis::AnalysisField<String>,
+    camelot_key: track_analysis::AnalysisField<String>,
+    energy: track_analysis::AnalysisField<u8>,
 }
 
 #[derive(Clone, Debug)]
@@ -3808,6 +3912,118 @@ fn map_analysis_task_result<T, E>(result: Result<T, E>) -> Result<T, AnalyzeScan
     })
 }
 
+fn start_track_operation<'a>(
+    state: &'a DesktopState,
+    request: &AnalyzeScannedTrackRequest,
+) -> Result<ActiveTrackOperation<'a>, AnalyzeScannedTrackError> {
+    if request.session_id.is_empty()
+        || request.scan_id.is_empty()
+        || !valid_operation_id(&request.operation_id)
+    {
+        return Err(analysis_error(
+            "invalid_request",
+            None,
+            "La solicitud de análisis no es válida.",
+        ));
+    }
+    let mut active = state.active_track_analyses.lock().map_err(|_| {
+        analysis_error(
+            "analysis_task_failed",
+            None,
+            "No se pudo registrar el análisis.",
+        )
+    })?;
+    if active.contains_key(&request.operation_id) {
+        return Err(analysis_error(
+            "invalid_request",
+            None,
+            "La operación de análisis ya existe.",
+        ));
+    }
+    if active.len() >= MAX_ACTIVE_TRACK_ANALYSES {
+        return Err(analysis_error(
+            "analyzer_busy",
+            None,
+            "Hay demasiados análisis activos.",
+        ));
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    active.insert(
+        request.operation_id.clone(),
+        ActiveTrackAnalysis {
+            session_id: request.session_id.clone(),
+            scan_id: request.scan_id.clone(),
+            cancel: Arc::clone(&cancel),
+        },
+    );
+    drop(active);
+    Ok(ActiveTrackOperation {
+        state,
+        operation_id: request.operation_id.clone(),
+        cancel,
+    })
+}
+
+fn request_track_cancellation(state: &DesktopState, request: &CancelMaestAnalysisRequest) {
+    if !valid_operation_id(&request.operation_id) {
+        return;
+    }
+    if let Ok(active) = state.active_track_analyses.lock() {
+        if let Some(operation) = active.get(&request.operation_id).filter(|operation| {
+            operation.session_id == request.session_id && operation.scan_id == request.scan_id
+        }) {
+            operation.cancel.store(true, Ordering::Release);
+        }
+    }
+}
+
+fn analyze_library_track_with<E>(
+    state: &DesktopState,
+    request: AnalyzeScannedTrackRequest,
+    execute: E,
+) -> Result<AnalyzeLibraryTrackResult, AnalyzeScannedTrackError>
+where
+    E: FnOnce(File, &AtomicBool) -> Result<track_analysis::TrackAnalysis, AnalyzeScannedTrackError>,
+{
+    let operation = start_track_operation(state, &request)?;
+    let track = resolve_analysis_track(state, &request)?;
+    let (file, identity) = open_current_analysis_path(&track)?;
+    let analysis = execute(
+        file.try_clone().map_err(|_| {
+            analysis_error(
+                "track_unavailable",
+                None,
+                "La pista confirmada no se pudo abrir.",
+            )
+        })?,
+        &operation.cancel,
+    )?;
+    if operation.cancel.load(Ordering::Acquire) {
+        return Err(analysis_error(
+            "analysis_cancelled",
+            Some("cancel"),
+            "El análisis fue cancelado.",
+        ));
+    }
+    let descriptor_identity = validated_analysis_descriptor_identity(&file, &track)?;
+    let (current, current_identity) = open_current_analysis_path(&track)?;
+    drop(current);
+    if descriptor_identity != identity || current_identity != identity {
+        return Err(analysis_error(
+            "track_changed",
+            None,
+            "La pista cambió durante el análisis.",
+        ));
+    }
+    Ok(AnalyzeLibraryTrackResult {
+        scan_id: track.scan_id,
+        bpm: analysis.bpm,
+        musical_key: analysis.musical_key,
+        camelot_key: analysis.camelot_key,
+        energy: analysis.energy,
+    })
+}
+
 fn activate_completed_scan(
     state: &DesktopState,
     root: PathBuf,
@@ -3943,6 +4159,36 @@ fn release_maest_analysis(
     request: CancelMaestAnalysisRequest,
 ) -> Result<(), String> {
     release_maest_operation(&state, &request);
+    Ok(())
+}
+
+#[tauri::command]
+async fn analyze_library_track(
+    app: AppHandle,
+    request: AnalyzeScannedTrackRequest,
+) -> Result<AnalyzeLibraryTrackResult, AnalyzeScannedTrackError> {
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DesktopState>();
+        analyze_library_track_with(&state, request, |file, cancel| {
+            track_analysis::analyze_file(file, cancel).map_err(|error| {
+                analysis_error(
+                    error.code,
+                    Some(error.stage),
+                    "No se pudo decodificar el audio.",
+                )
+            })
+        })
+    })
+    .await;
+    map_analysis_task_result(task)?
+}
+
+#[tauri::command]
+fn cancel_library_track_analysis(
+    state: State<'_, DesktopState>,
+    request: CancelMaestAnalysisRequest,
+) -> Result<(), String> {
+    request_track_cancellation(&state, &request);
     Ok(())
 }
 
@@ -5840,6 +6086,8 @@ pub fn run() {
             get_maest_analysis_progress,
             cancel_maest_analysis,
             release_maest_analysis,
+            analyze_library_track,
+            cancel_library_track_analysis,
             choose_and_scan_music_folder,
             scan_music_folder_incrementally,
             link_library_tracks,
