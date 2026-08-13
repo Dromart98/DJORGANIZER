@@ -390,6 +390,12 @@ td strong { color: #f0f3f4; font-weight: 650; }
 
 .stats { gap: 12px; }
 .stats .card { padding: 20px; }
+.stats__link {
+  color: inherit;
+  text-decoration: none;
+  transition: background-color .16s ease, border-color .16s ease;
+}
+.stats__link:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .stats strong { letter-spacing: -.045em; }
 .welcome { border-color: var(--border); }
 .welcome-icon { background: var(--accent-dark); color: var(--accent); }

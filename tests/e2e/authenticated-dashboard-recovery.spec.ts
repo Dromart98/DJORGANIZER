@@ -6,7 +6,7 @@ test.skip(
 );
 
 function statistic(page: Page, label: string) {
-  return page.locator(".stats section").filter({ hasText: label });
+  return page.locator(".stats .card").filter({ hasText: label });
 }
 
 async function expectHealthyEmptySummary(page: Page) {
@@ -79,6 +79,24 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
   await page.getByRole("button", { name: "Create account" }).click();
 
   await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
+  await expectHealthyEmptySummary(page);
+
+  const summaryLinks = [
+    ["Tracks", "/library"],
+    ["Crates", "/crates"],
+    ["Tags", "/crates#tags"],
+  ] as const;
+  for (const [label, href] of summaryLinks) {
+    const link = statistic(page, label);
+    await expect(link).toHaveAttribute("href", href);
+    await link.focus();
+    await expect(link).toBeFocused();
+  }
+
+  await statistic(page, "Tags").press("Enter");
+  await expect(page).toHaveURL(/\/crates#tags$/);
+  await expect(page.locator("#tags")).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
   await expectHealthyEmptySummary(page);
 
   await page.reload();
