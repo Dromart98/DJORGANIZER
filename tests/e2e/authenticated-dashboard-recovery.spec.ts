@@ -6,7 +6,7 @@ test.skip(
 );
 
 function statistic(page: Page, label: string) {
-  return page.locator(".stats section").filter({ hasText: label });
+  return page.locator(".stats .card").filter({ hasText: label });
 }
 
 async function expectHealthyEmptySummary(page: Page) {
@@ -79,6 +79,44 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
   await page.getByRole("button", { name: "Create account" }).click();
 
   await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
+  await expectHealthyEmptySummary(page);
+
+  const summaryLinks = [
+    ["Tracks", "/library"],
+    ["Crates", "/crates"],
+    ["Tags", "/crates#tags"],
+  ] as const;
+  for (const [label, href] of summaryLinks) {
+    await expect(statistic(page, label)).toHaveAttribute("href", href);
+  }
+
+  const tabbedSummaryHrefs: string[] = [];
+  for (
+    let attempt = 0;
+    attempt < 30 && tabbedSummaryHrefs.length < summaryLinks.length;
+    attempt += 1
+  ) {
+    await page.keyboard.press("Tab");
+    const href = await page.evaluate(() =>
+      document.activeElement instanceof HTMLAnchorElement
+        ? document.activeElement.getAttribute("href")
+        : null,
+    );
+    if (
+      href &&
+      summaryLinks.some(([, expectedHref]) => expectedHref === href) &&
+      !tabbedSummaryHrefs.includes(href)
+    ) {
+      tabbedSummaryHrefs.push(href);
+    }
+  }
+  expect(tabbedSummaryHrefs).toEqual(summaryLinks.map(([, href]) => href));
+  await expect(statistic(page, "Tags")).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/crates#tags$/);
+  await expect(page.locator("#tags")).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
   await expectHealthyEmptySummary(page);
 
   await page.reload();

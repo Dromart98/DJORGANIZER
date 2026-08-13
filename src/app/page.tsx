@@ -124,21 +124,21 @@ export default async function DashboardPage({
         <GettingStartedGuide counts={counts} locale={locale} />
       ) : null}
       <div className="stats">
-        <Card>
+        <Link className="card stats__link" href="/library">
           <span>{copy.stats.tracks}</span>
           <strong>{summary.tracks.count ?? copy.stats.unavailable}</strong>
           <small>{copy.stats.tracksHelp}</small>
-        </Card>
-        <Card>
+        </Link>
+        <Link className="card stats__link" href="/crates">
           <span>{copy.stats.crates}</span>
           <strong>{summary.crates.count ?? copy.stats.unavailable}</strong>
           <small>{copy.stats.cratesHelp}</small>
-        </Card>
-        <Card>
+        </Link>
+        <Link className="card stats__link" href="/crates#tags">
           <span>{copy.stats.tags}</span>
           <strong>{summary.tags.count ?? copy.stats.unavailable}</strong>
           <small>{copy.stats.tagsHelp}</small>
-        </Card>
+        </Link>
       </div>
       {onboarding?.isComplete ? (
         <Card className="welcome">

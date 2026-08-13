@@ -1,6 +1,6 @@
 # Incidencias observadas y ajustes de flujo
 
-Actualizado: 2026-07-27.
+Actualizado: 2026-08-13.
 
 Este documento forma parte del roadmap de DJOrganizer y ordena los defectos y
 cambios de producto observados durante el uso real. Los puntos marcados como
@@ -124,13 +124,13 @@ de llamadas o controles remotos para género.
 
 ### 6. Convertir las tarjetas resumen de Inicio en accesos directos
 
-- [ ] Hacer activables las tarjetas de pistas, crates y etiquetas del dashboard.
-- [ ] Llevar cada tarjeta a su destino real: Biblioteca para pistas, Crates para
+- [x] Hacer activables las tarjetas de pistas, crates y etiquetas del dashboard.
+- [x] Llevar cada tarjeta a su destino real: Biblioteca para pistas, Crates para
   crates y el gestor o filtro existente de etiquetas para etiquetas. No crear una
   ruta nueva solo para cumplir el enlace si ya existe un destino funcional.
-- [ ] Mantener toda la tarjeta accesible por teclado, con foco visible, nombre
+- [x] Mantener toda la tarjeta accesible por teclado, con foco visible, nombre
   descriptivo y sin botones anidados inválidos.
-- [ ] Conservar los conteos y evitar una navegación accidental al seleccionar
+- [x] Conservar los conteos y evitar una navegación accidental al seleccionar
   texto o utilizar acciones internas.
 
 ### 7. Aclarar el campo “Carpeta superior” al crear un crate
