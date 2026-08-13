@@ -4,7 +4,7 @@
 
 La prueba de concepto está integrada en Importar y ha superado conversión, comparación numérica, typecheck, lint, pruebas unitarias, build e inferencia real en Chrome y Edge de escritorio. Firefox, Safari, móvil y la clasificación masiva siguen fuera de su alcance.
 
-El audio se procesa en el dispositivo. La función no envía audio, metadatos ni rutas a DJOrganizer, Supabase, OpenAI u otros servicios. OpenAI sigue siendo una opción secundaria separada con consentimiento por pista.
+El audio se procesa en el dispositivo. La función no envía audio, metadatos ni rutas a DJOrganizer, Supabase ni otros servicios. La clasificación de género y subgénero se ejecuta exclusivamente en el dispositivo.
 
 ## Modelo y licencia
 
@@ -119,7 +119,7 @@ El navegador decodifica/remuestrea con `AudioContext({ sampleRate: 16000 })`. Me
 - Un ausente falla; un corrupto se elimina y se recupera de red; un manifiesto incompatible se rechaza; versiones antiguas se eliminan tras preparar la nueva.
 - Tras la primera carga correcta, la caché permite reutilización offline.
 - Audio, rutas, nombres y metadata no se cachean, registran ni suben.
-- Un error local no bloquea edición, guardado, importación ni OpenAI.
+- Un error local no bloquea edición, guardado ni importación.
 - No incluye MAEST, ONNX, Tauri, Supabase ni migraciones.
 
 ## Validación real en navegadores
@@ -134,6 +134,6 @@ El 22 y 23 de julio de 2026 se empaquetó sin sustituciones el Worker de producc
 
 Las tres ejecuciones produjeron `Electronic---Experimental` como primera clase y las mismas cuatro alternativas; WebGPU y WASM solo mostraron diferencias numéricas menores. La desconexión fue total y se aplicó después de la primera carga. Se inició además una inferencia de 30 segundos y se terminó su Worker: no entregó resultado posterior. Esto comprueba la inferencia, la integridad, la caché, el funcionamiento offline, la cancelación y fallbacks reales. La ruta degradada a CPU funciona offline, aunque su preparación es lenta y queda como último recurso. La verificación final no produjo errores de consola.
 
-Los E2E automatizados cubren en español e inglés la preparación, error de backend, sugerencia, alternativas, aceptar, rechazar, cancelación, edición manual y coexistencia con OpenAI mediante un Worker determinista.
+Los E2E automatizados cubren en español e inglés la preparación, error de backend, sugerencia, alternativas, aceptar, rechazar, cancelación y edición manual mediante un Worker determinista.
 
 La ejecución local del E2E autenticado completo quedó bloqueada por el proyecto Supabase remoto: rechazó el dominio reservado del usuario de prueba y después devolvió límite de envío de correo. Ese flujo queda para el Supabase efímero de CI; no se debilitó la autenticación ni se añadió un bypass local.

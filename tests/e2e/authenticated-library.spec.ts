@@ -274,12 +274,6 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(firstItem).toBeVisible({ timeout: 20_000 });
   await expect(secondItem).toBeVisible({ timeout: 20_000 });
   await expect(
-    page.getByRole("checkbox", { name: /OpenAI/i }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Suggest genre with OpenAI" }),
-  ).toHaveCount(2);
-  await expect(
     page.getByRole("button", { name: "Suggest genre locally" }),
   ).toHaveCount(0);
 
@@ -326,9 +320,6 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     page.getByRole("button", { name: "Retry genre and subgenre analysis" }),
   ).toHaveCount(0);
-  await expect(
-    secondItem.getByRole("button", { name: "Suggest genre with OpenAI" }),
-  ).toBeEnabled();
   await expect(secondItem.getByLabel("Genre", { exact: true })).toBeEnabled();
 
   const fillReviewedAnalysis = async (

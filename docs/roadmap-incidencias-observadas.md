@@ -104,22 +104,21 @@ rechazable.
 - [x] Conservar correcciones manuales y no volver a analizar pistas ya aceptadas
   salvo acción explícita del usuario.
 
-### 5. Retirar la sugerencia de género con OpenAI
+### 5. Retirar la antigua sugerencia remota de género
 
-- [ ] Eliminar de la interfaz la opción **Sugerir género con OpenAI** y cualquier
+- [x] Eliminar de la interfaz la antigua sugerencia remota de género y cualquier
   acción equivalente.
-- [ ] Retirar después su ruta de servidor, validaciones, límites, variables y
-  documentación operativa cuando se confirme que no quedan consumidores.
-- [ ] No dejar código muerto, claves requeridas, mensajes, pruebas o estados de
-  carga vinculados a ese proveedor.
-- [ ] Ejecutar esta retirada después de verificar el análisis automático de
-  género y subgénero, para no dejar el flujo principal sin una alternativa
-  funcional.
+- [x] Retirar su ruta de servidor, validaciones, límites, variables y
+  documentación operativa tras confirmar que no quedan consumidores.
+- [x] No dejar código muerto, claves requeridas, mensajes, pruebas o estados de
+  carga vinculados al proveedor retirado.
+- [x] Ejecutar esta retirada después de verificar el análisis automático de
+  género y subgénero, sin dejar el flujo principal sin clasificación local.
 
 **Validación mínima del bloque:** importación de una y cien pistas, cancelación,
 fallos parciales, reanálisis desde Biblioteca, pista sin archivo asociado,
 corrección manual previa, equipo de recursos limitados, recarga y ausencia total
-de llamadas o controles de OpenAI para género.
+de llamadas o controles remotos para género.
 
 ## Bloque P2 — navegación y lenguaje de producto
 
@@ -184,7 +183,7 @@ campos deformados.
 3. Estabilizar subgénero y el contrato de análisis musical unificado.
 4. Automatizar género y subgénero en Importar.
 5. Añadir **Analizar pista** en Ver o editar canción.
-6. Retirar completamente la sugerencia de género con OpenAI.
+6. Retirar completamente la antigua sugerencia remota de género.
 7. Convertir las tarjetas resumen de Inicio en accesos directos.
 8. Aclarar u ocultar **Carpeta superior**.
 9. Simplificar los textos técnicos visibles.
@@ -199,4 +198,4 @@ una misma entrega.
 
 **Implementado — PR #66 fusionada y CI completa validada el 2026-07-27.**
 
-Esta fase incorpora subgénero persistente, energía 0–10, procedencia neutral, protección de correcciones manuales y un contrato TypeScript por campo. Permanecen como fases posteriores e independientes: automatizar género/subgénero en Importar, añadir **Analizar pista** y retirar OpenAI. No implementa MAEST ni interpreta automáticamente etiquetas Discogs.
+Esta fase incorpora subgénero persistente, energía 0–10, procedencia neutral, protección de correcciones manuales y un contrato TypeScript por campo. Las fases posteriores independientes automatizaron género/subgénero en Importar, añadieron **Analizar pista** y retiraron la clasificación remota. No implementa MAEST ni interpreta automáticamente etiquetas Discogs.

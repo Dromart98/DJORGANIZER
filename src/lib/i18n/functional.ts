@@ -193,7 +193,6 @@ const english = {
   "Sincronización offline": "Offline sync",
   "Sincronizando…": "Syncing…",
   "Solo duplicados": "Duplicates only",
-  "Sugerir género con OpenAI": "Suggest genre with OpenAI",
   "Sugerir género localmente": "Suggest genre locally",
   "Reintentar análisis de género y subgénero":
     "Retry genre and subgenre analysis",

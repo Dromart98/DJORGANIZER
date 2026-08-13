@@ -63,7 +63,6 @@ export const messages = {
       privacy: [
         "El audio completo y las rutas absolutas permanecen privados en tu dispositivo.",
         "El análisis musical se realiza localmente por defecto.",
-        "OpenAI solo recibe un fragmento cuando pulsas expresamente la sugerencia de género de esa pista.",
         "Guardar metadatos no mueve ni modifica el archivo de audio.",
         "Las operaciones de escritorio que modifican archivos usan flujos separados de previsualización y confirmación.",
       ],
@@ -211,7 +210,6 @@ export const messages = {
       privacy: [
         "Full audio and absolute paths stay private on your device.",
         "Music analysis runs locally by default.",
-        "OpenAI only receives a clip when you explicitly request a genre suggestion for that track.",
         "Saving metadata does not move or modify the audio file.",
         "Desktop operations that modify files use separate preview and confirmation flows.",
       ],

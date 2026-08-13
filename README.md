@@ -42,7 +42,6 @@ Abre [http://localhost:3000](http://localhost:3000).
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | URL pública del proyecto Supabase |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Clave pública para clientes web |
-| `OPENAI_API_KEY` | Clave privada, solo en servidor, para la clasificación opcional |
 
 Las mismas variables deben existir en Vercel para Production, Preview y
 Development.
@@ -169,17 +168,11 @@ no concluyentes siempre quedan para revisión manual.
 
 No se guardan archivos de audio o portadas y no se usa Supabase Storage para
 audio. El BPM, tonalidad y energía pueden proceder de etiquetas o estimaciones
-locales revisadas. La clasificación de género con `gpt-audio` se ofrece
-directamente en cada pista: pulsar “Sugerir género con OpenAI” autoriza ese
-fragmento concreto, generado localmente como WAV mono de hasta 45 segundos.
-Aplica límites de uso y solo ofrece una sugerencia que el usuario debe aceptar
-manualmente; nunca analiza ni aplica géneros en segundo plano.
-
-Importar incluye además una prueba de concepto con el modelo oficial
-Discogs-EffNet convertido a TensorFlow.js. Se prepara en segundo plano, pero
-solo analiza al pulsar “Sugerir género localmente”. Audio y características
-permanecen en el dispositivo; la sugerencia y hasta cuatro alternativas exigen
-aceptación manual. Los artefactos se verifican por SHA-256 y se cachean para
+locales revisadas. Importar incluye además el modelo oficial Discogs-EffNet convertido a
+TensorFlow.js. Se prepara en segundo plano y clasifica automáticamente el género
+y subgénero de las pistas elegibles. Audio y características permanecen en el
+dispositivo; la sugerencia y hasta cuatro alternativas exigen aceptación
+manual. Los artefactos se verifican por SHA-256 y se cachean para
 reutilización offline. Licencia, conversión, preprocesamiento, equivalencia y
 validaciones reales y limitaciones están en
 [`docs/local-web-genre-classification.md`](docs/local-web-genre-classification.md).

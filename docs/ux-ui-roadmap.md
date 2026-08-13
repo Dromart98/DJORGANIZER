@@ -38,7 +38,7 @@ No se añadirán funciones nuevas durante esta fase mientras exista un problema 
 - Exportación e importación con VirtualDJ.
 - Exportación e importación con Rekordbox y futuras integraciones.
 - Funcionamiento offline, conflictos, backups y restauración.
-- Configuración, idioma, modelos locales y clasificación mediante OpenAI.
+- Configuración, idioma y modelos locales de clasificación.
 
 ## Problemas que deben localizarse
 

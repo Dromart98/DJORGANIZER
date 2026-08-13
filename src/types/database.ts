@@ -20,27 +20,6 @@ export type Database = {
   };
   public: {
     Tables: {
-      ai_analysis_events: {
-        Row: {
-          analysis_kind: string;
-          created_at: string;
-          id: string;
-          user_id: string;
-        };
-        Insert: {
-          analysis_kind: string;
-          created_at?: string;
-          id?: string;
-          user_id: string;
-        };
-        Update: {
-          analysis_kind?: string;
-          created_at?: string;
-          id?: string;
-          user_id?: string;
-        };
-        Relationships: Relationship[];
-      };
       crate_tracks: {
         Row: {
           crate_id: string;
