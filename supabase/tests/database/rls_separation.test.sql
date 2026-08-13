@@ -1,6 +1,6 @@
 begin;
 
-select plan(42);
+select plan(39);
 
 select is(
   (
@@ -15,12 +15,11 @@ select is(
         'track_tags',
         'crates',
         'crate_tracks',
-        'integration_syncs',
-        'ai_analysis_events'
+        'integration_syncs'
       )
       and tables.relrowsecurity
   ),
-  8,
+  7,
   'RLS is enabled on every personal table'
 );
 
@@ -36,11 +35,10 @@ select is(
         'track_tags',
         'crates',
         'crate_tracks',
-        'integration_syncs',
-        'ai_analysis_events'
+        'integration_syncs'
       )
   ),
-  8,
+  7,
   'Every personal table has at least one access policy'
 );
 
@@ -113,13 +111,6 @@ values (
   array['11000000-0000-4000-8000-000000000001'::uuid]
 );
 
-insert into public.ai_analysis_events (id, user_id, analysis_kind)
-values (
-  '15000000-0000-4000-8000-000000000001',
-  '10000000-0000-4000-8000-000000000001',
-  'genre'
-);
-
 select is((select count(*)::integer from public.profiles), 1, 'A sees only its profile');
 select is((select count(*)::integer from public.tracks), 1, 'A sees only its track');
 select is((select count(*)::integer from public.tags), 1, 'A sees only its tag');
@@ -127,7 +118,6 @@ select is((select count(*)::integer from public.track_tags), 1, 'A sees only its
 select is((select count(*)::integer from public.crates), 1, 'A sees only its crate');
 select is((select count(*)::integer from public.crate_tracks), 1, 'A sees only its crate track');
 select is((select count(*)::integer from public.integration_syncs), 1, 'A sees only its sync');
-select is((select count(*)::integer from public.ai_analysis_events), 1, 'A sees only its AI event');
 
 select set_config(
   'request.jwt.claim.sub',
@@ -142,7 +132,6 @@ select is((select count(*)::integer from public.track_tags), 0, 'B cannot see A 
 select is((select count(*)::integer from public.crates), 0, 'B cannot see A crates');
 select is((select count(*)::integer from public.crate_tracks), 0, 'B cannot see A crate tracks');
 select is((select count(*)::integer from public.integration_syncs), 0, 'B cannot see A syncs');
-select is((select count(*)::integer from public.ai_analysis_events), 0, 'B cannot see A AI events');
 
 update public.tracks
 set genre = 'Electronic', genre_source = 'automatic',
@@ -229,13 +218,6 @@ values (
   array['21000000-0000-4000-8000-000000000002'::uuid]
 );
 
-insert into public.ai_analysis_events (id, user_id, analysis_kind)
-values (
-  '25000000-0000-4000-8000-000000000002',
-  '20000000-0000-4000-8000-000000000002',
-  'genre'
-);
-
 select is((select count(*)::integer from public.profiles), 1, 'B sees only its profile');
 select is((select count(*)::integer from public.tracks), 1, 'B sees only its track');
 select is((select count(*)::integer from public.tags), 1, 'B sees only its tag');
@@ -243,7 +225,6 @@ select is((select count(*)::integer from public.track_tags), 1, 'B sees only its
 select is((select count(*)::integer from public.crates), 1, 'B sees only its crate');
 select is((select count(*)::integer from public.crate_tracks), 1, 'B sees only its crate track');
 select is((select count(*)::integer from public.integration_syncs), 1, 'B sees only its sync');
-select is((select count(*)::integer from public.ai_analysis_events), 1, 'B sees only its AI event');
 
 select throws_like(
   $$

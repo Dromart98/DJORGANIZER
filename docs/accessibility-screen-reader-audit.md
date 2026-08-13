@@ -21,8 +21,6 @@ anuncios reales y recorrido el flujo únicamente con teclado.
 
 - No usar música real. Para importación se puede emplear un WAV sintético sin
   información personal.
-- No activar clasificación con OpenAI salvo que exista consentimiento explícito
-  y un entorno de prueba autorizado.
 - No registrar correos reales, rutas locales, nombres de archivos privados,
   huellas, IDs, cookies, secretos ni mensajes internos.
 - No modificar, mover ni escribir archivos durante la comprobación salvo que el
@@ -135,7 +133,6 @@ En cada fila registrar:
 | 6 | Selección de archivos | Input, instrucciones y privacidad | Pendiente | Pendiente | Pendiente |
 | 7 | Progreso de análisis | Anuncios útiles sin ruido excesivo | Pendiente | Pendiente | Pendiente |
 | 8 | BPM y tonalidad manual | Etiquetas, ayuda, estado y errores | Pendiente | Pendiente | Pendiente |
-| 9 | Género con OpenAI | Consentimiento, sugerencia y aceptación | Pendiente | Pendiente | Pendiente |
 | 10 | Biblioteca vacía | Estado vacío y acciones principales | Pendiente | Pendiente | Pendiente |
 | 11 | Biblioteca con pistas | Landmarks, tabla/lista y orden de lectura | Pendiente | Pendiente | Pendiente |
 | 12 | Filtros | Etiquetas, detalles expandibles y aplicar | Pendiente | Pendiente | Pendiente |

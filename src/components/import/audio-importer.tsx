@@ -16,7 +16,6 @@ import {
   inferVersionType,
 } from "@/lib/audio/acoustic-similarity";
 import { analyzeEnergyFromAudioBuffer } from "@/lib/audio/energy-analysis";
-import { createWavClipFromAudioBuffer } from "@/lib/audio/wav-clip";
 import {
   LocalGenreCancelledError,
   LocalGenreClient,
@@ -82,13 +81,6 @@ type ImportItem = {
   duplicateTrackId?: string;
   error?: string;
   file?: File;
-  genreError?: string;
-  genreStatus?: "idle" | "classifying" | "suggested" | "error";
-  genreSuggestion?: {
-    confidence: number;
-    explanation: string;
-    genre: string;
-  };
   id: string;
   keyError?: string;
   keyStatus?: "idle" | "analyzing" | "detected" | "error";
@@ -346,7 +338,6 @@ export function AudioImporter() {
         data,
         error: error ? translateKnown(locale, error) : undefined,
         file,
-        genreStatus: "idle",
         id,
         keyStatus: "idle",
         localGenreStatus: "idle",
@@ -1213,63 +1204,6 @@ export function AudioImporter() {
     }
   }
 
-  async function classifyGenre(item: ImportItem) {
-    if (
-      !item.file ||
-      !item.data ||
-      !isAutomaticAnalysisEligibleStatus(item.status)
-    ) {
-      return;
-    }
-    updateItem(item.id, {
-      genreError: undefined,
-      genreStatus: "classifying",
-      genreSuggestion: undefined,
-    });
-    let audioContext: AudioContext | null = null;
-    try {
-      audioContext = new AudioContext();
-      const decoded = await audioContext.decodeAudioData(
-        await item.file.arrayBuffer(),
-      );
-      const clip = createWavClipFromAudioBuffer(decoded);
-      const body = new FormData();
-      body.set("consent", "true");
-      body.set("audio", clip, `${item.file.name}.clip.wav`);
-      const result = await fetch("/api/audio/genre", {
-        body,
-        method: "POST",
-      });
-      const payload = (await result.json()) as {
-        error?: string;
-        suggestion?: ImportItem["genreSuggestion"];
-      };
-      if (!result.ok || !payload.suggestion) {
-        throw new Error(
-          payload.error
-            ? translateKnown(locale, payload.error)
-            : t("No se recibió una sugerencia."),
-        );
-      }
-      updateItem(item.id, {
-        genreStatus: "suggested",
-        genreSuggestion: payload.suggestion,
-      });
-    } catch (error) {
-      updateItem(item.id, {
-        genreError:
-          error instanceof Error
-            ? error.message
-            : t("No se pudo clasificar el género."),
-        genreStatus: "error",
-      });
-    } finally {
-      if (audioContext) {
-        await audioContext.close().catch(() => undefined);
-      }
-    }
-  }
-
   async function suggestGenreLocally(item: ImportItem, automaticRunId?: number) {
     const client = localGenreClientRef.current;
     if (
@@ -1412,27 +1346,6 @@ export function AudioImporter() {
       localGenreStatus: "idle",
       localGenreSuggestion: undefined,
     });
-  }
-
-  function acceptGenreSuggestion(item: ImportItem) {
-    if (!item.genreSuggestion) return;
-    setItems((current) =>
-      current.map((currentItem) => {
-        if (currentItem.id !== item.id || !currentItem.data) return currentItem;
-        const data: ImportTrackInput = {
-          ...currentItem.data,
-          genre: item.genreSuggestion?.genre ?? null,
-          genre_confidence: item.genreSuggestion?.confidence ?? null,
-          genre_source: "automatic",
-        };
-        return {
-          ...currentItem,
-          data,
-          genreStatus: "idle",
-          genreSuggestion: undefined,
-        };
-      }),
-    );
   }
 
   function removeItem(id: string) {
@@ -1739,49 +1652,6 @@ export function AudioImporter() {
                       {item.localGenreError ? (
                         <small className="field-error" role="alert">
                           {item.localGenreError}
-                        </small>
-                      ) : null}
-                      {item.file &&
-                      isAutomaticAnalysisEligibleStatus(item.status) ? (
-                        <button
-                          className="import-analyze-link"
-                          disabled={
-                            item.genreStatus === "classifying" ||
-                            isSaving
-                          }
-                          onClick={() => void classifyGenre(item)}
-                          type="button"
-                        >
-                          {item.genreStatus === "classifying"
-                            ? t("Clasificando…")
-                            : t("Sugerir género con OpenAI")}
-                        </button>
-                      ) : null}
-                      {item.file &&
-                      isAutomaticAnalysisEligibleStatus(item.status) ? (
-                        <small className="analysis-evidence">
-                          {t("Al pulsar se enviará un fragmento mono de hasta 45 segundos. La sugerencia solo se aplica tras revisarla.")}
-                        </small>
-                      ) : null}
-                      {item.genreSuggestion ? (
-                        <span className="genre-suggestion" role="status">
-                          <strong>
-                            {item.genreSuggestion.genre} ·{" "}
-                            {Math.round(item.genreSuggestion.confidence * 100)}%
-                          </strong>
-                          <small>{item.genreSuggestion.explanation}</small>
-                          <button
-                            className="import-analyze-link"
-                            onClick={() => acceptGenreSuggestion(item)}
-                            type="button"
-                          >
-                            {t("Aplicar sugerencia")}
-                          </button>
-                        </span>
-                      ) : null}
-                      {item.genreError ? (
-                        <small className="field-error" role="alert">
-                          {item.genreError}
                         </small>
                       ) : null}
                     </div>

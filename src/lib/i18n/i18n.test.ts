@@ -62,8 +62,8 @@ describe("i18n", () => {
     expect(english.onboarding.progress(2, 3)).toBe(
       "2 of 3 steps completed",
     );
-    expect(spanish.importGuidance.privacy).toHaveLength(5);
-    expect(english.importGuidance.privacy).toHaveLength(5);
+    expect(spanish.importGuidance.privacy).toHaveLength(4);
+    expect(english.importGuidance.privacy).toHaveLength(4);
     expect(spanish.routeError.retry).toBe("Reintentar");
     expect(english.routeError.retry).toBe("Retry");
   });
