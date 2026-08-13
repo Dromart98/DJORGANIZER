@@ -106,6 +106,17 @@ export function TrackForm({ mode, track }: TrackFormProps) {
     }));
   }
 
+  function editMusicalField(
+    field: "bpm" | "energy" | "key",
+    values: Partial<Pick<typeof musical, "bpm" | "energy" | "musicalKey" | "camelotKey">>,
+  ) {
+    setMusical((current) => {
+      const evidence = { ...current.evidence };
+      delete evidence[field];
+      return { ...current, ...values, evidence };
+    });
+  }
+
   return (
     <form
       action={formAction}
@@ -200,7 +211,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <span>BPM</span>
           <input
             value={musical.bpm}
-            onChange={(event) => setMusical((current) => ({ ...current, bpm: event.target.value, evidence: { ...current.evidence, bpm: null } }))}
+            onChange={(event) => editMusicalField("bpm", { bpm: event.target.value })}
             max={300}
             min={20}
             name="bpm"
@@ -213,7 +224,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <span>{t("Tonalidad")}</span>
           <input
             value={musical.musicalKey}
-            onChange={(event) => setMusical((current) => ({ ...current, musicalKey: event.target.value, evidence: { ...current.evidence, key: null } }))}
+            onChange={(event) => editMusicalField("key", { musicalKey: event.target.value })}
             maxLength={16}
             name="musical_key"
             placeholder={t("Am, A minor o 8A")}
@@ -225,7 +236,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <span>Camelot</span>
           <input
             value={musical.camelotKey}
-            onChange={(event) => setMusical((current) => ({ ...current, camelotKey: event.target.value, evidence: { ...current.evidence, key: null } }))}
+            onChange={(event) => editMusicalField("key", { camelotKey: event.target.value })}
             maxLength={3}
             name="camelot_key"
             placeholder="8A"
@@ -258,7 +269,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           <span>{t("Energía (0–10)")}</span>
           <input
             value={musical.energy}
-            onChange={(event) => setMusical((current) => ({ ...current, energy: event.target.value, evidence: { ...current.evidence, energy: null } }))}
+            onChange={(event) => editMusicalField("energy", { energy: event.target.value })}
             max={10}
             min={0}
             name="energy"

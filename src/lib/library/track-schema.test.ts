@@ -372,11 +372,45 @@ describe("native track evidence", () => {
     { key: { ...evidence, value: "C", camelotValue: "8A" } },
     { bpm: { ...evidence, confidence: Number.NaN, value: 128 } },
     { bpm: { ...evidence, analyzerVersion: "tampered", value: 128 } },
-    { unknown: evidence },
-  ])("rejects manipulated evidence safely", (payload) => {
+  ])("ignores a manipulated field safely", (payload) => {
     const formData = new FormData();
-    formData.set("native_analysis_evidence", JSON.stringify(payload));
+    formData.set("native_analysis_evidence", JSON.stringify({
+      ...payload,
+      energy: { ...evidence, value: 8 },
+    }));
+    expect(nativeAnalysisEvidenceFromFormData(formData)).toEqual({
+      energy: { ...evidence, value: 8 },
+    });
+  });
+
+  it("keeps valid key and energy evidence when edited BPM is represented as null", () => {
+    const formData = new FormData();
+    formData.set("native_analysis_evidence", JSON.stringify({
+      bpm: null,
+      key: { ...evidence, value: "Am", camelotValue: "8A" },
+      energy: { ...evidence, value: 8 },
+    }));
+    expect(nativeAnalysisEvidenceFromFormData(formData)).toEqual({
+      key: { ...evidence, value: "Am", camelotValue: "8A" },
+      energy: { ...evidence, value: 8 },
+    });
+  });
+
+  it("rejects the complete payload when it contains an unknown key", () => {
+    const formData = new FormData();
+    formData.set("native_analysis_evidence", JSON.stringify({
+      energy: { ...evidence, value: 8 },
+      unknown: evidence,
+    }));
     expect(nativeAnalysisEvidenceFromFormData(formData)).toEqual({});
+  });
+
+  it.each([
+    ["BPM", { bpm: 128 }, { bpm: { ...evidence, value: 128 } }, { bpm_source: "automatic", bpm_confidence: 0.84 }],
+    ["energy", { energy: 8 }, { energy: { ...evidence, value: 8 } }, { energy_source: "automatic", energy_confidence: 0.84 }],
+    ["key", { musical_key: "Am", camelot_key: "8A" }, { key: { ...evidence, value: "Am", camelotValue: "8A" } }, { key_source: "automatic", key_confidence: 0.84 }],
+  ] as const)("applies accepted %s evidence when the value is unchanged", (_field, values, nativeEvidence, expected) => {
+    expect(toTrackUpdate({ ...editableValues, ...values }, persistedAnalysis, {}, nativeEvidence)).toMatchObject(expected);
   });
 
   it("turns a later edit into manual provenance", () => {

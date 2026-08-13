@@ -384,6 +384,8 @@ describe("MAEST preview UI state controller", () => {
     expect(form).toContain("applyMaestFormProposal(current, proposal)");
     expect(form).toContain("onReset={resetClassification}");
     expect(form).toContain("initialTrackClassification(mode, track?.genre, track?.subgenre)");
+    expect(form).toContain("delete evidence[field]");
+    expect(form).not.toMatch(/evidence: \{ \.\.\.current\.evidence, (?:bpm|energy|key): null \}/);
     expect(form).toMatch(/<MaestPreview[\s\S]*formGenre=\{classification\.genre\}[\s\S]*onApply=\{applyMaestProposal\}[\s\S]*track=\{track\}[\s\S]*\/>/);
     expect(form).toMatch(/<SaveButton mode=\{mode\} \/>/);
     expect(form).toContain('mode === "create" ? createTrackAction : updateTrackAction');
