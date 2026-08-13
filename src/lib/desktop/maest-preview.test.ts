@@ -364,19 +364,20 @@ describe("MAEST preview UI state controller", () => {
       fileURLToPath(new URL("../../components/library/track-form.tsx", import.meta.url)),
       "utf8",
     );
-    expect(component).toContain("Analizar localmente");
+    expect(component).toContain("Analizar pista");
+    expect(component).not.toContain("Analizar localmente");
     expect(component).toContain("Preparando analizador…");
     expect(component).toContain("Analizando pista…");
     expect(component).toContain("Volver a analizar");
     expect(component).toContain("Descartar propuesta");
     expect(component).toContain("Aplicar al formulario");
     expect(component).toContain("Revísala antes de guardar los cambios.");
-    expect(component).toMatch(/formProposal \? \([\s\S]*Aplicar al formulario/);
+    expect(component).toMatch(/formProposal \|\| nativeProposal \? \([\s\S]*Aplicar al formulario/);
     expect(component).toMatch(/onClick=\{applyToForm\} type="button"/);
     expect(component).not.toMatch(/document\.|querySelector|requestSubmit|type="submit"/);
     expect(component).toContain("setDesktopAvailable(Boolean(getTauriCore()))");
     expect(component).toContain('if (surface === "hidden") return null');
-    expect(component).not.toMatch(/<dt>Score<\/dt>|confidence|confianza|%|0\.812345/);
+    expect(component).not.toMatch(/<dt>Score<\/dt>|0\.812345/);
     expect(component).not.toMatch(/Guardar propuesta|Escribir etiquetas|supabase|updateTrackAction/);
     expect(form).toContain("value={classification.genre}");
     expect(form).toContain("value={classification.subgenre}");

@@ -7,6 +7,7 @@ import {
   toTrackInsert,
   toTrackUpdate,
   maestEvidenceFromFormData,
+  nativeAnalysisEvidenceFromFormData,
   trackFormSchema,
   trackIdsSchema,
 } from "./track-schema";
@@ -344,5 +345,42 @@ describe("trackFormSchema", () => {
 describe("trackIdsSchema", () => {
   it("rechaza una selección vacía", () => {
     expect(trackIdsSchema.safeParse([]).success).toBe(false);
+  });
+});
+
+describe("native track evidence", () => {
+  const evidence = {
+    analyzerId: "djorganizer.desktop.track-analysis" as const,
+    analyzerVersion: "native-bpm-key-energy@1" as const,
+    confidence: 0.84,
+  };
+
+  it("preserves automatic provenance for exact accepted values", () => {
+    const formData = new FormData();
+    formData.set("native_analysis_evidence", JSON.stringify({
+      bpm: { ...evidence, value: 126.5 },
+      key: { ...evidence, value: "C", camelotValue: "8B" },
+      energy: { ...evidence, value: 7 },
+    }));
+    expect(toTrackUpdate({ ...editableValues, bpm: 126.5, musical_key: "C", camelot_key: "8B", energy: 7 }, persistedAnalysis, {}, nativeAnalysisEvidenceFromFormData(formData)))
+      .toMatchObject({ bpm_source: "automatic", bpm_confidence: 0.84, key_source: "automatic", key_confidence: 0.84, energy_source: "automatic", energy_confidence: 0.84 });
+  });
+
+  it.each([
+    { bpm: { ...evidence, value: 301 } },
+    { energy: { ...evidence, value: 4.5 } },
+    { key: { ...evidence, value: "C", camelotValue: "8A" } },
+    { bpm: { ...evidence, confidence: Number.NaN, value: 128 } },
+    { bpm: { ...evidence, analyzerVersion: "tampered", value: 128 } },
+    { unknown: evidence },
+  ])("rejects manipulated evidence safely", (payload) => {
+    const formData = new FormData();
+    formData.set("native_analysis_evidence", JSON.stringify(payload));
+    expect(nativeAnalysisEvidenceFromFormData(formData)).toEqual({});
+  });
+
+  it("turns a later edit into manual provenance", () => {
+    const update = toTrackUpdate({ ...editableValues, bpm: 129 }, persistedAnalysis, {}, { bpm: { ...evidence, value: 128 } });
+    expect(update).toMatchObject({ bpm_source: "manual", bpm_confidence: null });
   });
 });

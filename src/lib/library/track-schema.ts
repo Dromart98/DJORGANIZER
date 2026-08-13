@@ -5,8 +5,10 @@ import {
   DESKTOP_MAEST_ANALYZER,
   DESKTOP_MAEST_COMPATIBILITY_KEYS,
 } from "@/lib/desktop/maest-analysis";
+import { DESKTOP_TRACK_ANALYZER } from "@/lib/desktop/track-analysis";
 
 export const MAEST_EVIDENCE_FIELD = "maest_evidence";
+export const NATIVE_ANALYSIS_EVIDENCE_FIELD = "native_analysis_evidence";
 const MAX_MAEST_EVIDENCE_LENGTH = 2_048;
 
 const maestFieldEvidenceSchema = z.object({
@@ -26,6 +28,29 @@ const maestFormEvidenceSchema = z.object({
 }).strict();
 
 export type MaestFormEvidence = z.infer<typeof maestFormEvidenceSchema>;
+
+const nativeEvidenceBase = z.object({
+  analyzerId: z.literal(DESKTOP_TRACK_ANALYZER.id),
+  analyzerVersion: z.literal(DESKTOP_TRACK_ANALYZER.version),
+  confidence: z.number().finite().min(0).max(1),
+}).strict();
+const nativeAnalysisEvidenceSchema = z.object({
+  bpm: nativeEvidenceBase.extend({ value: z.number().finite().min(20).max(300) }).strict().optional(),
+  energy: nativeEvidenceBase.extend({ value: z.number().int().min(0).max(10) }).strict().optional(),
+  key: nativeEvidenceBase.extend({ value: z.string(), camelotValue: z.string() }).strict()
+    .refine((evidence) => {
+      const key = normalizeMusicalKey(evidence.value);
+      const camelot = normalizeMusicalKey(evidence.camelotValue);
+      return Boolean(key && camelot && key.musicalKey === camelot.musicalKey && key.camelotKey === camelot.camelotKey);
+    }).optional(),
+}).strict();
+export type NativeAnalysisFormEvidence = z.infer<typeof nativeAnalysisEvidenceSchema>;
+
+export function nativeAnalysisEvidenceFromFormData(formData: FormData): NativeAnalysisFormEvidence {
+  const raw = formData.get(NATIVE_ANALYSIS_EVIDENCE_FIELD);
+  if (typeof raw !== "string" || raw.length > 2_048) return {};
+  try { return nativeAnalysisEvidenceSchema.parse(JSON.parse(raw)); } catch { return {}; }
+}
 
 export function maestEvidenceFromFormData(formData: FormData): MaestFormEvidence {
   const raw = formData.get(MAEST_EVIDENCE_FIELD);
@@ -184,6 +209,7 @@ export function toTrackUpdate(
   values: TrackFormValues,
   persisted: TrackAnalysisEvidence,
   maestEvidence: MaestFormEvidence = {},
+  nativeEvidence: NativeAnalysisFormEvidence = {},
 ): TablesUpdate<"tracks"> {
   const normalizedKey = normalizeMusicalKey(
     values.musical_key ?? values.camelot_key,
@@ -239,17 +265,17 @@ export function toTrackUpdate(
     bpm,
     ...(bpmChanged
       ? {
-          bpm_confidence: null,
-          bpm_explanation: bpm === null ? null : "Valor revisado manualmente.",
-          bpm_source: bpm === null ? null : "manual",
+          bpm_confidence: nativeEvidence.bpm?.value === bpm ? nativeEvidence.bpm.confidence : null,
+          bpm_explanation: bpm === null ? null : nativeEvidence.bpm?.value === bpm ? "Analizado automáticamente en el dispositivo." : "Valor revisado manualmente.",
+          bpm_source: bpm === null ? null : nativeEvidence.bpm?.value === bpm ? "automatic" : "manual",
         }
       : {}),
     duration_seconds: values.duration_seconds ?? null,
     energy,
     ...(energyChanged
       ? {
-          energy_confidence: null,
-          energy_source: energy === null ? null : "manual",
+          energy_confidence: nativeEvidence.energy?.value === energy ? nativeEvidence.energy.confidence : null,
+          energy_source: energy === null ? null : nativeEvidence.energy?.value === energy ? "automatic" : "manual",
         }
       : {}),
     ...classificationEvidence("genre", genreChanged),
@@ -257,10 +283,10 @@ export function toTrackUpdate(
     camelot_key: camelotKey,
     ...(keyChanged
       ? {
-          key_confidence: null,
+          key_confidence: nativeEvidence.key?.value === musicalKey && nativeEvidence.key.camelotValue === camelotKey ? nativeEvidence.key.confidence : null,
           key_explanation:
-            normalizedKey === null ? null : "Valor revisado manualmente.",
-          key_source: normalizedKey === null ? null : "manual",
+            normalizedKey === null ? null : nativeEvidence.key?.value === musicalKey && nativeEvidence.key.camelotValue === camelotKey ? "Analizado automáticamente en el dispositivo." : "Valor revisado manualmente.",
+          key_source: normalizedKey === null ? null : nativeEvidence.key?.value === musicalKey && nativeEvidence.key.camelotValue === camelotKey ? "automatic" : "manual",
         }
       : {}),
     musical_key: musicalKey,

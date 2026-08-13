@@ -17,6 +17,7 @@ import {
   initialTrackClassification,
   type MaestFormProposal,
 } from "@/lib/desktop/maest-preview";
+import type { NativeTrackProposal } from "@/lib/desktop/track-analysis";
 
 const INITIAL_TRACK_ACTION_STATE = {
   status: "idle",
@@ -62,12 +63,21 @@ export function TrackForm({ mode, track }: TrackFormProps) {
   const [classification, setClassification] = useState(() =>
     initialTrackClassification(mode, track?.genre, track?.subgenre),
   );
+  const [musical, setMusical] = useState(() => ({
+    bpm: track?.bpm?.toString() ?? "", musicalKey: track?.musical_key ?? "",
+    camelotKey: track?.camelot_key ?? "", energy: track?.energy?.toString() ?? "",
+    evidence: {} as Partial<NativeTrackProposal>,
+  }));
 
   useEffect(() => {
     setClassification(
       initialTrackClassification(mode, track?.genre, track?.subgenre),
     );
   }, [mode, track?.id, track?.genre, track?.subgenre]);
+
+  useEffect(() => setMusical({ bpm: track?.bpm?.toString() ?? "", musicalKey: track?.musical_key ?? "",
+    camelotKey: track?.camelot_key ?? "", energy: track?.energy?.toString() ?? "", evidence: {} }),
+  [track?.id, track?.bpm, track?.musical_key, track?.camelot_key, track?.energy]);
 
   function applyMaestProposal(proposal: MaestFormProposal) {
     setClassification((current) => applyMaestFormProposal(current, proposal));
@@ -77,6 +87,23 @@ export function TrackForm({ mode, track }: TrackFormProps) {
     setClassification(
       initialTrackClassification(mode, track?.genre, track?.subgenre),
     );
+    setMusical({ bpm: track?.bpm?.toString() ?? "", musicalKey: track?.musical_key ?? "",
+      camelotKey: track?.camelot_key ?? "", energy: track?.energy?.toString() ?? "", evidence: {} });
+  }
+
+  function applyNativeProposal(proposal: NativeTrackProposal) {
+    setMusical((current) => ({
+      bpm: proposal.bpm ? String(proposal.bpm.value) : current.bpm,
+      musicalKey: proposal.key?.value ?? current.musicalKey,
+      camelotKey: proposal.key?.camelotValue ?? current.camelotKey,
+      energy: proposal.energy ? String(proposal.energy.value) : current.energy,
+      evidence: {
+        ...current.evidence,
+        ...(proposal.bpm ? { bpm: proposal.bpm } : {}),
+        ...(proposal.key ? { key: proposal.key } : {}),
+        ...(proposal.energy ? { energy: proposal.energy } : {}),
+      },
+    }));
   }
 
   return (
@@ -97,6 +124,7 @@ export function TrackForm({ mode, track }: TrackFormProps) {
           value={JSON.stringify(classification.evidence)}
         />
       ) : null}
+      {mode === "update" ? <input name="native_analysis_evidence" type="hidden" value={JSON.stringify(musical.evidence)} /> : null}
       {state.status === "error" ? (
         <p className="form-message form-message--error" role="alert">
           {state.message}
@@ -107,7 +135,9 @@ export function TrackForm({ mode, track }: TrackFormProps) {
         <MaestPreview
           formGenre={classification.genre}
           formSubgenre={classification.subgenre}
+          formValues={{ bpm: musical.bpm, musicalKey: musical.musicalKey, camelotKey: musical.camelotKey, energy: musical.energy }}
           onApply={applyMaestProposal}
+          onApplyNative={applyNativeProposal}
           track={track}
         />
       ) : null}
@@ -169,7 +199,8 @@ export function TrackForm({ mode, track }: TrackFormProps) {
         <label className="field">
           <span>BPM</span>
           <input
-            defaultValue={track?.bpm ?? ""}
+            value={musical.bpm}
+            onChange={(event) => setMusical((current) => ({ ...current, bpm: event.target.value, evidence: { ...current.evidence, bpm: null } }))}
             max={300}
             min={20}
             name="bpm"
@@ -181,7 +212,8 @@ export function TrackForm({ mode, track }: TrackFormProps) {
         <label className="field">
           <span>{t("Tonalidad")}</span>
           <input
-            defaultValue={track?.musical_key ?? ""}
+            value={musical.musicalKey}
+            onChange={(event) => setMusical((current) => ({ ...current, musicalKey: event.target.value, evidence: { ...current.evidence, key: null } }))}
             maxLength={16}
             name="musical_key"
             placeholder={t("Am, A minor o 8A")}
@@ -192,7 +224,8 @@ export function TrackForm({ mode, track }: TrackFormProps) {
         <label className="field">
           <span>Camelot</span>
           <input
-            defaultValue={track?.camelot_key ?? ""}
+            value={musical.camelotKey}
+            onChange={(event) => setMusical((current) => ({ ...current, camelotKey: event.target.value, evidence: { ...current.evidence, key: null } }))}
             maxLength={3}
             name="camelot_key"
             placeholder="8A"
@@ -224,7 +257,8 @@ export function TrackForm({ mode, track }: TrackFormProps) {
         <label className="field">
           <span>{t("Energía (0–10)")}</span>
           <input
-            defaultValue={track?.energy ?? ""}
+            value={musical.energy}
+            onChange={(event) => setMusical((current) => ({ ...current, energy: event.target.value, evidence: { ...current.evidence, energy: null } }))}
             max={10}
             min={0}
             name="energy"

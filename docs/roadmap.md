@@ -215,6 +215,13 @@ automática de metadatos en Internet y cualquier almacenamiento remoto del audio
 - [x] Integrar el análisis MAEST por pista con la edición de Biblioteca como
   previsualización efímera de género y subgénero, disponible solo
   para vínculos de la sesión de escaneo activa y sin persistencia ni escritura.
+- [x] Unificar en Ver o editar canción una sola acción **Analizar pista** para
+  ejecutar secuencialmente el análisis nativo de BPM, tonalidad/Camelot y energía
+  y el análisis MAEST de género/subgénero. La revisión compara cada propuesta con
+  el valor actual, permite aceptar campos por separado, conserva éxitos parciales,
+  cancela la fase activa y protege ediciones posteriores. La evidencia nativa
+  validada conserva procedencia y confianza automáticas al guardar; analizar no
+  persiste datos ni escribe el archivo.
 - [x] Permitir aplicar explícitamente una propuesta MAEST válida al formulario de
   edición. Solo se copian valores no vacíos, nunca se guarda automáticamente y el
   usuario puede revisar o modificar género/subgénero antes de usar `Guardar cambios`.

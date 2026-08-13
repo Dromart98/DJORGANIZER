@@ -30,16 +30,21 @@ import {
 } from "@/lib/desktop/maest-preview";
 import { getTauriCore } from "@/lib/desktop/tauri";
 import type { Tables } from "@/types/database";
+import { cancelNativeTrackAnalysis, invokeNativeTrackAnalysis, nativeTrackProposal, type NativeTrackProposal } from "@/lib/desktop/track-analysis";
 
 export function MaestPreview({
   formGenre,
   formSubgenre,
+  formValues,
   onApply,
+  onApplyNative,
   track,
 }: {
   formGenre: string;
   formSubgenre: string;
+  formValues: { bpm: string; musicalKey: string; camelotKey: string; energy: string };
   onApply: (proposal: MaestFormProposal) => void;
+  onApplyNative: (proposal: NativeTrackProposal) => void;
   track: Tables<"tracks">;
 }) {
   const trackId = track.id;
@@ -53,6 +58,14 @@ export function MaestPreview({
     sessionId && scanId ? { scanId, sessionId, trackId } : null;
   const [state, setState] = useState(() => createMaestPreviewState(identity));
   const [applied, setApplied] = useState(false);
+  const [nativeProposal, setNativeProposal] = useState<NativeTrackProposal | null>(null);
+  const [nativeError, setNativeError] = useState<string | null>(null);
+  const [nativePhase, setNativePhase] = useState<"idle" | "analyzing" | "cancelling">("idle");
+  const nativeOperation = useRef<{ operationId: string; sessionId: string; scanId: string } | null>(null);
+  const analysisSnapshot = useRef({ ...formValues, genre: formGenre, subgenre: formSubgenre });
+  const latestForm = useRef({ ...formValues, genre: formGenre, subgenre: formSubgenre });
+  latestForm.current = { ...formValues, genre: formGenre, subgenre: formSubgenre };
+  const [selected, setSelected] = useState({ bpm: true, key: true, energy: true, genre: true, subgenre: true });
   const [writePreview, setWritePreview] = useState<Awaited<ReturnType<typeof invokeMaestGenreWritePreview>> | null>(null);
   const [writePhase, setWritePhase] = useState<"idle" | "previewing" | "writing" | "undoing">("idle");
   const [writeMessage, setWriteMessage] = useState<string | null>(null);
@@ -91,15 +104,25 @@ export function MaestPreview({
     return () => {
       mountedRef.current = false;
       const core = getTauriCore();
-      if (core) cleanupMaestPreviewOperation(core, stateRef.current);
+      if (core) {
+        cleanupMaestPreviewOperation(core, stateRef.current);
+        const nativeRequest = nativeOperation.current;
+        if (nativeRequest) void cancelNativeTrackAnalysis(core, nativeRequest.sessionId, nativeRequest.scanId, nativeRequest.operationId);
+      }
     };
   }, []);
 
   useEffect(() => {
     const core = getTauriCore();
     if (core) cleanupMaestPreviewOperation(core, stateRef.current);
+    const nativeRequest = nativeOperation.current;
+    if (core && nativeRequest) void cancelNativeTrackAnalysis(core, nativeRequest.sessionId, nativeRequest.scanId, nativeRequest.operationId);
     transition({ type: "linkChanged", identity });
     setApplied(false);
+    setNativeProposal(null);
+    setNativeError(null);
+    nativeOperation.current = null;
+    setNativePhase("idle");
     // `identity` is deliberately represented by its opaque primitive parts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanId, sessionId, trackId]);
@@ -128,6 +151,9 @@ export function MaestPreview({
   async function analyze() {
     if (!sessionId || !scanId) return;
     setApplied(false);
+    setNativeError(null);
+    setNativeProposal(null);
+    analysisSnapshot.current = latestForm.current;
     const requestId = ++requestCounter.current;
     const started = transition({ type: "start", requestId });
     const request = started.activeRequest;
@@ -141,6 +167,28 @@ export function MaestPreview({
       });
       return;
     }
+
+    const nativeOperationId = crypto.randomUUID();
+    nativeOperation.current = { operationId: nativeOperationId, sessionId, scanId };
+    setNativePhase("analyzing");
+    try {
+      const nativeResult = await invokeNativeTrackAnalysis(core, sessionId, scanId, nativeOperationId);
+      if (!mountedRef.current || nativeOperation.current?.operationId !== nativeOperationId || !sameMaestLink(identity, currentIdentity.current)) return;
+      setNativeProposal(nativeTrackProposal(nativeResult, scanId));
+    } catch (caught) {
+      if (isMaestCancellation(caught)) {
+        setNativePhase("idle");
+        transition({ type: "cancelled", request });
+        return;
+      }
+      setNativeError(maestErrorMessage(caught, locale));
+    } finally {
+      if (nativeOperation.current?.operationId === nativeOperationId) {
+        nativeOperation.current = null;
+        setNativePhase("idle");
+      }
+    }
+    if (!mountedRef.current || !sameMaestLink(identity, currentIdentity.current)) return;
 
     try {
       const requestIsCurrent = () => {
@@ -179,6 +227,14 @@ export function MaestPreview({
   }
 
   async function cancelAnalysis() {
+    const nativeRequest = nativeOperation.current;
+    if (nativeRequest) {
+      const core = getTauriCore();
+      if (!core) return;
+      setNativePhase("cancelling");
+      try { await cancelNativeTrackAnalysis(core, nativeRequest.sessionId, nativeRequest.scanId, nativeRequest.operationId); } catch { /* analysis owns its result */ }
+      return;
+    }
     const request = stateRef.current.activeRequest;
     if (!request || stateRef.current.phase !== "analyzing") return;
     const core = getTauriCore();
@@ -194,14 +250,23 @@ export function MaestPreview({
   const { error, phase, progress, proposal } = visibleState;
   const surface = maestSurfaceVisibility(desktopAvailable, identity);
   if (surface === "hidden") return null;
-  const isBusy = phase !== "idle";
+  const isBusy = phase !== "idle" || nativePhase !== "idle";
   const genre = proposal?.analysis.genre;
   const subgenre = proposal?.analysis.subgenre;
   const formProposal = maestFormProposal(proposal);
 
   function applyToForm() {
-    if (!formProposal) return;
-    onApply(formProposal);
+    const current = latestForm.current;
+    const snapshot = analysisSnapshot.current;
+    if (formProposal) onApply({
+      genre: selected.genre && current.genre === snapshot.genre ? formProposal.genre : null,
+      subgenre: selected.subgenre && current.subgenre === snapshot.subgenre ? formProposal.subgenre : null,
+    });
+    if (nativeProposal) onApplyNative({
+      bpm: selected.bpm && current.bpm === snapshot.bpm ? nativeProposal.bpm : null,
+      key: selected.key && current.musicalKey === snapshot.musicalKey && current.camelotKey === snapshot.camelotKey ? nativeProposal.key : null,
+      energy: selected.energy && current.energy === snapshot.energy ? nativeProposal.energy : null,
+    });
     setApplied(true);
   }
 
@@ -348,7 +413,7 @@ export function MaestPreview({
       <div className="maest-preview__heading">
         <div>
           <p className="eyebrow">{locale === "en" ? "Read-only proposal" : "Propuesta sin aplicar"}</p>
-          <h2 id="maest-preview-title">{locale === "en" ? "Genre and subgenre analysis" : "Análisis de género y subgénero"}</h2>
+          <h2 id="maest-preview-title">{locale === "en" ? "Track analysis" : "Análisis de pista"}</h2>
         </div>
         {surface === "linked" ? (
           <div className="form-actions">
@@ -361,9 +426,9 @@ export function MaestPreview({
                 ? locale === "en" ? "Analyzing track…" : "Analizando pista…"
                 : proposal
                   ? locale === "en" ? "Analyze again" : "Volver a analizar"
-                  : locale === "en" ? "Analyze locally" : "Analizar localmente"}
+                  : locale === "en" ? "Analyze track" : "Analizar pista"}
           </button>
-          {phase === "analyzing" || phase === "cancelling" ? (
+          {nativePhase !== "idle" || phase === "analyzing" || phase === "cancelling" ? (
             <button className="button button--secondary" disabled={phase === "cancelling"} onClick={cancelAnalysis} type="button">
               {phase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…") : (locale === "en" ? "Cancel analysis" : "Cancelar análisis")}
             </button>
@@ -378,7 +443,9 @@ export function MaestPreview({
       ) : null}
       {isBusy ? (
         <p aria-live="polite" className="organization-muted">
-          {phase === "preparing"
+            {nativePhase === "analyzing" ? (locale === "en" ? "Analyzing BPM, key and energy…" : "Analizando BPM, tonalidad y energía…")
+            : nativePhase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…")
+            : phase === "preparing"
             ? locale === "en" ? "Preparing the local analyzer. The first preparation may download about 348 MB." : "Preparando el analizador local. La primera preparación puede descargar unos 348 MB."
             : phase === "starting" ? (locale === "en" ? "Preparing the local analyzer…" : "Preparando el analizador local…")
             : phase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…")
@@ -386,19 +453,23 @@ export function MaestPreview({
         </p>
       ) : null}
       {error ? <p className="form-message form-message--error" role="alert">{error}</p> : null}
-      {proposal ? (
+      {nativeError ? <p className="form-message form-message--error" role="alert">{nativeError}</p> : null}
+      {proposal || nativeProposal ? (
         <div className="maest-proposal" aria-live="polite">
           <dl>
-            <div><dt>{locale === "en" ? "Proposed genre" : "Género propuesto"}</dt><dd>{genre?.proposedValue ?? "—"}</dd></div>
-            <div><dt>{locale === "en" ? "Proposed subgenre" : "Subgénero propuesto"}</dt><dd>{subgenre?.proposedValue ?? "—"}</dd></div>
+            {nativeProposal?.bpm ? <div><dt><input checked={selected.bpm} onChange={(e) => setSelected((s) => ({...s,bpm:e.target.checked}))} type="checkbox" /> BPM</dt><dd>{track.bpm ?? "—"} → {nativeProposal.bpm.value} ({Math.round(nativeProposal.bpm.confidence * 100)}%)</dd></div> : null}
+            {nativeProposal?.key ? <div><dt><input checked={selected.key} onChange={(e) => setSelected((s) => ({...s,key:e.target.checked}))} type="checkbox" /> {locale === "en" ? "Key / Camelot" : "Tonalidad / Camelot"}</dt><dd>{track.musical_key ?? "—"} / {track.camelot_key ?? "—"} → {nativeProposal.key.value} / {nativeProposal.key.camelotValue} ({Math.round(nativeProposal.key.confidence * 100)}%)</dd></div> : null}
+            {nativeProposal?.energy ? <div><dt><input checked={selected.energy} onChange={(e) => setSelected((s) => ({...s,energy:e.target.checked}))} type="checkbox" /> {locale === "en" ? "Energy" : "Energía"}</dt><dd>{track.energy ?? "—"} → {nativeProposal.energy.value} ({Math.round(nativeProposal.energy.confidence * 100)}%)</dd></div> : null}
+            {genre?.proposedValue ? <div><dt><input checked={selected.genre} onChange={(e) => setSelected((s) => ({...s,genre:e.target.checked}))} type="checkbox" /> {locale === "en" ? "Genre" : "Género"}</dt><dd>{track.genre ?? "—"} → {genre.proposedValue}</dd></div> : null}
+            {subgenre?.proposedValue ? <div><dt><input checked={selected.subgenre} onChange={(e) => setSelected((s) => ({...s,subgenre:e.target.checked}))} type="checkbox" /> {locale === "en" ? "Subgenre" : "Subgénero"}</dt><dd>{track.subgenre ?? "—"} → {subgenre.proposedValue}</dd></div> : null}
           </dl>
           <div className="form-actions">
-            {formProposal ? (
+            {formProposal || nativeProposal ? (
               <button className="button button--primary button--small" onClick={applyToForm} type="button">
                 {locale === "en" ? "Apply to form" : "Aplicar al formulario"}
               </button>
             ) : null}
-            <button className="button button--secondary button--small" onClick={() => transition({ type: "discard" })} type="button">
+            <button className="button button--secondary button--small" onClick={() => { transition({ type: "discard" }); setNativeProposal(null); }} type="button">
               {locale === "en" ? "Discard proposal" : "Descartar propuesta"}
             </button>
           </div>
