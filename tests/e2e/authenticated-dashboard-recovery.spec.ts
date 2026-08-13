@@ -87,13 +87,33 @@ test("@authenticated isolates dashboard failures and preserves recovery and sess
     ["Tags", "/crates#tags"],
   ] as const;
   for (const [label, href] of summaryLinks) {
-    const link = statistic(page, label);
-    await expect(link).toHaveAttribute("href", href);
-    await link.focus();
-    await expect(link).toBeFocused();
+    await expect(statistic(page, label)).toHaveAttribute("href", href);
   }
 
-  await statistic(page, "Tags").press("Enter");
+  const tabbedSummaryHrefs: string[] = [];
+  for (
+    let attempt = 0;
+    attempt < 30 && tabbedSummaryHrefs.length < summaryLinks.length;
+    attempt += 1
+  ) {
+    await page.keyboard.press("Tab");
+    const href = await page.evaluate(() =>
+      document.activeElement instanceof HTMLAnchorElement
+        ? document.activeElement.getAttribute("href")
+        : null,
+    );
+    if (
+      href &&
+      summaryLinks.some(([, expectedHref]) => expectedHref === href) &&
+      !tabbedSummaryHrefs.includes(href)
+    ) {
+      tabbedSummaryHrefs.push(href);
+    }
+  }
+  expect(tabbedSummaryHrefs).toEqual(summaryLinks.map(([, href]) => href));
+  await expect(statistic(page, "Tags")).toBeFocused();
+
+  await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/crates#tags$/);
   await expect(page.locator("#tags")).toBeVisible();
   await page.getByRole("link", { name: "Home", exact: true }).click();
