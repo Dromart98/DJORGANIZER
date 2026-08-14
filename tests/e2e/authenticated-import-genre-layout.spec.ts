@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 test.skip(
   process.env.E2E_AUTHENTICATED !== "1",
@@ -43,7 +43,7 @@ type InputMeasurement = {
   width: number;
 };
 
-async function measureInputs(item: ReturnType<typeof test.info>["project"] extends never ? never : import("@playwright/test").Locator) {
+async function measureInputs(item: Locator) {
   return item.locator("input").evaluateAll((inputs) =>
     inputs.map((input) => {
       const rect = input.getBoundingClientRect();
@@ -55,10 +55,7 @@ async function measureInputs(item: ReturnType<typeof test.info>["project"] exten
   );
 }
 
-async function expectNoHorizontalOverflow(
-  page: import("@playwright/test").Page,
-  item: import("@playwright/test").Locator,
-) {
+async function expectNoHorizontalOverflow(page: Page, item: Locator) {
   const overflow = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
@@ -94,7 +91,8 @@ test("@authenticated keeps import fields stable around long genre results", asyn
     class LocalGenreWorkerStub extends EventTarget {
       postMessage(message: unknown) {
         const request = message as { id: string; type: string };
-        const mode = window.localStorage.getItem("e2e-local-genre-layout-mode") ?? "hang";
+        const mode =
+          window.localStorage.getItem("e2e-local-genre-layout-mode") ?? "hang";
 
         if (request.type === "prepare") {
           queueMicrotask(() => {
@@ -124,17 +122,22 @@ test("@authenticated keeps import fields stable around long genre results", asyn
                     {
                       genre: "Electronic dance music with extended classification",
                       score: 0.71,
-                      subgenre: "Progressive melodic house with atmospheric elements",
+                      subgenre:
+                        "Progressive melodic house with atmospheric elements",
                     },
                     {
-                      genre: "Electronic club music with hybrid rhythmic influences",
+                      genre:
+                        "Electronic club music with hybrid rhythmic influences",
                       score: 0.63,
-                      subgenre: "Deep organic tech house with percussion-led arrangement",
+                      subgenre:
+                        "Deep organic tech house with percussion-led arrangement",
                     },
                     {
-                      genre: "Electronic music for late-night dancefloor programming",
+                      genre:
+                        "Electronic music for late-night dancefloor programming",
                       score: 0.57,
-                      subgenre: "Melodic techno with progressive and trance-adjacent textures",
+                      subgenre:
+                        "Melodic techno with progressive and trance-adjacent textures",
                     },
                   ],
                   backend: "wasm",
@@ -252,8 +255,12 @@ test("@authenticated keeps import fields stable around long genre results", asyn
     expect(after).toHaveLength(baseline!.length);
 
     after.forEach((measurement, index) => {
-      expect(Math.abs(measurement.width - baseline![index].width)).toBeLessThanOrEqual(1);
-      expect(Math.abs(measurement.height - baseline![index].height)).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(measurement.width - baseline![index].width),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(measurement.height - baseline![index].height),
+      ).toBeLessThanOrEqual(1);
     });
   }
 });
