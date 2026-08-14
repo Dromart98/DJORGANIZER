@@ -391,9 +391,13 @@ export default async function CrateDetailPage({
               />
             </label>
             <label className="field">
-              {t("Carpeta superior")}
-              <select defaultValue={crate.parent_id ?? ""} name="parentId">
-                <option value="">{t("Nivel principal")}</option>
+              {t("Guardar dentro de")}
+              <select
+                aria-describedby="edit-crate-parent-help"
+                defaultValue={crate.parent_id ?? ""}
+                name="parentId"
+              >
+                <option value="">{t("Ninguna")}</option>
                 {(allCrates ?? [])
                   .filter((candidate) => candidate.id !== crate.id)
                   .map((candidate) => (
@@ -402,6 +406,9 @@ export default async function CrateDetailPage({
                     </option>
                   ))}
               </select>
+              <small id="edit-crate-parent-help">
+                {t("Selecciona otro crate para colocar este crate dentro de él.")}
+              </small>
             </label>
             <button className="button button--primary" type="submit">
               {t("Guardar cambios")}

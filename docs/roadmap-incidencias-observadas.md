@@ -133,16 +133,16 @@ de llamadas o controles remotos para género.
 - [x] Conservar los conteos y evitar una navegación accidental al seleccionar
   texto o utilizar acciones internas.
 
-### 7. Aclarar el campo “Carpeta superior” al crear un crate
+### 7. Aclarar el campo de jerarquía al crear y editar un crate
 
-- [ ] Comprobar si el campo se utiliza realmente para crear jerarquías de crates.
-- [ ] Si la jerarquía es funcional, renombrarlo a un texto comprensible como
+- [x] Comprobar si el campo se utiliza realmente para crear jerarquías de crates.
+- [x] Si la jerarquía es funcional, renombrarlo a un texto comprensible como
   **Guardar dentro de**, usar **Ninguna** como valor predeterminado y añadir una
   explicación breve de que crea un crate dentro de otro grupo.
-- [ ] Si la jerarquía no está disponible o el campo no produce un resultado
-  observable, ocultarlo hasta que exista un flujo completo.
-- [ ] No eliminar relaciones de crates existentes ni cambiar su orden al ajustar
-  el formulario.
+- [x] Validar al crear y editar que se conserva el padre elegido y que
+  **Ninguna** mantiene el crate sin padre.
+- [x] Conservar las relaciones y el orden de crates existentes al ajustar el
+  formulario.
 
 ### 8. Quitar referencias técnicas de la interfaz
 

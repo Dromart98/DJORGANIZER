@@ -89,6 +89,19 @@ describe("i18n", () => {
     }
   });
 
+  it("translates the crate hierarchy guidance in both locales", () => {
+    expect(translate("es", "Guardar dentro de")).toBe("Guardar dentro de");
+    expect(translate("en", "Guardar dentro de")).toBe("Save inside");
+    expect(translate("es", "Ninguna")).toBe("Ninguna");
+    expect(translate("en", "Ninguna")).toBe("None");
+    expect(
+      translate(
+        "en",
+        "Selecciona otro crate para colocar este crate dentro de él.",
+      ),
+    ).toBe("Select another crate to place this crate inside it.");
+  });
+
   it("formats typed interpolation and plurals in both locales", () => {
     expect(
       formatMessage("en", "Página {page} de {pages}", {

@@ -139,6 +139,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   const firstTitle = `E2E Warmup ${runId}`;
   const secondTitle = `E2E Peak ${runId}`;
   const crateName = `E2E Set ${runId}`;
+  const childCrateName = `E2E Child ${runId}`;
   const tagName = `E2E Peak tag ${runId}`;
 
   await page.context().addCookies([
@@ -445,6 +446,13 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await createCrateForm
     .getByLabel("Description")
     .fill("Authenticated end-to-end progression");
+  await expect(createCrateForm.getByLabel("Save inside")).toHaveValue("");
+  await expect(createCrateForm.getByLabel("Save inside")).toContainText("None");
+  await expect(
+    createCrateForm.getByText(
+      "Select another crate to place this crate inside it.",
+    ),
+  ).toBeVisible();
   await createCrateForm.getByRole("button", { name: "Create crate" }).click();
 
   await expect(page).toHaveURL(/\/crates\/[0-9a-f-]+\?created=1$/, {
@@ -452,6 +460,29 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   });
   await expect(page.getByRole("heading", { name: crateName })).toBeVisible();
   const crateUrl = page.url();
+
+  await page.goto("/crates");
+  await createCrateForm.getByLabel("Name").fill(childCrateName);
+  await createCrateForm
+    .getByLabel("Save inside")
+    .selectOption({ label: crateName });
+  await createCrateForm.getByRole("button", { name: "Create crate" }).click();
+  await expect(page.getByRole("heading", { name: childCrateName })).toBeVisible();
+  const editCrateForm = page
+    .locator("form.organization-form")
+    .filter({ has: page.getByRole("heading", { name: "Edit crate" }) });
+  await expect(editCrateForm.getByLabel("Save inside")).toHaveValue(/.+/);
+  await expect(editCrateForm.getByLabel("Save inside")).toContainText(crateName);
+  await page.goto("/crates");
+  const childCrateCard = page
+    .locator(".crate-card")
+    .filter({ hasText: childCrateName });
+  await expect(childCrateCard).toContainText(`Inside ${crateName}`);
+  await childCrateCard.click();
+  await editCrateForm.getByLabel("Save inside").selectOption("");
+  await editCrateForm.getByRole("button", { name: "Save changes" }).click();
+  await expect(page).toHaveURL(/updated=1$/, { timeout: 20_000 });
+  await expect(editCrateForm.getByLabel("Save inside")).toHaveValue("");
 
   await page.goto("/");
   await expect(page.locator(".getting-started")).toHaveCount(0);
