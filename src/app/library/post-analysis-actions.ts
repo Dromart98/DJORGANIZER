@@ -37,39 +37,18 @@ export async function createPostAnalysisCrateAction(
     return { status: "invalid" };
   }
 
-  const { data: crate, error: crateError } = await supabase
-    .from("crates")
-    .insert({
-      description: null,
-      name: parsed.data.name,
-      parent_id: null,
-      user_id: user.id,
-    })
-    .select("id")
-    .single();
-
-  if (crateError?.code === "23505") return { status: "duplicate" };
-  if (crateError || !crate) return { status: "failed" };
-
-  const { error: membershipError } = await supabase.from("crate_tracks").insert(
-    trackIds.map((trackId, position) => ({
-      crate_id: crate.id,
-      position,
-      track_id: trackId,
-      user_id: user.id,
-    })),
+  const { data: crateId, error } = await supabase.rpc(
+    "create_post_analysis_crate",
+    {
+      crate_name: parsed.data.name,
+      track_ids: trackIds,
+    },
   );
 
-  if (membershipError) {
-    await supabase
-      .from("crates")
-      .delete()
-      .eq("id", crate.id)
-      .eq("user_id", user.id);
-    return { status: "failed" };
-  }
+  if (error?.code === "23505") return { status: "duplicate" };
+  if (error || !crateId) return { status: "failed" };
 
   revalidatePath("/crates");
-  revalidatePath(`/crates/${crate.id}`);
-  return { status: "created", crateId: crate.id };
+  revalidatePath(`/crates/${crateId}`);
+  return { status: "created", crateId };
 }
