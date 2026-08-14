@@ -1,6 +1,6 @@
 # Incidencias observadas y ajustes de flujo
 
-Actualizado: 2026-08-13.
+Actualizado: 2026-08-14.
 
 Este documento forma parte del roadmap de DJOrganizer y ordena los defectos y
 cambios de producto observados durante el uso real. Los puntos marcados como
@@ -157,7 +157,6 @@ de llamadas o controles remotos para género.
 - [x] Revisar español e inglés para evitar que el lenguaje técnico reaparezca en
   estados vacíos, errores, ayuda, ajustes o accesibilidad.
 
-
 **Implementado — 2026-08-14.** Los estados normales de análisis, resultados y
 escritura usan lenguaje de producto con paridad español/inglés. Se conservan
 “en este dispositivo” para explicar privacidad, “web/aplicación de escritorio”
@@ -169,20 +168,32 @@ forma inequívoca los cambios del usuario frente a los externos.
 
 ### 9. Evitar que la sugerencia de género cambie el tamaño de otros campos
 
-**Estado:** incidencia comunicada, pendiente de reproducción responsive.
+**Estado:** Implementado y validado en la PR #112. La primera ejecución real de
+la regresión autenticada en Chromium reprodujo el 2026-08-14 un aumento de 13 px
+en la altura de controles vecinos al mostrar un resultado de género largo. La
+causa quedó confirmada en la cuadrícula de Importar: el valor predeterminado
+`align-items: stretch` hacía que los campos de la misma fila adoptaran la altura
+de la celda de género. La corrección limita esa cuadrícula a
+`align-items: start`.
 
-- [ ] Reproducir el cambio de tamaño cuando el resultado de género contiene
-  explicación, alternativas o mensajes largos.
-- [ ] Separar el panel de resultado de género de los campos de título, artista y
-  álbum para que su contenido no altere la altura o anchura de controles vecinos.
-- [ ] Limitar, envolver o desplegar el texto largo dentro de su propio contenedor,
-  sin cortar información necesaria ni provocar desbordamiento horizontal.
-- [ ] Mantener etiquetas, errores y controles accesibles en escritorio, móvil,
-  zoom al 200 % y ambos idiomas.
+- [x] Reproducir el cambio de tamaño con un resultado de género que contiene tres
+  alternativas largas, manteniendo además los estados de carga, cancelación y
+  reintento.
+- [x] Confirmar la causa con mediciones antes y después del panel a 1440, 980,
+  640 y 390 px. La ejecución inicial de CI detectó una diferencia máxima de
+  13 px y falló con la tolerancia requerida de 1 px.
+- [x] Evitar el estiramiento vertical entre celdas sin modificar el cálculo de
+  género, los datos, los controles de aceptar/rechazar, la cancelación ni el
+  reintento.
+- [x] Mantener la comprobación de que ni el documento, ni la tarjeta, ni el panel
+  de resultado provocan desbordamiento horizontal en las cuatro anchuras.
+- [x] Validar la corrección en GitHub Actions. La ejecución `Validate` #293 sobre
+  `ef24f72556e7b6558038c78a1c07815b7ce0f672` completó con éxito `validate`,
+  `database`, `desktop` y `authenticated-e2e`; el E2E autenticado que había
+  detectado la diferencia de 13 px pasó con la tolerancia máxima de 1 px.
 
-**Validación mínima:** resultado corto, largo, varias alternativas, error,
-carga, móvil estrecho, escritorio, zoom y cambio de idioma sin salto de layout ni
-campos deformados.
+**Validación protegida:** resultado con varias alternativas largas, carga,
+cancelación, reintento, 1440/980/640/390 px y ausencia de overflow horizontal.
 
 ## Orden de ejecución
 
@@ -195,12 +206,12 @@ campos deformados.
 7. Convertir las tarjetas resumen de Inicio en accesos directos.
 8. Aclarar u ocultar **Carpeta superior**.
 9. Simplificar los textos técnicos visibles.
-10. Corregir el salto de tamaño causado por los resultados de género.
+10. Corregir y validar la estabilidad del formulario ante resultados largos de
+    género.
 
 Cada punto se implementará en una fase y PR verificable. No se agruparán la
 corrección del dashboard, las migraciones de subgénero y el rediseño visual en
 una misma entrega.
-
 
 ## Estabilizar subgénero y contrato de análisis musical unificado
 

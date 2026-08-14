@@ -1,3 +1,4 @@
+import styles from "./import-layout.module.css";
 import { DesktopFolderScanner } from "@/components/desktop/folder-scanner";
 import { AudioImporter } from "@/components/import/audio-importer";
 import { ImportGuidance } from "@/components/import/import-guidance";
@@ -24,11 +25,10 @@ export default async function ImportPage() {
         description={t("Selecciona archivos, revisa BPM y tonalidad, y guarda los metadatos.")}
       />
       <ImportGuidance locale={locale} />
-      <div className="import-flow">
+      <div className={`${styles.scope} import-flow`}>
         <DesktopFolderScanner />
         <AudioImporter />
       </div>
     </>
   );
 }
-
