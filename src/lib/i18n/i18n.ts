@@ -62,13 +62,13 @@ export const messages = {
       eyebrow: "Antes de empezar",
       privacy: [
         "El audio completo y las rutas absolutas permanecen privados en tu dispositivo.",
-        "El análisis musical se realiza localmente por defecto.",
+        "El análisis musical se realiza en este dispositivo por defecto.",
         "Guardar metadatos no mueve ni modifica el archivo de audio.",
         "Las operaciones de escritorio que modifican archivos usan flujos separados de previsualización y confirmación.",
       ],
       steps: [
         "Selecciona archivos o autoriza una carpeta en la aplicación de escritorio.",
-        "DJOrganizer analiza localmente BPM, tonalidad y energía.",
+        "DJOrganizer analiza BPM, tonalidad y energía en este dispositivo.",
         "Revisa y corrige los resultados.",
         "Guarda únicamente los metadatos seleccionados.",
       ],
@@ -209,13 +209,13 @@ export const messages = {
       eyebrow: "Before you start",
       privacy: [
         "Full audio and absolute paths stay private on your device.",
-        "Music analysis runs locally by default.",
+        "Music analysis runs on this device by default.",
         "Saving metadata does not move or modify the audio file.",
         "Desktop operations that modify files use separate preview and confirmation flows.",
       ],
       steps: [
         "Select files or authorize a folder in the desktop app.",
-        "DJOrganizer analyzes BPM, key and energy locally.",
+        "DJOrganizer analyzes BPM, key and energy on this device.",
         "Review and correct the results.",
         "Save only the selected metadata.",
       ],

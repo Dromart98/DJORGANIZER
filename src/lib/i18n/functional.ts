@@ -1,8 +1,6 @@
 import type { Locale } from "./i18n";
 
 const english = {
-  "0–100, calculada localmente y editable":
-    "0–100, calculated locally and editable",
   "0–10, calculada automáticamente y editable": "0–10, calculated automatically and editable",
   "Energía (0–10)": "Energy (0–10)",
   "Subgénero": "Subgenre",
@@ -12,13 +10,12 @@ const english = {
   "Anterior": "Previous",
   "Análisis explicable": "Explainable analysis",
   "Análisis automático": "Automatic analysis",
-  "Análisis local": "Local analysis",
-  "Análisis local cancelado.": "Local analysis cancelled.",
-  "Análisis local no disponible.": "Local analysis unavailable.",
-  "Análisis local preparado": "Local analysis ready",
-  "Analizando género localmente…": "Analyzing genre locally…",
-  "Analizando armonía local…": "Analyzing local harmony…",
-  "Analizando el audio local…": "Analyzing local audio…",
+  "Resultado calculado": "Calculated result",
+  "Análisis cancelado.": "Analysis cancelled.",
+  "Análisis no disponible.": "Analysis unavailable.",
+  "Análisis preparado": "Analysis ready",
+  "Analizando armonía…": "Analyzing harmony…",
+  "Analizando el audio…": "Analyzing audio…",
   "Aplicación de escritorio": "Desktop app",
   "Aplicar plan con historial": "Apply plan with history",
   "Aplicar sugerencia": "Apply suggestion",
@@ -100,7 +97,7 @@ const english = {
   "Esta canción aún no tiene etiquetas.": "This track does not have any tags yet.",
   "Crea etiquetas reutilizables en Crates para clasificar tus canciones.":
     "Create reusable tags in Crates to classify your tracks.",
-  "Etiquetas locales reversibles": "Reversible local tags",
+  "Cambios reversibles": "Reversible changes",
   "Ejecutar simulación final": "Run final simulation",
   "Exportar": "Export",
   "exportación XML disponible": "XML export available",
@@ -158,7 +155,7 @@ const english = {
   "pistas por lote": "tracks per batch",
   "Previsualizar cambios": "Preview changes",
   "Previsualizar cambios de My Lists": "Preview My Lists changes",
-  "Preparando análisis local…": "Preparing local analysis…",
+  "Preparando análisis…": "Preparing analysis…",
   "Preparando M3U8…": "Preparing M3U8…",
   "Puntuación orientativa; revisa antes de aceptar.":
     "Indicative score; review it before accepting.",
@@ -177,7 +174,6 @@ const english = {
   "Reorganización reversible": "Reversible reorganization",
   "Requiere revisión": "Needs review",
   "Restaurar copia": "Restore backup",
-  "Resultado local": "Local result",
   "resultados ·": "results ·",
   "Revisado manualmente": "Reviewed manually",
   "Seleccionar archivos": "Select files",
@@ -193,7 +189,6 @@ const english = {
   "Sincronización offline": "Offline sync",
   "Sincronizando…": "Syncing…",
   "Solo duplicados": "Duplicates only",
-  "Sugerir género localmente": "Suggest genre locally",
   "Reintentar análisis de género y subgénero":
     "Retry genre and subgenre analysis",
   "Todas las pistas": "All tracks",
@@ -209,8 +204,8 @@ const english = {
   "Versión": "Version",
   "Vigilancia incremental": "Incremental folder watching",
   "Am o 8A": "Am or 8A",
-  "Edita únicamente los campos que quieras guardar. La previsualización no modifica nada; al confirmar, Rust comprueba cambios externos, copia cada archivo completo, escribe el lote y relee las etiquetas para verificarlo.":
-    "Edit only the fields you want to save. Preview changes nothing; when confirmed, Rust checks external changes, copies each complete file, writes the batch and rereads the tags to verify it.",
+  "Edita únicamente los campos que quieras guardar. La previsualización no modifica nada; al confirmar, DJOrganizer comprueba cambios externos, copia cada archivo completo, escribe el lote y relee las etiquetas para verificarlo.":
+    "Edit only the fields you want to save. Preview changes nothing; when confirmed, DJOrganizer checks external changes, copies each complete file, writes the batch and rereads the tags to verify it.",
   "restaurados": "restored",
   "deshechos": "undone",
   "sin resolver": "unresolved",
@@ -472,7 +467,6 @@ const english = {
   "preparada": "prepared",
   "Registra localmente hasta 100 errores técnicos saneados. No envía telemetría ni incluye música, rutas, cuenta o credenciales.":
     "Stores up to 100 sanitized technical errors locally. It sends no telemetry and includes no music, paths, account data or credentials.",
-  "Solo local": "Local only",
   "Usuario autenticado": "Authenticated user",
   "Actualización instalada. Reinicia DJOrganizer para usar la nueva versión.":
     "Update installed. Restart DJOrganizer to use the new version.",
@@ -544,10 +538,10 @@ const english = {
   "No se pudo clasificar el género.": "The genre could not be classified.",
   "No se pudo comprobar la biblioteca. Se volverá a comprobar al guardar.":
     "The library could not be checked. It will be checked again when saving.",
-  "No se pudo preparar el análisis local.":
-    "Local analysis could not be prepared.",
-  "No se pudo sugerir un género localmente.":
-    "A local genre suggestion could not be produced.",
+  "No se pudo preparar el análisis.":
+    "The analysis could not be prepared.",
+  "No se pudo sugerir un género.":
+    "A genre suggestion could not be produced.",
   "No se pudo completar la comparación acústica; la importación continúa con la comprobación de huellas exactas.":
     "Acoustic comparison could not be completed; import continues with exact fingerprint checking.",
   "No se pudo decodificar el audio para estimar el BPM.":
