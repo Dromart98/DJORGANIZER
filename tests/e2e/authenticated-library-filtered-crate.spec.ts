@@ -63,9 +63,10 @@ test("@authenticated creates a crate from all active filter results in visible o
   await created.getByRole("link", { name: "Open crate" }).click();
   await expect(page.getByRole("heading", { name: crateName })).toBeVisible();
 
-  const crateTracks = page.locator(".crate-track-list > li");
+  const crateTrackList = page.locator(".crate-track-list");
+  const crateTracks = crateTrackList.locator(":scope > li");
   await expect(crateTracks).toHaveCount(2);
   await expect(crateTracks.nth(0)).toContainText(zuluTitle);
   await expect(crateTracks.nth(1)).toContainText(alphaTitle);
-  await expect(crateTracks).not.toContainText(otherTitle);
+  await expect(crateTrackList).not.toContainText(otherTitle);
 });
