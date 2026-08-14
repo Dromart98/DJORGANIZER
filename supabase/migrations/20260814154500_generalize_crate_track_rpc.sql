@@ -1,4 +1,4 @@
-create or replace function public.create_crate_from_track_ids(
+create or replace function public.create_post_analysis_crate(
   crate_name text,
   track_ids uuid[]
 )
@@ -61,31 +61,6 @@ begin
   ) ordered;
 
   return new_crate_id;
-end;
-$$;
-
-revoke all on function public.create_crate_from_track_ids(text, uuid[])
-  from public, anon;
-grant execute on function public.create_crate_from_track_ids(text, uuid[])
-  to authenticated;
-
-create or replace function public.create_post_analysis_crate(
-  crate_name text,
-  track_ids uuid[]
-)
-returns uuid
-language plpgsql
-security invoker
-set search_path = ''
-as $$
-begin
-  if track_ids is null
-    or cardinality(track_ids) < 1
-    or cardinality(track_ids) > 25 then
-    raise exception 'Invalid track selection';
-  end if;
-
-  return public.create_crate_from_track_ids(crate_name, track_ids);
 end;
 $$;
 
