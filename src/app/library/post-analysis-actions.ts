@@ -22,6 +22,30 @@ const createCrateFromFiltersSchema = z.object({
   searchParams: z.string().max(2_048),
 });
 
+type CreateFilteredCrateArgs = {
+  crate_name: string;
+  search_term: string;
+  genre_filter: string | null;
+  subgenre_filter: string | null;
+  bpm_min: number | null;
+  bpm_max: number | null;
+  key_filter: string | null;
+  camelot_filter: string | null;
+  energy_min: number | null;
+  energy_max: number | null;
+  rating_min: number | null;
+  sort_key: string;
+  sort_direction: string;
+};
+
+type CreateFilteredCrateRpc = (
+  functionName: "create_crate_from_library_filters",
+  args: CreateFilteredCrateArgs,
+) => Promise<{
+  data: string | null;
+  error: { code: string } | null;
+}>;
+
 export type CreateCrateFromTrackIdsResult =
   | { status: "created"; crateId: string }
   | { status: "duplicate" | "invalid" | "failed" };
@@ -80,7 +104,8 @@ export async function createCrateFromFiltersAction(
     Object.fromEntries(new URLSearchParams(parsed.data.searchParams)),
   );
   const supabase = await createClient();
-  const { data: crateId, error } = await supabase.rpc(
+  const createFilteredCrate = supabase.rpc as unknown as CreateFilteredCrateRpc;
+  const { data: crateId, error } = await createFilteredCrate(
     "create_crate_from_library_filters",
     {
       crate_name: parsed.data.name,
