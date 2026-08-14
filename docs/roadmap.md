@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-08-12.
+Actualizado: 2026-08-14.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -69,7 +69,7 @@ resultado directamente utilizable:
    exportar desde el mismo recorrido o terminar sin modificar nada. La
    previsualización será obligatoria antes de cualquier movimiento y ninguna
    acción destructiva se ejecutará automáticamente.
-2. - [ ] Permitir crear un crate directamente desde la tanda analizada, la
+2. - [x] Permitir crear un crate directamente desde la tanda analizada, la
    selección actual o los filtros activos. Debe conservar el orden visible,
    excluir únicamente las pistas que el usuario confirme y mostrar errores
    parciales sin perder las incorporaciones correctas.
