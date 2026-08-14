@@ -168,13 +168,13 @@ forma inequívoca los cambios del usuario frente a los externos.
 
 ### 9. Evitar que la sugerencia de género cambie el tamaño de otros campos
 
-**Estado:** En curso en la PR #112. La regresión autenticada de Chromium
-reprodujo el 2026-08-14 un aumento de 13 px en la altura de controles vecinos al
-mostrar un resultado de género largo. La causa queda confirmada en la cuadrícula
-de Importar: el valor predeterminado `align-items: stretch` hace que los campos de
-la misma fila adopten la altura de la celda de género. La corrección limita esa
-cuadrícula a `align-items: start`; la PR no debe fusionarse hasta que la regresión
-pase en CI.
+**Estado:** Implementado y validado en la PR #112. La primera ejecución real de
+la regresión autenticada en Chromium reprodujo el 2026-08-14 un aumento de 13 px
+en la altura de controles vecinos al mostrar un resultado de género largo. La
+causa quedó confirmada en la cuadrícula de Importar: el valor predeterminado
+`align-items: stretch` hacía que los campos de la misma fila adoptaran la altura
+de la celda de género. La corrección limita esa cuadrícula a
+`align-items: start`.
 
 - [x] Reproducir el cambio de tamaño con un resultado de género que contiene tres
   alternativas largas, manteniendo además los estados de carga, cancelación y
@@ -187,10 +187,13 @@ pase en CI.
   reintento.
 - [x] Mantener la comprobación de que ni el documento, ni la tarjeta, ni el panel
   de resultado provocan desbordamiento horizontal en las cuatro anchuras.
+- [x] Validar la corrección en GitHub Actions. La ejecución `Validate` #293 sobre
+  `ef24f72556e7b6558038c78a1c07815b7ce0f672` completó con éxito `validate`,
+  `database`, `desktop` y `authenticated-e2e`; el E2E autenticado que había
+  detectado la diferencia de 13 px pasó con la tolerancia máxima de 1 px.
 
-**Criterio de cierre:** la regresión autenticada debe pasar con una variación
-máxima de 1 px en ancho y alto de los `input`, sin overflow horizontal y
-conservando carga, cancelación, reintento y el resultado largo de género.
+**Validación protegida:** resultado con varias alternativas largas, carga,
+cancelación, reintento, 1440/980/640/390 px y ausencia de overflow horizontal.
 
 ## Orden de ejecución
 
