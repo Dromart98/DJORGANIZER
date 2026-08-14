@@ -1,6 +1,6 @@
 # Incidencias observadas y ajustes de flujo
 
-Actualizado: 2026-08-13.
+Actualizado: 2026-08-14.
 
 Este documento forma parte del roadmap de DJOrganizer y ordena los defectos y
 cambios de producto observados durante el uso real. Los puntos marcados como
@@ -157,7 +157,6 @@ de llamadas o controles remotos para género.
 - [x] Revisar español e inglés para evitar que el lenguaje técnico reaparezca en
   estados vacíos, errores, ayuda, ajustes o accesibilidad.
 
-
 **Implementado — 2026-08-14.** Los estados normales de análisis, resultados y
 escritura usan lenguaje de producto con paridad español/inglés. Se conservan
 “en este dispositivo” para explicar privacidad, “web/aplicación de escritorio”
@@ -169,20 +168,27 @@ forma inequívoca los cambios del usuario frente a los externos.
 
 ### 9. Evitar que la sugerencia de género cambie el tamaño de otros campos
 
-**Estado:** incidencia comunicada, pendiente de reproducción responsive.
+**Estado:** no reproducida sobre `main` `ff55db50` el 2026-08-14. No se aplica
+ningún cambio visual especulativo. La disposición actual queda protegida por una
+regresión E2E autenticada y la incidencia debe reabrirse si vuelve a observarse
+con un caso concreto reproducible.
 
-- [ ] Reproducir el cambio de tamaño cuando el resultado de género contiene
-  explicación, alternativas o mensajes largos.
-- [ ] Separar el panel de resultado de género de los campos de título, artista y
-  álbum para que su contenido no altere la altura o anchura de controles vecinos.
-- [ ] Limitar, envolver o desplegar el texto largo dentro de su propio contenedor,
-  sin cortar información necesaria ni provocar desbordamiento horizontal.
-- [ ] Mantener etiquetas, errores y controles accesibles en escritorio, móvil,
-  zoom al 200 % y ambos idiomas.
+- [x] Intentar reproducir el cambio de tamaño con un resultado de género que
+  contiene tres alternativas largas, manteniendo además los estados de carga,
+  cancelación y reintento. El salto comunicado no se reprodujo.
+- [x] Medir todos los `input` de la tarjeta de importación antes y después de
+  mostrar el panel de resultado a 1440, 980, 640 y 390 px, comprobando que ancho
+  y alto no cambian más de 1 px.
+- [x] Comprobar en esas anchuras que ni el documento, ni la tarjeta, ni el panel
+  de resultado provocan desbordamiento horizontal.
+- [x] Mantener intactos el componente visual y sus estilos mientras no exista una
+  causa reproducible; la prueba protege frente a regresiones futuras sin cambiar
+  comportamiento, accesibilidad ni el flujo de análisis.
 
-**Validación mínima:** resultado corto, largo, varias alternativas, error,
-carga, móvil estrecho, escritorio, zoom y cambio de idioma sin salto de layout ni
-campos deformados.
+**Validación protegida:** resultado con varias alternativas largas, estado de
+carga, cancelación, reintento, escritorio y móvil estrecho. La CI autenticada es
+la fuente de validación de Chromium cuando el entorno local no puede descargar
+el navegador por el proxy.
 
 ## Orden de ejecución
 
@@ -195,12 +201,12 @@ campos deformados.
 7. Convertir las tarjetas resumen de Inicio en accesos directos.
 8. Aclarar u ocultar **Carpeta superior**.
 9. Simplificar los textos técnicos visibles.
-10. Corregir el salto de tamaño causado por los resultados de género.
+10. Comprobar y proteger la estabilidad del formulario ante resultados largos de
+    género; no aplicar cambios visuales si la incidencia no se reproduce.
 
 Cada punto se implementará en una fase y PR verificable. No se agruparán la
 corrección del dashboard, las migraciones de subgénero y el rediseño visual en
 una misma entrega.
-
 
 ## Estabilizar subgénero y contrato de análisis musical unificado
 
