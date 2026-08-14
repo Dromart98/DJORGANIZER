@@ -51,7 +51,9 @@ test("@authenticated creates a crate from the current library selection in visib
   await bulkActions.getByLabel("Crate name").fill(crateName);
   await bulkActions.getByRole("button", { name: "Create with 2 selected" }).click();
 
-  const created = bulkActions.getByRole("status");
+  const created = bulkActions.locator(
+    'span.form-message--success[role="status"]',
+  );
   await expect(created).toContainText("Crate created.", { timeout: 20_000 });
   await created.getByRole("link", { name: "Open crate" }).click();
   await expect(page.getByRole("heading", { name: crateName })).toBeVisible();
