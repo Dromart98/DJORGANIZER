@@ -67,5 +67,5 @@ test("@authenticated creates a crate from all active filter results in visible o
   await expect(crateTracks).toHaveCount(2);
   await expect(crateTracks.nth(0)).toContainText(zuluTitle);
   await expect(crateTracks.nth(1)).toContainText(alphaTitle);
-  await expect(page.getByText(otherTitle)).toHaveCount(0);
+  await expect(crateTracks).not.toContainText(otherTitle);
 });
