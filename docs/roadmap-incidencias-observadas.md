@@ -168,27 +168,29 @@ forma inequívoca los cambios del usuario frente a los externos.
 
 ### 9. Evitar que la sugerencia de género cambie el tamaño de otros campos
 
-**Estado:** no reproducida sobre `main` `ff55db50` el 2026-08-14. No se aplica
-ningún cambio visual especulativo. La disposición actual queda protegida por una
-regresión E2E autenticada y la incidencia debe reabrirse si vuelve a observarse
-con un caso concreto reproducible.
+**Estado:** En curso en la PR #112. La regresión autenticada de Chromium
+reprodujo el 2026-08-14 un aumento de 13 px en la altura de controles vecinos al
+mostrar un resultado de género largo. La causa queda confirmada en la cuadrícula
+de Importar: el valor predeterminado `align-items: stretch` hace que los campos de
+la misma fila adopten la altura de la celda de género. La corrección limita esa
+cuadrícula a `align-items: start`; la PR no debe fusionarse hasta que la regresión
+pase en CI.
 
-- [x] Intentar reproducir el cambio de tamaño con un resultado de género que
-  contiene tres alternativas largas, manteniendo además los estados de carga,
-  cancelación y reintento. El salto comunicado no se reprodujo.
-- [x] Medir todos los `input` de la tarjeta de importación antes y después de
-  mostrar el panel de resultado a 1440, 980, 640 y 390 px, comprobando que ancho
-  y alto no cambian más de 1 px.
-- [x] Comprobar en esas anchuras que ni el documento, ni la tarjeta, ni el panel
-  de resultado provocan desbordamiento horizontal.
-- [x] Mantener intactos el componente visual y sus estilos mientras no exista una
-  causa reproducible; la prueba protege frente a regresiones futuras sin cambiar
-  comportamiento, accesibilidad ni el flujo de análisis.
+- [x] Reproducir el cambio de tamaño con un resultado de género que contiene tres
+  alternativas largas, manteniendo además los estados de carga, cancelación y
+  reintento.
+- [x] Confirmar la causa con mediciones antes y después del panel a 1440, 980,
+  640 y 390 px. La ejecución inicial de CI detectó una diferencia máxima de
+  13 px y falló con la tolerancia requerida de 1 px.
+- [x] Evitar el estiramiento vertical entre celdas sin modificar el cálculo de
+  género, los datos, los controles de aceptar/rechazar, la cancelación ni el
+  reintento.
+- [x] Mantener la comprobación de que ni el documento, ni la tarjeta, ni el panel
+  de resultado provocan desbordamiento horizontal en las cuatro anchuras.
 
-**Validación protegida:** resultado con varias alternativas largas, estado de
-carga, cancelación, reintento, escritorio y móvil estrecho. La CI autenticada es
-la fuente de validación de Chromium cuando el entorno local no puede descargar
-el navegador por el proxy.
+**Criterio de cierre:** la regresión autenticada debe pasar con una variación
+máxima de 1 px en ancho y alto de los `input`, sin overflow horizontal y
+conservando carga, cancelación, reintento y el resultado largo de género.
 
 ## Orden de ejecución
 
@@ -201,8 +203,8 @@ el navegador por el proxy.
 7. Convertir las tarjetas resumen de Inicio en accesos directos.
 8. Aclarar u ocultar **Carpeta superior**.
 9. Simplificar los textos técnicos visibles.
-10. Comprobar y proteger la estabilidad del formulario ante resultados largos de
-    género; no aplicar cambios visuales si la incidencia no se reproduce.
+10. Corregir y validar la estabilidad del formulario ante resultados largos de
+    género.
 
 Cada punto se implementará en una fase y PR verificable. No se agruparán la
 corrección del dashboard, las migraciones de subgénero y el rediseño visual en
