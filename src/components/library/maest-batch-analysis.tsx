@@ -1,17 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { applyMaestBatchProposalsAction } from "@/app/library/maest-actions";
+import { createPostAnalysisCrateAction } from "@/app/library/post-analysis-actions";
 import { useDesktopScanSession } from "@/components/desktop/scan-session-provider";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import { MAX_MAEST_BATCH_TRACKS, MaestBatchOrchestrator, maestBatchActionDisabled, maestBatchActionVisible, type MaestBatchState, type MaestBatchTrack } from "@/lib/desktop/maest-batch";
+import { DESKTOP_EXPORT_REQUEST_KEY } from "@/lib/desktop/export-request";
 import { maestFormProposal, maestProgressText } from "@/lib/desktop/maest-preview";
 import { getTauriCore } from "@/lib/desktop/tauri";
 
 type ReviewField = "genre" | "subgenre";
 type ReviewSelection = Record<string, { genre: boolean; subgenre: boolean }>;
 type ApplyResult = Awaited<ReturnType<typeof applyMaestBatchProposalsAction>>;
+type CreateCrateResult = Awaited<ReturnType<typeof createPostAnalysisCrateAction>>;
 
 export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   const { getTrackLink } = useDesktopScanSession();
@@ -26,6 +30,10 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   const [reviewSelection, setReviewSelection] = useState<ReviewSelection>({});
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
   const [applying, setApplying] = useState(false);
+  const [crateName, setCrateName] = useState(locale === "en" ? "Analyzed selection" : "Selección analizada");
+  const [crateResult, setCrateResult] = useState<CreateCrateResult | null>(null);
+  const [creatingCrate, setCreatingCrate] = useState(false);
+  const [retainedPostAnalysisTrackIds, setRetainedPostAnalysisTrackIds] = useState<string[]>([]);
   const orchestratorRef = useRef<MaestBatchOrchestrator | null>(null);
   const getTrackLinkRef = useRef(getTrackLink);
   getTrackLinkRef.current = getTrackLink;
@@ -38,24 +46,27 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   if (!maestBatchActionVisible(desktopAvailable)) return null;
   const busy = state?.phase === "preparing-model" || state?.phase === "running";
 
-  function startBatch(batchTracks = tracks) {
+  function startBatch(batchTracks = tracks, preservePostAnalysisResults = false) {
     if (!batchTracks.length || busy || preparationSettling || applying) return;
     if (batchTracks.length > MAX_MAEST_BATCH_TRACKS) { setLimitError(true); setOpen(true); return; }
     const core = getTauriCore();
     if (!core) return;
+    if (!preservePostAnalysisResults) setRetainedPostAnalysisTrackIds([]);
     setLimitError(false);
     setOpen(true);
     setReviewSelection({});
     setApplyResult(null);
+    setCrateResult(null);
     const orchestrator = new MaestBatchOrchestrator({ core, tracks: batchTracks, getTrackLink: (id) => getTrackLinkRef.current(id), includeAnalyzed, locale, onState: setState, onPreparationSettlingChange: (settling) => { if (mountedRef.current) setPreparationSettling(settling); } });
     orchestratorRef.current = orchestrator;
     void orchestrator.run();
   }
   async function cancelBatch() { await orchestratorRef.current?.cancel(); }
-  function closeResults() { orchestratorRef.current?.dispose(); orchestratorRef.current = null; setState(null); setReviewSelection({}); setApplyResult(null); setOpen(false); }
+  function closeResults() { orchestratorRef.current?.dispose(); orchestratorRef.current = null; setState(null); setReviewSelection({}); setApplyResult(null); setCrateResult(null); setRetainedPostAnalysisTrackIds([]); setOpen(false); }
   function retryFailed() {
     if (!state) return;
-    startBatch(state.items.filter((item) => item.status === "failed").map(({ trackId, title, artist, evidence }) => ({ trackId, title, artist, evidence })));
+    setRetainedPostAnalysisTrackIds(postAnalysisTrackIds);
+    startBatch(state.items.filter((item) => item.status === "failed").map(({ trackId, title, artist, evidence }) => ({ trackId, title, artist, evidence })), true);
   }
   function toggleReview(trackId: string, field: ReviewField) {
     setApplyResult(null);
@@ -92,6 +103,10 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   }) ?? [];
   const selectedFieldCount = applyRequestItems.reduce((total, item) => total + (item.genre ? 1 : 0) + (item.subgenre ? 1 : 0), 0);
   const applyByTrack = new Map(applyResult?.items.map((item) => [item.trackId, item]) ?? []);
+  const currentPostAnalysisTrackIds = state?.items.flatMap((item) => item.status === "completed" || item.status === "already_analyzed" ? [item.trackId] : []) ?? [];
+  const postAnalysisTrackIds = [...new Set([...retainedPostAnalysisTrackIds, ...currentPostAnalysisTrackIds])];
+  const terminal = Boolean(state && ["completed", "cancelled", "blocked"].includes(state.phase));
+  const reviewNeeded = state?.items.filter((item) => item.status === "completed" && (!item.result || item.result.analysis.partialErrors.length > 0 || !maestFormProposal(item.result))).length ?? 0;
 
   async function applySelected() {
     if (!applyRequestItems.length || applying || busy) return;
@@ -115,6 +130,29 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
     } finally {
       if (mountedRef.current) setApplying(false);
     }
+  }
+
+  async function createCrateFromResults() {
+    if (!postAnalysisTrackIds.length || creatingCrate || applying || busy || !crateName.trim()) return;
+    setCreatingCrate(true);
+    setCrateResult(null);
+    try {
+      const result = await createPostAnalysisCrateAction({ name: crateName, trackIds: postAnalysisTrackIds });
+      if (!mountedRef.current) return;
+      setCrateResult(result);
+      if (result.status === "created") router.refresh();
+    } finally {
+      if (mountedRef.current) setCreatingCrate(false);
+    }
+  }
+
+  function continueWithDesktopTools() {
+    if (!postAnalysisTrackIds.length) return;
+    window.sessionStorage.setItem(DESKTOP_EXPORT_REQUEST_KEY, JSON.stringify({
+      crateName: locale === "en" ? "Analyzed selection" : "Selección analizada",
+      trackIds: postAnalysisTrackIds,
+    }));
+    router.push("/import");
   }
 
   return <div className="maest-batch">
@@ -142,12 +180,27 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
             {item.error ? <span className="form-message--error">{item.error}</span> : null}
           </li>;
         })}</ul>
+        {terminal ? <section aria-label={locale === "en" ? "Actions after analysis" : "Acciones después del análisis"}>
+          <h3>{locale === "en" ? "What do you want to do next?" : "¿Qué quieres hacer ahora?"}</h3>
+          <p>{locale === "en" ? `${postAnalysisTrackIds.length} tracks are ready for the next step${reviewNeeded ? `; ${reviewNeeded} need review` : ""}. Failed, cancelled or unlinked tracks are not included automatically.` : `${postAnalysisTrackIds.length} pistas están listas para el siguiente paso${reviewNeeded ? `; ${reviewNeeded} requieren revisión` : ""}. Las pistas fallidas, canceladas o sin vínculo no se incluyen automáticamente.`}</p>
+          <label className="field">{locale === "en" ? "New crate name" : "Nombre del nuevo crate"}<input disabled={creatingCrate || applying} maxLength={120} onChange={(event) => { setCrateName(event.target.value); setCrateResult(null); }} value={crateName} /></label>
+          {crateResult?.status === "duplicate" ? <p className="form-message form-message--error" role="alert">{locale === "en" ? "A crate with that name already exists." : "Ya existe un crate con ese nombre."}</p> : null}
+          {crateResult?.status === "invalid" ? <p className="form-message form-message--error" role="alert">{locale === "en" ? "The crate could not be created from this selection." : "No se pudo crear el crate con esta selección."}</p> : null}
+          {crateResult?.status === "failed" ? <p className="form-message form-message--error" role="alert">{locale === "en" ? "The crate could not be saved. Try again." : "No se pudo guardar el crate. Inténtalo de nuevo."}</p> : null}
+          {crateResult?.status === "created" ? <p className="form-message" role="status">{locale === "en" ? "Crate created. " : "Crate creado. "}<Link href={`/crates/${crateResult.crateId}`}>{locale === "en" ? "Open crate" : "Abrir crate"}</Link></p> : null}
+          <div className="form-actions">
+            <button className="button button--primary button--small" disabled={!postAnalysisTrackIds.length || !crateName.trim() || creatingCrate || applying} onClick={createCrateFromResults} type="button">{creatingCrate ? (locale === "en" ? "Creating crate…" : "Creando crate…") : (locale === "en" ? "Create crate" : "Crear crate")}</button>
+            <button className="button button--secondary button--small" disabled={!postAnalysisTrackIds.length || applying} onClick={continueWithDesktopTools} type="button">{locale === "en" ? "Organize, write metadata or export" : "Organizar, escribir metadatos o exportar"}</button>
+            <button className="button button--secondary button--small" disabled={applying || creatingCrate} onClick={closeResults} type="button">{locale === "en" ? "Finish" : "Terminar"}</button>
+          </div>
+          <p>{locale === "en" ? "File actions continue in the desktop tools with this selection prepared. Moving files and writing tags still require their existing preview and confirmation steps." : "Las acciones sobre archivos continúan en las herramientas de escritorio con esta selección preparada. Mover archivos y escribir etiquetas siguen exigiendo su previsualización y confirmación actuales."}</p>
+        </section> : null}
       </> : null}
       <div className="form-actions">
         {busy ? <button className="button button--secondary button--small" onClick={cancelBatch} type="button">{locale === "en" ? "Cancel batch" : "Cancelar lote"}</button> : null}
         {!busy && applyRequestItems.length ? <button className="button button--primary button--small" disabled={applying} onClick={applySelected} type="button">{applying ? (locale === "en" ? "Applying proposals…" : "Aplicando propuestas…") : (locale === "en" ? "Apply selected proposals" : "Aplicar propuestas seleccionadas")}</button> : null}
-        {state?.items.some((item) => item.status === "failed") && !busy ? <button className="button button--secondary button--small" disabled={applying} onClick={retryFailed} type="button">{locale === "en" ? "Retry failed" : "Reintentar fallidas"}</button> : null}
-        {!busy ? <button className="button button--secondary button--small" disabled={applying} onClick={closeResults} type="button">{locale === "en" ? "Close results" : "Cerrar resultados"}</button> : null}
+        {state?.items.some((item) => item.status === "failed") && !busy ? <button className="button button--secondary button--small" disabled={applying || creatingCrate} onClick={retryFailed} type="button">{locale === "en" ? "Retry failed" : "Reintentar fallidas"}</button> : null}
+        {!busy && !terminal ? <button className="button button--secondary button--small" disabled={applying || creatingCrate} onClick={closeResults} type="button">{locale === "en" ? "Close results" : "Cerrar resultados"}</button> : null}
       </div>
     </section> : null}
   </div>;

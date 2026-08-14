@@ -341,6 +341,13 @@ export type Database = {
     };
     Views: { [_ in never]: never };
     Functions: {
+      create_post_analysis_crate: {
+        Args: {
+          crate_name: string;
+          track_ids: string[];
+        };
+        Returns: string;
+      };
       reconcile_crate_tracks: {
         Args: {
           desired_track_ids: string[];
