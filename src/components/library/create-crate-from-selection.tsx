@@ -30,6 +30,8 @@ export function CreateCrateFromSelection({
           trackIds,
         }),
       );
+    } catch {
+      setResult({ status: "failed" });
     } finally {
       setSubmitting(false);
     }
@@ -94,8 +96,8 @@ export function CreateCrateFromSelection({
           {result?.status === "failed" ? (
             <span className="form-message form-message--error" role="alert">
               {locale === "en"
-                ? "The crate could not be created. Try again."
-                : "No se pudo crear el crate. Inténtalo de nuevo."}
+                ? "The crate could not be created. Check the connection and try again."
+                : "No se pudo crear el crate. Comprueba la conexión e inténtalo de nuevo."}
             </span>
           ) : null}
           {result?.status === "created" ? (
