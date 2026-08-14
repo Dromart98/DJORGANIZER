@@ -33,6 +33,7 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   const [crateName, setCrateName] = useState(locale === "en" ? "Analyzed selection" : "Selección analizada");
   const [crateResult, setCrateResult] = useState<CreateCrateResult | null>(null);
   const [creatingCrate, setCreatingCrate] = useState(false);
+  const [retainedPostAnalysisTrackIds, setRetainedPostAnalysisTrackIds] = useState<string[]>([]);
   const orchestratorRef = useRef<MaestBatchOrchestrator | null>(null);
   const getTrackLinkRef = useRef(getTrackLink);
   getTrackLinkRef.current = getTrackLink;
@@ -45,11 +46,12 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   if (!maestBatchActionVisible(desktopAvailable)) return null;
   const busy = state?.phase === "preparing-model" || state?.phase === "running";
 
-  function startBatch(batchTracks = tracks) {
+  function startBatch(batchTracks = tracks, preservePostAnalysisResults = false) {
     if (!batchTracks.length || busy || preparationSettling || applying) return;
     if (batchTracks.length > MAX_MAEST_BATCH_TRACKS) { setLimitError(true); setOpen(true); return; }
     const core = getTauriCore();
     if (!core) return;
+    if (!preservePostAnalysisResults) setRetainedPostAnalysisTrackIds([]);
     setLimitError(false);
     setOpen(true);
     setReviewSelection({});
@@ -60,10 +62,11 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
     void orchestrator.run();
   }
   async function cancelBatch() { await orchestratorRef.current?.cancel(); }
-  function closeResults() { orchestratorRef.current?.dispose(); orchestratorRef.current = null; setState(null); setReviewSelection({}); setApplyResult(null); setCrateResult(null); setOpen(false); }
+  function closeResults() { orchestratorRef.current?.dispose(); orchestratorRef.current = null; setState(null); setReviewSelection({}); setApplyResult(null); setCrateResult(null); setRetainedPostAnalysisTrackIds([]); setOpen(false); }
   function retryFailed() {
     if (!state) return;
-    startBatch(state.items.filter((item) => item.status === "failed").map(({ trackId, title, artist, evidence }) => ({ trackId, title, artist, evidence })));
+    setRetainedPostAnalysisTrackIds(postAnalysisTrackIds);
+    startBatch(state.items.filter((item) => item.status === "failed").map(({ trackId, title, artist, evidence }) => ({ trackId, title, artist, evidence })), true);
   }
   function toggleReview(trackId: string, field: ReviewField) {
     setApplyResult(null);
@@ -100,7 +103,8 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   }) ?? [];
   const selectedFieldCount = applyRequestItems.reduce((total, item) => total + (item.genre ? 1 : 0) + (item.subgenre ? 1 : 0), 0);
   const applyByTrack = new Map(applyResult?.items.map((item) => [item.trackId, item]) ?? []);
-  const postAnalysisTrackIds = state?.items.flatMap((item) => item.status === "completed" || item.status === "already_analyzed" ? [item.trackId] : []) ?? [];
+  const currentPostAnalysisTrackIds = state?.items.flatMap((item) => item.status === "completed" || item.status === "already_analyzed" ? [item.trackId] : []) ?? [];
+  const postAnalysisTrackIds = [...new Set([...retainedPostAnalysisTrackIds, ...currentPostAnalysisTrackIds])];
   const terminal = Boolean(state && ["completed", "cancelled", "blocked"].includes(state.phase));
   const reviewNeeded = state?.items.filter((item) => item.status === "completed" && (!item.result || item.result.analysis.partialErrors.length > 0 || !maestFormProposal(item.result))).length ?? 0;
 
