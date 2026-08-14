@@ -9,19 +9,19 @@ import {
 } from "@/lib/organization/schemas";
 import { createClient } from "@/lib/supabase/server";
 
-const createPostAnalysisCrateSchema = z.object({
+const createCrateFromTrackIdsSchema = z.object({
   name: crateValuesSchema.shape.name,
   trackIds: z.array(organizationIdSchema).min(1).max(25),
 });
 
-export type CreatePostAnalysisCrateResult =
+export type CreateCrateFromTrackIdsResult =
   | { status: "created"; crateId: string }
   | { status: "duplicate" | "invalid" | "failed" };
 
-export async function createPostAnalysisCrateAction(
+export async function createCrateFromTrackIdsAction(
   input: unknown,
-): Promise<CreatePostAnalysisCrateResult> {
-  const parsed = createPostAnalysisCrateSchema.safeParse(input);
+): Promise<CreateCrateFromTrackIdsResult> {
+  const parsed = createCrateFromTrackIdsSchema.safeParse(input);
   if (!parsed.success) return { status: "invalid" };
 
   const user = await requireUser();
@@ -51,4 +51,10 @@ export async function createPostAnalysisCrateAction(
   revalidatePath("/crates");
   revalidatePath(`/crates/${crateId}`);
   return { status: "created", crateId };
+}
+
+export async function createPostAnalysisCrateAction(
+  input: unknown,
+): Promise<CreateCrateFromTrackIdsResult> {
+  return createCrateFromTrackIdsAction(input);
 }
