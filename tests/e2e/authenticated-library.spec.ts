@@ -75,7 +75,8 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
         this.analyzeCount += 1;
         if (
           mode === "hang" ||
-          (mode === "hang-second" && this.analyzeCount === 2)
+          ((mode === "hang-second" || mode === "long-first-hang-second") &&
+            this.analyzeCount === 2)
         ) {
           return;
         }
@@ -92,18 +93,41 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
                   : {
                       id: request.id,
                       suggestion: {
-                        alternatives: [
-                          {
-                            genre: "Electronic",
-                            score: 0.64,
-                            subgenre: "House",
-                          },
-                          {
-                            genre: "Electronic",
-                            score: 0.53,
-                            subgenre: "Tech House",
-                          },
-                        ],
+                        alternatives: mode === "long-first-hang-second"
+                          ? [
+                              {
+                                genre:
+                                  "Electronic dance music with an intentionally long classification label",
+                                score: 0.64,
+                                subgenre:
+                                  "Deep progressive melodic house and techno with atmospheric elements",
+                              },
+                              {
+                                genre:
+                                  "Independent alternative electronic music and experimental club sounds",
+                                score: 0.53,
+                                subgenre:
+                                  "Organic downtempo electronica with live instrumentation and vocals",
+                              },
+                              {
+                                genre: "Electronic",
+                                score: 0.41,
+                                subgenre:
+                                  "Peak-time driving hypnotic warehouse techno",
+                              },
+                            ]
+                          : [
+                              {
+                                genre: "Electronic",
+                                score: 0.64,
+                                subgenre: "House",
+                              },
+                              {
+                                genre: "Electronic",
+                                score: 0.53,
+                                subgenre: "Tech House",
+                              },
+                            ],
                         backend: "wasm",
                         genre: "Electronic",
                         score: 0.82,
@@ -251,7 +275,10 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   ).toBeVisible();
 
   await page.evaluate(() =>
-    window.localStorage.setItem("e2e-local-genre-mode", "hang-second"),
+    window.localStorage.setItem(
+      "e2e-local-genre-mode",
+      "long-first-hang-second",
+    ),
   );
   await page.locator("#audio-files").setInputFiles([
     {
@@ -281,8 +308,57 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     firstItem.getByText(/Genre: Electronic · Subgenre: Techno/),
   ).toBeVisible({ timeout: 30_000 });
-  await expect(firstItem.getByText("Calculated result", { exact: true })).toBeVisible();
-  await expect(firstItem.getByText(/Alternatives: Electronic \/ House/)).toBeVisible();
+  await expect(
+    firstItem.getByText("Calculated result", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    firstItem.getByText(
+      /Alternatives: Electronic dance music with an intentionally long classification label/,
+    ),
+  ).toBeVisible();
+
+  const assertSuggestionLayoutIsStable = async (
+    viewport: { height: number; width: number },
+  ) => {
+    await page.setViewportSize(viewport);
+    const measurements = await firstItem.evaluate((item) => {
+      const suggestion = item.querySelector<HTMLElement>(".genre-suggestion");
+      if (!suggestion) throw new Error("Genre suggestion is not rendered");
+      const inputs = Array.from(
+        item.querySelectorAll<HTMLInputElement>(".import-grid input"),
+      );
+      const measureInputs = () =>
+        inputs.map((input) => {
+          const box = input.getBoundingClientRect();
+          return { height: box.height, width: box.width };
+        });
+      const after = measureInputs();
+      suggestion.style.display = "none";
+      const before = measureInputs();
+      suggestion.style.removeProperty("display");
+      return {
+        after,
+        before,
+        documentOverflow:
+          document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        itemOverflow: item.scrollWidth - item.clientWidth,
+      };
+    });
+
+    expect(measurements.after).toEqual(measurements.before);
+    expect(measurements.documentOverflow).toBeLessThanOrEqual(0);
+    expect(measurements.itemOverflow).toBeLessThanOrEqual(0);
+  };
+
+  for (const viewport of [
+    { height: 900, width: 1440 },
+    { height: 900, width: 980 },
+    { height: 800, width: 640 },
+    { height: 800, width: 390 },
+  ]) {
+    await assertSuggestionLayoutIsStable(viewport);
+  }
+  await page.setViewportSize({ height: 720, width: 1280 });
 
   await expect(secondItem.getByRole("button", { name: "Cancel" })).toBeVisible({
     timeout: 30_000,

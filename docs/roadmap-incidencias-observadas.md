@@ -157,7 +157,6 @@ de llamadas o controles remotos para género.
 - [x] Revisar español e inglés para evitar que el lenguaje técnico reaparezca en
   estados vacíos, errores, ayuda, ajustes o accesibilidad.
 
-
 **Implementado — 2026-08-14.** Los estados normales de análisis, resultados y
 escritura usan lenguaje de producto con paridad español/inglés. Se conservan
 “en este dispositivo” para explicar privacidad, “web/aplicación de escritorio”
@@ -169,16 +168,27 @@ forma inequívoca los cambios del usuario frente a los externos.
 
 ### 9. Evitar que la sugerencia de género cambie el tamaño de otros campos
 
-**Estado:** incidencia comunicada, pendiente de reproducción responsive.
+**Estado:** no reproducida en el estado actual; protegida por regresión E2E.
 
-- [ ] Reproducir el cambio de tamaño cuando el resultado de género contiene
-  explicación, alternativas o mensajes largos.
+- [x] Medir los inputs antes y después de mostrar explicación y varias
+      alternativas largas: sus cajas no cambian de anchura ni altura.
 - [ ] Separar el panel de resultado de género de los campos de título, artista y
   álbum para que su contenido no altere la altura o anchura de controles vecinos.
 - [ ] Limitar, envolver o desplegar el texto largo dentro de su propio contenedor,
   sin cortar información necesaria ni provocar desbordamiento horizontal.
 - [ ] Mantener etiquetas, errores y controles accesibles en escritorio, móvil,
   zoom al 200 % y ambos idiomas.
+
+**Diagnóstico — 2026-08-14.** No se reproduce el cambio de tamaño comunicado en
+`main` (`ff55db50`). La cuadrícula ya usa columnas `minmax(0, 1fr)` y los inputs
+mantienen sus cajas al aparecer el resultado. La regresión autenticada compara
+sus `boundingBox` con el panel visible y oculto usando una sugerencia de tres
+alternativas largas, y comprueba `scrollWidth/clientWidth` a 1440, 980, 640 y
+390 px (cuatro columnas, dos columnas, reducción representativa de zoom al
+200 % y móvil). El flujo existente cubre además resultado corto, carga, error,
+cancelar, reintentar, aceptar, rechazar y las traducciones española e inglesa.
+No se introduce una corrección visual ni se marca como implementada la
+separación del panel mientras no exista una reproducción objetiva.
 
 **Validación mínima:** resultado corto, largo, varias alternativas, error,
 carga, móvil estrecho, escritorio, zoom y cambio de idioma sin salto de layout ni
@@ -200,7 +210,6 @@ campos deformados.
 Cada punto se implementará en una fase y PR verificable. No se agruparán la
 corrección del dashboard, las migraciones de subgénero y el rediseño visual en
 una misma entrega.
-
 
 ## Estabilizar subgénero y contrato de análisis musical unificado
 
