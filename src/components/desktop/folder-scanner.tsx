@@ -1075,7 +1075,7 @@ export function DesktopFolderScanner() {
         <section className="card organization-form" aria-live="polite">
           <div className="organization-section-heading">
             <div>
-              <p className="eyebrow">{t("Resultado local")}</p>
+              <p className="eyebrow">{t("Resultado calculado")}</p>
               <h2>{result.rootName}</h2>
             </div>
             <span>{result.tracks.length.toLocaleString(locale)} {t("pistas")}</span>
@@ -1282,7 +1282,7 @@ export function DesktopFolderScanner() {
                 >
                   <div className="organization-section-heading">
                     <div>
-                      <p className="eyebrow">{t("Etiquetas locales reversibles")}</p>
+                      <p className="eyebrow">{t("Cambios reversibles")}</p>
                       <h3 id="metadata-write-title">
                         {t("Escribir metadatos en archivos")}
                       </h3>
@@ -1300,7 +1300,7 @@ export function DesktopFolderScanner() {
                   ) : (
                     <>
                       <p className="organization-muted">
-                        {t("Edita únicamente los campos que quieras guardar. La previsualización no modifica nada; al confirmar, Rust comprueba cambios externos, copia cada archivo completo, escribe el lote y relee las etiquetas para verificarlo.")}
+                        {t("Edita únicamente los campos que quieras guardar. La previsualización no modifica nada; al confirmar, DJOrganizer comprueba cambios externos, copia cada archivo completo, escribe el lote y relee las etiquetas para verificarlo.")}
                       </p>
                       <div className="metadata-editor-list">
                         {selectedTracks.map((track) => {

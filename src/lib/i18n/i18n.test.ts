@@ -68,6 +68,24 @@ describe("i18n", () => {
     expect(english.routeError.retry).toBe("Retry");
   });
 
+  it("uses product language while keeping on-device privacy explicit", () => {
+    expect(getMessages("es").importGuidance.privacy).toContain(
+      "El análisis musical se realiza en este dispositivo por defecto.",
+    );
+    expect(getMessages("en").importGuidance.privacy).toContain(
+      "Music analysis runs on this device by default.",
+    );
+    expect(translate("es", "Preparando análisis…")).toBe(
+      "Preparando análisis…",
+    );
+    expect(translate("en", "Resultado calculado")).toBe(
+      "Calculated result",
+    );
+    expect(translate("en", "Cambios reversibles")).toBe(
+      "Reversible changes",
+    );
+  });
+
   it("keeps Spanish and English recursively structure-compatible", () => {
     expect(MESSAGES_HAVE_TYPE_PARITY).toBe(true);
     expect(structure(messages.en)).toEqual(structure(messages.es));

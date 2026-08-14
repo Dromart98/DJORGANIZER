@@ -159,8 +159,8 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     page.getByRole("heading", { name: "Import music" }),
   ).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("Preparing local analysis…")).toBeVisible();
-  await expect(page.getByText(/Local analysis ready · WASM/)).toBeVisible();
+  await expect(page.getByText("Preparing analysis…")).toBeVisible();
+  await expect(page.getByText("Analysis ready")).toBeVisible();
   await expect(page.getByRole("button", { name: /download/i })).toHaveCount(0);
 
   await page.evaluate(() =>
@@ -168,7 +168,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   );
   await page.reload();
   await expect(
-    page.getByText(/Local analysis unavailable.*Local analysis could not be prepared/),
+    page.getByText(/Analysis unavailable.*The analysis could not be prepared/),
   ).toBeVisible();
   await page.evaluate(() =>
     window.localStorage.setItem("e2e-local-genre-mode", "ready"),
@@ -181,7 +181,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
     },
   ]);
   await page.reload();
-  await expect(page.getByText(/Análisis local preparado · WASM/)).toBeVisible();
+  await expect(page.getByText("Análisis preparado")).toBeVisible();
   await page.context().addCookies([
     {
       name: "djorganizer-locale",
@@ -281,7 +281,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await expect(
     firstItem.getByText(/Genre: Electronic · Subgenre: Techno/),
   ).toBeVisible({ timeout: 30_000 });
-  await expect(firstItem.getByText("Local analysis", { exact: true })).toBeVisible();
+  await expect(firstItem.getByText("Calculated result", { exact: true })).toBeVisible();
   await expect(firstItem.getByText(/Alternatives: Electronic \/ House/)).toBeVisible();
 
   await expect(secondItem.getByRole("button", { name: "Cancel" })).toBeVisible({
@@ -289,7 +289,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   });
   await expect(page.getByRole("button", { name: "Save 2 tracks" })).toBeDisabled();
   await secondItem.getByRole("button", { name: "Cancel" }).click();
-  await expect(secondItem.getByText("Local analysis cancelled.")).toBeVisible();
+  await expect(secondItem.getByText("Analysis cancelled.")).toBeVisible();
   await expect(
     secondItem.getByRole("button", {
       name: "Retry genre and subgenre analysis",
@@ -299,7 +299,7 @@ test("@authenticated imports tracks without artists and builds an ordered crate"
   await page.evaluate(() =>
     window.localStorage.setItem("e2e-local-genre-mode", "ready"),
   );
-  await expect(page.getByText(/Local analysis ready · WASM/)).toBeVisible();
+  await expect(page.getByText("Analysis ready")).toBeVisible();
   await secondItem
     .getByRole("button", { name: "Retry genre and subgenre analysis" })
     .click();

@@ -146,16 +146,24 @@ de llamadas o controles remotos para género.
 
 ### 8. Quitar referencias técnicas de la interfaz
 
-- [ ] Sustituir en todos los textos visibles referencias como “local”, “web”,
+- [x] Sustituir en todos los textos visibles referencias como “local”, “web”,
   “nube”, “Tauri”, “modelo”, “proveedor” o “inferencia” cuando no ayuden a tomar
   una decisión.
-- [ ] Usar lenguaje orientado a la acción: **Analizar canciones**, **Seleccionar
+- [x] Usar lenguaje orientado a la acción: **Analizar canciones**, **Seleccionar
   carpeta**, **Preparar resultados** o **Exportar lista**.
-- [ ] Mantener las distinciones técnicas en código, documentación de arquitectura,
+- [x] Mantener las distinciones técnicas en código, documentación de arquitectura,
   permisos, seguridad, consentimiento y diagnósticos. No ocultar advertencias
   necesarias antes de mover archivos, escribir etiquetas o transferir datos.
-- [ ] Revisar español e inglés para evitar que el lenguaje técnico reaparezca en
+- [x] Revisar español e inglés para evitar que el lenguaje técnico reaparezca en
   estados vacíos, errores, ayuda, ajustes o accesibilidad.
+
+
+**Implementado — 2026-08-14.** Los estados normales de análisis, resultados y
+escritura usan lenguaje de producto con paridad español/inglés. Se conservan
+“en este dispositivo” para explicar privacidad, “web/aplicación de escritorio”
+cuando cambia la disponibilidad, “ruta local” para aclarar que no se expone y
+“cambios/versión local” en conflictos de sincronización, donde identifica de
+forma inequívoca los cambios del usuario frente a los externos.
 
 ## Bloque P2 — estabilidad visual del formulario
 

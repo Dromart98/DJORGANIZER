@@ -163,7 +163,7 @@ export function MaestPreview({
       transition({
         type: "failed",
         request,
-        error: locale === "en" ? "Local analysis is available in the desktop app." : "El análisis local está disponible en la aplicación de escritorio.",
+        error: locale === "en" ? "Track analysis is available in the desktop app." : "El análisis de pistas está disponible en la aplicación de escritorio.",
       });
       return;
     }
@@ -446,8 +446,8 @@ export function MaestPreview({
             {nativePhase === "analyzing" ? (locale === "en" ? "Analyzing BPM, key and energy…" : "Analizando BPM, tonalidad y energía…")
             : nativePhase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…")
             : phase === "preparing"
-            ? locale === "en" ? "Preparing the local analyzer. The first preparation may download about 348 MB." : "Preparando el analizador local. La primera preparación puede descargar unos 348 MB."
-            : phase === "starting" ? (locale === "en" ? "Preparing the local analyzer…" : "Preparando el analizador local…")
+            ? locale === "en" ? "Preparing analysis. The first preparation may download about 348 MB." : "Preparando el análisis. La primera preparación puede descargar unos 348 MB."
+            : phase === "starting" ? (locale === "en" ? "Preparing analysis…" : "Preparando el análisis…")
             : phase === "cancelling" ? (locale === "en" ? "Cancelling analysis…" : "Cancelando análisis…")
             : maestProgressText(progress, locale)}
         </p>

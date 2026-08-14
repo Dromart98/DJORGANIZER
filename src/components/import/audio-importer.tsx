@@ -193,7 +193,6 @@ export function AudioImporter() {
   const [isAnalyzingBpm, setIsAnalyzingBpm] = useState(false);
   const [isReading, setIsReading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [localGenreBackend, setLocalGenreBackend] = useState<string | null>(null);
   const [localGenreModelError, setLocalGenreModelError] = useState<string | null>(null);
   const [localGenreModelStatus, setLocalGenreModelStatus] =
     useState<LocalGenreModelStatus>("preparing");
@@ -215,9 +214,8 @@ export function AudioImporter() {
     const preparation = client.prepare();
     localGenrePreparationRef.current = preparation;
     void preparation
-      .then((selectedBackend) => {
+      .then(() => {
         if (localGenreClientRef.current !== client) return;
-        setLocalGenreBackend(selectedBackend);
         setLocalGenreModelStatus("ready");
       })
       .catch((error: unknown) => {
@@ -226,7 +224,7 @@ export function AudioImporter() {
           localGenreErrorMessage(
             locale,
             error,
-            "No se pudo preparar el análisis local.",
+            "No se pudo preparar el análisis.",
           ),
         );
         setLocalGenreModelStatus("error");
@@ -1267,7 +1265,7 @@ export function AudioImporter() {
         localGenreError: localGenreErrorMessage(
           locale,
           error,
-          "No se pudo sugerir un género localmente.",
+          "No se pudo sugerir un género.",
         ),
         localGenreStatus: "error",
       });
@@ -1291,13 +1289,11 @@ export function AudioImporter() {
     client?.cancel();
     if (!client) return;
     setLocalGenreModelStatus("preparing");
-    setLocalGenreBackend(null);
     const preparation = client.prepare();
     localGenrePreparationRef.current = preparation;
     void preparation
-      .then((selectedBackend) => {
+      .then(() => {
         if (localGenreClientRef.current !== client) return;
-        setLocalGenreBackend(selectedBackend);
         setLocalGenreModelStatus("ready");
       })
       .catch((error: unknown) => {
@@ -1306,7 +1302,7 @@ export function AudioImporter() {
           localGenreErrorMessage(
             locale,
             error,
-            "No se pudo preparar el análisis local.",
+            "No se pudo preparar el análisis.",
           ),
         );
         setLocalGenreModelStatus("error");
@@ -1399,10 +1395,10 @@ export function AudioImporter() {
         aria-live="polite"
       >
         {localGenreModelStatus === "preparing"
-          ? t("Preparando análisis local…")
+          ? t("Preparando análisis…")
           : localGenreModelStatus === "ready"
-            ? `${t("Análisis local preparado")} · ${localGenreBackend?.toUpperCase() ?? ""}`
-            : `${t("Análisis local no disponible.")} ${localGenreModelError ?? ""}`}
+            ? t("Análisis preparado")
+            : `${t("Análisis no disponible.")} ${localGenreModelError ?? ""}`}
       </p>
 
       {notice ? (
@@ -1590,7 +1586,7 @@ export function AudioImporter() {
                           type="button"
                         >
                           {localGenreModelStatus === "preparing"
-                            ? t("Preparando análisis local…")
+                            ? t("Preparando análisis…")
                             : t("Reintentar análisis de género y subgénero")}
                         </button>
                       ) : null}
@@ -1608,12 +1604,12 @@ export function AudioImporter() {
                         </button>
                       ) : null}
                       {item.localGenreStatus === "cancelled" ? (
-                        <small role="status">{t("Análisis local cancelado.")}</small>
+                        <small role="status">{t("Análisis cancelado.")}</small>
                       ) : null}
                       {item.localGenreSuggestion ? (
                         <span className="genre-suggestion genre-suggestion--local" role="status">
                           <small className="local-analysis-badge">
-                            {t("Análisis local")}
+                            {t("Resultado calculado")}
                           </small>
                           <strong>
                             {t("Género")}: {item.localGenreSuggestion.genre} ·{" "}
@@ -1750,7 +1746,7 @@ export function AudioImporter() {
                         </button>
                       ) : null}
                       {item.bpmStatus === "analyzing" ? (
-                        <small role="status">{t("Analizando el audio local…")}</small>
+                        <small role="status">{t("Analizando el audio…")}</small>
                       ) : null}
                       {item.bpmError ? (
                         <small className="field-error" role="alert">
@@ -1812,7 +1808,7 @@ export function AudioImporter() {
                         </button>
                       ) : null}
                       {item.keyStatus === "analyzing" ? (
-                        <small role="status">{t("Analizando armonía local…")}</small>
+                        <small role="status">{t("Analizando armonía…")}</small>
                       ) : null}
                       {item.keyError ? (
                         <small className="field-error" role="alert">
