@@ -232,15 +232,22 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                 <textarea maxLength={1000} name="description" rows={3} />
               </label>
               <label className="field">
-                {t("Carpeta superior")}
-                <select defaultValue="" name="parentId">
-                  <option value="">{t("Nivel principal")}</option>
+                {t("Guardar dentro de")}
+                <select
+                  aria-describedby="create-crate-parent-help"
+                  defaultValue=""
+                  name="parentId"
+                >
+                  <option value="">{t("Ninguna")}</option>
                   {crateRows.map((crate) => (
                     <option key={crate.id} value={crate.id}>
                       {crate.name}
                     </option>
                   ))}
                 </select>
+                <small id="create-crate-parent-help">
+                  {t("Selecciona otro crate para colocar este crate dentro de él.")}
+                </small>
               </label>
               <button className="button button--primary" type="submit">
                 {t("Crear crate")}

@@ -43,7 +43,7 @@ const english = {
   "Cambios pendientes de confirmación": "Changes awaiting confirmation",
   "Cancelar": "Cancel",
   "Cancelar análisis": "Cancel analysis",
-  "Carpeta superior": "Parent folder",
+  "Guardar dentro de": "Save inside",
   "Cerrar sesión": "Sign out",
   "Clasificando…": "Classifying…",
   "Colección": "Collection",
@@ -411,7 +411,7 @@ const english = {
   "La etiqueta se creó correctamente.": "The tag was created successfully.",
   "La etiqueta se eliminó de la biblioteca.":
     "The tag was removed from the library.",
-  "Nivel principal": "Top level",
+  "Ninguna": "None",
   "No se pudo eliminar la etiqueta.": "The tag could not be deleted.",
   "No se pudo guardar el crate.": "The crate could not be saved.",
   "No se pudo guardar la etiqueta.": "The tag could not be saved.",
@@ -424,6 +424,8 @@ const english = {
   "Revisa el nombre y la descripción del crate.":
     "Check the crate name and description.",
   "Sesiones": "Sets",
+  "Selecciona otro crate para colocar este crate dentro de él.":
+    "Select another crate to place this crate inside it.",
   "Sin descripción": "No description",
   "Tus crates": "Your crates",
   "Ya tienes un crate con ese nombre.": "You already have a crate with that name.",
