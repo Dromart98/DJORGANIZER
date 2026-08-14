@@ -9,6 +9,7 @@ import {
 import { deleteTracksAction } from "@/app/library/actions";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import { BulkEditForm } from "@/components/library/bulk-edit-form";
+import { CreateCrateFromSelection } from "@/components/library/create-crate-from-selection";
 import { MaestBatchAnalysis } from "@/components/library/maest-batch-analysis";
 import { DesktopExportLink } from "@/components/desktop/desktop-export-link";
 import {
@@ -61,6 +62,9 @@ export function TrackTable({
   const dateFormatter = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
   const allSelected =
     tracks.length > 0 && tracks.every((track) => selected.has(track.id));
+  const orderedSelectedIds = tracks
+    .filter((track) => selected.has(track.id))
+    .map((track) => track.id);
   const returnTo = buildLibraryHref(query, {});
 
   function toggleAll() {
@@ -90,6 +94,7 @@ export function TrackTable({
               subgenre: { value: track.subgenre, source: track.subgenre_source, analyzerId: track.subgenre_analyzer_id, analyzerVersion: track.subgenre_analyzer_version, compatibilityKey: track.subgenre_compatibility_key, analyzedAt: track.subgenre_analyzed_at_ms, rawScore: track.subgenre_raw_score },
             },
           }))} />
+          <CreateCrateFromSelection trackIds={orderedSelectedIds} />
           <DesktopExportLink request={{ trackIds: Array.from(selected) }} />
           <BulkEditForm
             returnTo={returnTo}
