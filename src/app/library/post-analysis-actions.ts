@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/user";
-import { listFilteredTrackIds } from "@/lib/library/filtered-track-ids";
-import { parseTrackQuery } from "@/lib/library/track-query";
+import { parseTrackQuery, safeSearchTerm } from "@/lib/library/track-query";
 import {
   crateValuesSchema,
   organizationIdSchema,
@@ -76,21 +75,36 @@ export async function createCrateFromFiltersAction(
   const parsed = createCrateFromFiltersSchema.safeParse(input);
   if (!parsed.success) return { status: "invalid" };
 
-  const user = await requireUser();
+  await requireUser();
   const query = parseTrackQuery(
     Object.fromEntries(new URLSearchParams(parsed.data.searchParams)),
   );
   const supabase = await createClient();
+  const { data: crateId, error } = await supabase.rpc(
+    "create_crate_from_library_filters",
+    {
+      crate_name: parsed.data.name,
+      search_term: query.q ? safeSearchTerm(query.q) : "",
+      genre_filter: query.genre ?? null,
+      subgenre_filter: query.subgenre ?? null,
+      bpm_min: query.bpmMin ?? null,
+      bpm_max: query.bpmMax ?? null,
+      key_filter: query.key ?? null,
+      camelot_filter: query.camelot ?? null,
+      energy_min: query.energyMin ?? null,
+      energy_max: query.energyMax ?? null,
+      rating_min: query.rating ?? null,
+      sort_key: query.sort,
+      sort_direction: query.direction,
+    },
+  );
 
-  let trackIds: string[];
-  try {
-    trackIds = await listFilteredTrackIds(supabase, user.id, query);
-  } catch {
-    return { status: "failed" };
-  }
+  if (error?.code === "23505") return { status: "duplicate" };
+  if (error || !crateId) return { status: "failed" };
 
-  if (!trackIds.length) return { status: "invalid" };
-  return persistCrate(supabase, parsed.data.name, trackIds);
+  revalidatePath("/crates");
+  revalidatePath(`/crates/${crateId}`);
+  return { status: "created", crateId };
 }
 
 export async function createPostAnalysisCrateAction(
