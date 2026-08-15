@@ -495,31 +495,61 @@ pub(super) fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ScannedAudioFile, SessionTrack};
-    use std::path::PathBuf;
+    use crate::ScannedAudioFile;
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
-    fn track(
-        title: Option<&str>,
-        artist: Option<&str>,
-        album: Option<&str>,
-        genre: Option<&str>,
-        duration: Option<f64>,
-        size: u64,
-    ) -> SessionTrack {
+    fn valid_wav() -> Vec<u8> {
+        let sample_rate = 8_000_u32;
+        let data_length = sample_rate;
+        let mut wav = Vec::with_capacity((44 + data_length) as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_length).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&8_u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_length.to_le_bytes());
+        wav.resize((44 + data_length) as usize, 128);
+        wav
+    }
+
+    fn temp_root(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "djorganizer-lost-repair-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn session_track(path: PathBuf, relative_path: &str, metadata: &fs::Metadata) -> SessionTrack {
         SessionTrack {
-            absolute_path: PathBuf::from("candidate.mp3"),
+            absolute_path: path,
             track: ScannedAudioFile {
                 scan_id: "scan-1".into(),
-                name: "candidate.mp3".into(),
-                relative_path: "Moved/candidate.mp3".into(),
-                extension: "mp3".into(),
-                size_bytes: size,
+                name: "candidate.wav".into(),
+                relative_path: relative_path.into(),
+                extension: "wav".into(),
+                size_bytes: metadata.len(),
                 metadata_read: true,
-                title: title.map(str::to_owned),
-                artist: artist.map(str::to_owned),
-                album: album.map(str::to_owned),
-                genre: genre.map(str::to_owned),
-                duration_seconds: duration,
+                title: Some("Opening".into()),
+                artist: Some("DJ Aurora".into()),
+                album: Some("Album".into()),
+                genre: Some("House".into()),
+                duration_seconds: Some(1.0),
                 bpm: None,
                 musical_key: None,
                 duplicate_group: None,
@@ -527,41 +557,70 @@ mod tests {
         }
     }
 
-    #[test]
-    fn metadata_matching_requires_title_duration_and_artist_or_album() {
-        let library = LostTrackRepairLibraryTrack {
+    fn library_track(file_size: u64) -> LostTrackRepairLibraryTrack {
+        LostTrackRepairLibraryTrack {
             album: Some("Album".into()),
             artist: Some("DJ Aurora".into()),
-            duration_seconds: Some(180.0),
+            duration_seconds: Some(1.0),
             file_fingerprint: "00".repeat(32),
-            file_size: 1_000_000,
+            file_size,
             genre: Some("House".into()),
             title: "Opening".into(),
             track_id: "11111111-1111-4111-8111-111111111111".into(),
+        }
+    }
+
+    #[test]
+    fn stale_scan_metadata_does_not_create_a_metadata_candidate() {
+        let root = temp_root("stale-metadata");
+        let path = root.join("candidate.wav");
+        fs::write(&path, valid_wav()).unwrap();
+        let metadata = fs::metadata(&path).unwrap();
+        let relative = "candidate.wav";
+        let track = session_track(path, relative, &metadata);
+        let session = ScanSession {
+            file_versions: HashMap::from([(relative.to_owned(), file_version(&metadata))]),
+            id: "session".into(),
+            incremental_scan_active: false,
+            root: root.clone(),
+            tracks: HashMap::from([(track.track.scan_id.clone(), track)]),
+            truncated: false,
+            library_links: HashMap::new(),
         };
-        let strong = track(
-            Some(" opening "),
-            Some("DJ AURORA"),
-            Some("Album"),
-            Some("House"),
-            Some(180.2),
-            1_005_000,
-        );
-        let weak = track(
-            Some("Opening"),
-            Some("Different"),
-            Some("Different"),
-            Some("House"),
-            Some(180.1),
-            1_000_000,
-        );
-        // The function hashes only after the metadata gate, so a non-existent test
-        // path still proves weak candidates are rejected before any file access.
-        assert!(score_candidate(&library, &weak).is_none());
-        assert!(same_text(
-            library.artist.as_deref(),
-            strong.track.artist.as_deref()
-        ));
+
+        // The scan snapshot claims matching title/artist metadata, but the current WAV
+        // has no such tags. Scoring must use the current file and reject it.
+        assert!(score_for_library_track(&session, &library_track(metadata.len())).is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_symlink_outside_scan_root_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_root("symlink-root");
+        let outside = temp_root("symlink-outside");
+        let outside_path = outside.join("outside.wav");
+        fs::write(&outside_path, valid_wav()).unwrap();
+        let link_path = root.join("candidate.wav");
+        symlink(&outside_path, &link_path).unwrap();
+        let metadata = fs::metadata(&link_path).unwrap();
+        let relative = "candidate.wav";
+        let track = session_track(link_path, relative, &metadata);
+        let session = ScanSession {
+            file_versions: HashMap::from([(relative.to_owned(), file_version(&metadata))]),
+            id: "session".into(),
+            incremental_scan_active: false,
+            root: root.clone(),
+            tracks: HashMap::from([(track.track.scan_id.clone(), track.clone())]),
+            truncated: false,
+            library_links: HashMap::new(),
+        };
+
+        assert!(validated_candidate_file(&session, &track).is_none());
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
     }
 
     #[test]
