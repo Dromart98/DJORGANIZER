@@ -21,7 +21,10 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 type CrateMutationRpc = (
-  functionName: "add_track_to_manual_crate" | "move_track_in_manual_crate",
+  functionName:
+    | "add_track_to_manual_crate"
+    | "move_track_in_manual_crate"
+    | "remove_track_from_manual_crate",
   args: Record<string, string>,
 ) => Promise<{
   data: unknown;
@@ -369,27 +372,17 @@ export async function addTrackToCrateAction(formData: FormData) {
 }
 
 export async function removeTrackFromCrateAction(formData: FormData) {
-  const user = await requireUser();
+  await requireUser();
   const parsed = trackAssignmentSchema.parse({
     crateId: formData.get("crateId"),
     trackId: formData.get("trackId"),
   });
   const supabase = await createClient();
-  const { data: crate } = await supabase
-    .from("crates")
-    .select("id, smart_rules")
-    .eq("id", parsed.crateId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (!crate || crate.smart_rules !== null) {
-    redirect(`/crates/${parsed.crateId}?error=remove-track`);
-  }
-  const { error } = await supabase
-    .from("crate_tracks")
-    .delete()
-    .eq("crate_id", parsed.crateId)
-    .eq("track_id", parsed.trackId)
-    .eq("user_id", user.id);
+  const rpc = supabase.rpc.bind(supabase) as unknown as CrateMutationRpc;
+  const { error } = await rpc("remove_track_from_manual_crate", {
+    requested_crate_id: parsed.crateId,
+    requested_track_id: parsed.trackId,
+  });
 
   if (error) redirect(`/crates/${parsed.crateId}?error=remove-track`);
   revalidatePath("/crates");

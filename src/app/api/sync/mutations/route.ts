@@ -13,7 +13,6 @@ import {
 } from "@/lib/library/track-schema";
 import {
   crateValuesFromFormData,
-  moveTrackIds,
   moveTrackSchema,
   organizationIdSchema,
   tagAssignmentSchema,
@@ -86,6 +85,21 @@ type BulkUpdateTracksWithHistoryRpc = (
   },
 ) => Promise<{
   data: { batch_id: string | null; changed_count: number } | null;
+  error: { message?: string } | null;
+}>;
+
+type CrateMutationRpc = (
+  functionName:
+    | "add_track_to_manual_crate"
+    | "move_track_in_manual_crate"
+    | "remove_track_from_manual_crate",
+  args: {
+    requested_crate_id: string;
+    requested_direction?: "down" | "up";
+    requested_track_id: string;
+  },
+) => Promise<{
+  data: unknown;
   error: { message?: string } | null;
 }>;
 
@@ -402,62 +416,41 @@ async function applyMutation(
               ...assignment,
               direction: value(mutation.payload, "direction"),
             }).direction
-          : null;
-      if (mutation.action === "crate-track-remove") {
-        const { error } = await supabase
-          .from("crate_tracks")
-          .delete()
-          .eq("crate_id", assignment.crateId)
-          .eq("track_id", assignment.trackId)
-          .eq("user_id", userId);
-        if (error) throw new Error("No se pudo quitar la pista del crate.");
+          : undefined;
+      const rpc = supabase.rpc.bind(supabase) as unknown as CrateMutationRpc;
+      const functionName =
+        mutation.action === "crate-track-add"
+          ? "add_track_to_manual_crate"
+          : mutation.action === "crate-track-remove"
+            ? "remove_track_from_manual_crate"
+            : "move_track_in_manual_crate";
+      const { error } = await rpc(functionName, {
+        requested_crate_id: assignment.crateId,
+        ...(direction ? { requested_direction: direction } : {}),
+        requested_track_id: assignment.trackId,
+      });
+      const message = error?.message ?? "";
+      if (
+        mutation.action === "crate-track-add" &&
+        message.includes("already in crate")
+      ) {
         break;
       }
-      if (mutation.action === "crate-track-add") {
-        const { data: last } = await supabase
-          .from("crate_tracks")
-          .select("position")
-          .eq("crate_id", assignment.crateId)
-          .eq("user_id", userId)
-          .order("position", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        const { error } = await supabase.from("crate_tracks").upsert(
-          {
-            crate_id: assignment.crateId,
-            position: (last?.position ?? -1) + 1,
-            track_id: assignment.trackId,
-            user_id: userId,
-          },
-          { ignoreDuplicates: true, onConflict: "crate_id,track_id" },
+      if (
+        mutation.action === "crate-track-remove" &&
+        message.includes("not found in crate")
+      ) {
+        break;
+      }
+      if (error) {
+        throw new Error(
+          mutation.action === "crate-track-add"
+            ? "No se pudo añadir la pista al crate."
+            : mutation.action === "crate-track-remove"
+              ? "No se pudo quitar la pista del crate."
+              : "No se pudo reordenar el crate.",
         );
-        if (error) throw new Error("No se pudo añadir la pista al crate.");
-        break;
       }
-      const { data, error } = await supabase
-        .from("crate_tracks")
-        .select("track_id")
-        .eq("crate_id", assignment.crateId)
-        .eq("user_id", userId)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true });
-      if (error) throw new Error("No se pudo leer el orden del crate.");
-      const current = (data ?? []).map((item) => item.track_id);
-      const ordered = moveTrackIds(
-        current,
-        assignment.trackId,
-        direction ?? "up",
-      );
-      const { error: reorderError } = await supabase.from("crate_tracks").upsert(
-        ordered.map((trackId, position) => ({
-          crate_id: assignment.crateId,
-          position,
-          track_id: trackId,
-          user_id: userId,
-        })),
-        { onConflict: "crate_id,track_id" },
-      );
-      if (reorderError) throw new Error("No se pudo reordenar el crate.");
       break;
     }
   }
