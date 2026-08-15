@@ -1,0 +1,117 @@
+.intro,
+.status,
+.trackCard,
+.candidate {
+  display: grid;
+  gap: 10px;
+}
+
+.intro,
+.status,
+.trackCard {
+  padding: 16px;
+}
+
+.summary,
+.actions,
+.reasonList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.summary {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.trackList,
+.candidateList {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trackCard h3,
+.trackCard p,
+.candidate p {
+  margin: 0;
+}
+
+.candidate {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.candidateLabel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.candidateLabel input {
+  margin-top: 4px;
+}
+
+.path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.confidence {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reason {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.applyBar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+@media (max-width: 760px) {
+  .summary,
+  .applyBar,
+  .candidateLabel {
+    align-items: stretch;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .confidence {
+    grid-column: 2;
+  }
+
+  .applyBar {
+    flex-direction: column;
+  }
+
+  .applyBar :global(.button) {
+    width: 100%;
+  }
+}
