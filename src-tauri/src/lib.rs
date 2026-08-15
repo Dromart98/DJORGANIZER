@@ -4505,17 +4505,17 @@ async fn scan_music_folder_incrementally(
             )
         })
         .collect::<HashMap<_, _>>();
-    let added_scan_ids = current_scan_ids
+    let added_scan_ids: Vec<String> = current_scan_ids
         .iter()
         .filter(|(path, _)| !previous_versions.contains_key(*path))
         .map(|(_, scan_id)| scan_id.clone())
         .collect();
-    let removed_scan_ids = previous_scan_ids
+    let removed_scan_ids: Vec<String> = previous_scan_ids
         .iter()
         .filter(|(path, _)| !completed.file_versions.contains_key(*path))
         .map(|(_, scan_id)| scan_id.clone())
         .collect();
-    let updated_scan_ids = current_scan_ids
+    let updated_scan_ids: Vec<String> = current_scan_ids
         .iter()
         .filter(|(path, _)| {
             completed
