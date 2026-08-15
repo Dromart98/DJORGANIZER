@@ -1,0 +1,63 @@
+name: Temporary finish crate tools
+
+on:
+  push:
+    branches:
+      - feat/advanced-crate-tools
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/advanced-crate-tools
+          fetch-depth: 0
+      - name: Wire discoverability and roadmap
+        shell: python
+        run: |
+          from pathlib import Path
+
+          page = Path('src/app/crates/page.tsx')
+          text = page.read_text(encoding='utf-8')
+          old = '''      <PageHeader
+        description={t("Ordena sesiones y reutiliza etiquetas.")}
+        eyebrow={t("Organización")}
+        title={t("Crates y etiquetas")}
+      />'''
+          new = '''      <PageHeader
+        action={
+          <Link className="button button--secondary" href="/crates/tools">
+            {locale === "en" ? "Advanced tools" : "Herramientas avanzadas"}
+          </Link>
+        }
+        description={t("Ordena sesiones y reutiliza etiquetas.")}
+        eyebrow={t("Organización")}
+        title={t("Crates y etiquetas")}
+      />'''
+          if old not in text:
+              raise SystemExit('crates PageHeader anchor missing')
+          page.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          roadmap = Path('docs/roadmap.md')
+          text = roadmap.read_text(encoding='utf-8')
+          old = '''6. - [ ] Añadir herramientas avanzadas para crates: fusionar, comparar, encontrar
+   pistas comunes o exclusivas, mostrar en qué crates aparece una pista, ordenar
+   por BPM, Camelot, energía o valoración y retirar duplicados internos sin borrar
+   canciones de la biblioteca. Todas las operaciones deben conservar el orden o
+   mostrar una previsualización cuando lo alteren.'''
+          new = old.replace('6. - [ ]', '6. - [x]', 1)
+          if old not in text:
+              raise SystemExit('roadmap crate tools anchor missing')
+          roadmap.write_text(text.replace(old, new, 1), encoding='utf-8')
+      - name: Commit and clean workflow
+        run: |
+          git config user.name "Dromart98"
+          git config user.email "davidromanmartin@yahoo.es"
+          git rm .github/workflows/temporary-finish-crate-tools.yml .github/crate-tools-trigger.txt
+          git add src/app/crates/page.tsx docs/roadmap.md
+          git commit -m "Wire advanced crate tools"
+          git push origin HEAD:feat/advanced-crate-tools
