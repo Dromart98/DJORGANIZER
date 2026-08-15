@@ -11,8 +11,8 @@ async function addTrack(
   values: { genre: string; subgenre: string; title: string },
 ) {
   await page.getByLabel("Title *").fill(values.title);
-  await page.getByLabel("Genre").fill(values.genre);
-  await page.getByLabel("Subgenre").fill(values.subgenre);
+  await page.getByLabel("Genre", { exact: true }).fill(values.genre);
+  await page.getByLabel("Subgenre", { exact: true }).fill(values.subgenre);
   await page.getByRole("button", { name: "Add track" }).click();
   await expect(page).toHaveURL(/\/library\/[0-9a-f-]+$/, { timeout: 20_000 });
 }
