@@ -6,6 +6,7 @@ export const crateSortKeys = [
   "camelot",
   "energy",
   "genre",
+  "subgenre",
   "rating",
 ] as const;
 export const crateSortDirections = ["asc", "desc"] as const;
@@ -21,6 +22,7 @@ export type CrateSortTrack = {
   genre: string | null;
   id: string;
   rating: number | null;
+  subgenre: string | null;
   title: string;
 };
 
@@ -32,7 +34,7 @@ function camelotRank(value: string | null) {
   return (number - 1) * 2 + letterOffset;
 }
 
-function normalizedGenre(value: string | null) {
+function normalizedText(value: string | null) {
   const normalized = value?.trim().toLocaleLowerCase("es");
   return normalized ? normalized : null;
 }
@@ -46,7 +48,9 @@ function sortValue(track: CrateSortTrack, key: CrateSortKey) {
     case "energy":
       return track.energy;
     case "genre":
-      return normalizedGenre(track.genre);
+      return normalizedText(track.genre);
+    case "subgenre":
+      return normalizedText(track.subgenre);
     case "rating":
       return track.rating;
   }
@@ -95,7 +99,9 @@ export async function loadCrateSortTracks(
     const ids = trackIds.slice(from, from + 500);
     const { data, error } = await supabase
       .from("tracks")
-      .select("id, title, artist, bpm, camelot_key, energy, genre, rating")
+      .select(
+        "id, title, artist, bpm, camelot_key, energy, genre, subgenre, rating",
+      )
       .eq("user_id", userId)
       .in("id", ids);
     if (error) throw new Error("No se pudieron cargar los datos de ordenación.");
