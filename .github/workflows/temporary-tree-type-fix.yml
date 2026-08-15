@@ -1,0 +1,60 @@
+name: Temporary organization tree type fix
+
+on:
+  push:
+    branches:
+      - feat/organization-rule-builder
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/organization-rule-builder
+          fetch-depth: 0
+      - name: Fix recursive tree type
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/lib/desktop/scan-review.ts')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '  const root = new Map<string, Map<string, unknown>>();',
+              '  type OrganizationTreeMap = Map<string, OrganizationTreeMap>;\n  const root: OrganizationTreeMap = new Map();',
+              1,
+          )
+          text = text.replace(
+              '      let child = cursor.get(folder) as Map<string, unknown> | undefined;',
+              '      let child = cursor.get(folder);',
+              1,
+          )
+          text = text.replace('        child = new Map<string, unknown>();', '        child = new Map();', 1)
+          text = text.replace(
+              '  const toNodes = (node: Map<string, Map<string, unknown>>): OrganizationTreeNode[] =>',
+              '  const toNodes = (node: OrganizationTreeMap): OrganizationTreeNode[] =>',
+              1,
+          )
+          text = text.replace(
+              '        children: toNodes(children as Map<string, Map<string, unknown>>),',
+              '        children: toNodes(children),',
+              1,
+          )
+          text = text.replace(
+              '  return toNodes(root as Map<string, Map<string, unknown>>);',
+              '  return toNodes(root);',
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+          git rm .github/workflows/temporary-tree-type-fix.yml
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix organization tree type"
+          git push origin HEAD:feat/organization-rule-builder
