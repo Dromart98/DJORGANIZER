@@ -184,6 +184,41 @@ function libraryReturnTo(formData: FormData) {
     : "/library";
 }
 
+async function setTrackArchivedAt(formData: FormData, archivedAt: string | null) {
+  const user = await requireUser();
+  const id = trackIdSchema.parse(formData.get("id"));
+  const returnTo = libraryReturnTo(formData);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tracks")
+    .update({ archived_at: archivedAt })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(
+      archivedAt
+        ? "No se pudo archivar la canción."
+        : "No se pudo restaurar la canción.",
+    );
+  }
+
+  revalidatePath("/library");
+  revalidatePath(`/library/${id}`);
+  revalidatePath("/crates");
+  redirect(returnTo);
+}
+
+export async function archiveTrackAction(formData: FormData) {
+  await setTrackArchivedAt(formData, new Date().toISOString());
+}
+
+export async function restoreTrackAction(formData: FormData) {
+  await setTrackArchivedAt(formData, null);
+}
+
 function withLibraryStatus(returnTo: string, status: string) {
   const url = new URL(returnTo, "https://djorganizer.local");
   url.searchParams.set(status, "1");
