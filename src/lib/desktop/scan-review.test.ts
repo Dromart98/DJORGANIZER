@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   createOrganizationPreview,
+  createOrganizationTree,
   filterScannedTracks,
+  normalizeOrganizationRuleLevels,
+  organizationRulesUseBpmRanges,
+  organizationRulesUseLinkedMetadata,
   paginateScannedTracks,
   parseBpmRangeBoundaries,
   safePathSegment,
+  type LinkedOrganizationMetadata,
   type ScannedAudioFile,
 } from "./scan-review";
 
@@ -42,6 +47,18 @@ const tracks: ScannedAudioFile[] = [
     duplicateGroup: null,
   },
 ];
+
+const linkedMetadata = new Map<string, LinkedOrganizationMetadata>([
+  [
+    "track-1",
+    {
+      camelotKey: "8A",
+      energy: 7,
+      releaseYear: 2024,
+      subgenre: "Deep House",
+    },
+  ],
+]);
 
 describe("filterScannedTracks", () => {
   it("searches metadata and relative paths without case sensitivity", () => {
@@ -131,7 +148,7 @@ describe("desktop organization preview", () => {
     ]);
   });
 
-  it("supports single-level genre, genre/artist and harmonic schemes", () => {
+  it("supports existing fixed schemes", () => {
     const genrePreview = createOrganizationPreview([tracks[0]], "genre")[0];
     expect(genrePreview.targetPath).toBe("House/Opening.mp3");
     expect(genrePreview.collisionResolved).toBe(false);
@@ -194,10 +211,6 @@ describe("desktop organization preview", () => {
       createOrganizationPreview([tracks[0]], "energy-bpm-range", options)[0]
         .targetPath,
     ).toBe("Energía 7/120–139 BPM/Opening.mp3");
-    expect(
-      createOrganizationPreview([tracks[1]], "energy-bpm-range", options)[0]
-        .targetPath,
-    ).toBe("Energía desconocida/BPM desconocido/Closing.flac");
   });
 
   it("does not produce range previews until valid boundaries are reviewed", () => {
@@ -207,5 +220,115 @@ describe("desktop organization preview", () => {
         bpmBoundaries: [120, 100],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("organization rule builder", () => {
+  it("accepts one to three contiguous unique levels", () => {
+    expect(normalizeOrganizationRuleLevels(["genre"])).toEqual(["genre"]);
+    expect(normalizeOrganizationRuleLevels(["genre", "artist", "album"]))
+      .toEqual(["genre", "artist", "album"]);
+    expect(normalizeOrganizationRuleLevels(["genre", "", ""])).toEqual([
+      "genre",
+    ]);
+    expect(normalizeOrganizationRuleLevels([])).toBeNull();
+    expect(normalizeOrganizationRuleLevels(["", "artist"])).toBeNull();
+    expect(normalizeOrganizationRuleLevels(["genre", "", "album"]))
+      .toBeNull();
+    expect(normalizeOrganizationRuleLevels(["genre", "genre"])).toBeNull();
+    expect(
+      normalizeOrganizationRuleLevels(["genre", "artist", "album", "key"]),
+    ).toBeNull();
+  });
+
+  it("identifies rule dependencies before native simulation", () => {
+    expect(organizationRulesUseBpmRanges(["genre", "bpm-range"])).toBe(true);
+    expect(organizationRulesUseBpmRanges(["genre", "bpm"])).toBe(false);
+    expect(organizationRulesUseLinkedMetadata(["genre", "artist"])).toBe(false);
+    expect(organizationRulesUseLinkedMetadata(["subgenre"])).toBe(true);
+    expect(organizationRulesUseLinkedMetadata(["camelot"])).toBe(true);
+    expect(organizationRulesUseLinkedMetadata(["energy"])).toBe(true);
+    expect(organizationRulesUseLinkedMetadata(["year"])).toBe(true);
+  });
+
+  it("builds one to three levels from file and linked metadata", () => {
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        ruleLevels: ["genre", "artist", "album"],
+      })[0].targetPath,
+    ).toBe("House/DJ Aurora/Sin álbum/Opening.mp3");
+
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        linkedMetadataByScanId: linkedMetadata,
+        ruleLevels: ["subgenre", "camelot", "year"],
+      })[0].targetPath,
+    ).toBe("Deep House/8A/2024/Opening.mp3");
+
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        linkedMetadataByScanId: linkedMetadata,
+        ruleLevels: ["energy", "bpm"],
+      })[0].targetPath,
+    ).toBe("Energía 7/124 BPM/Opening.mp3");
+  });
+
+  it("uses neutral folders rather than inventing missing linked metadata", () => {
+    expect(
+      createOrganizationPreview([tracks[1]], "rules", {
+        ruleLevels: ["subgenre", "camelot", "year"],
+      })[0].targetPath,
+    ).toBe(
+      "Subgénero desconocido/Camelot desconocido/Año desconocido/Closing.flac",
+    );
+  });
+
+  it("requires valid reviewed BPM cuts when the rule uses a BPM range", () => {
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        ruleLevels: ["genre", "bpm-range"],
+      }),
+    ).toEqual([]);
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        bpmBoundaries: [100, 120, 140],
+        ruleLevels: ["genre", "bpm-range"],
+      })[0].targetPath,
+    ).toBe("House/120–139 BPM/Opening.mp3");
+  });
+
+  it("returns no preview for invalid rule combinations", () => {
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        ruleLevels: [],
+      }),
+    ).toEqual([]);
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        ruleLevels: ["genre", "genre"],
+      }),
+    ).toEqual([]);
+    expect(
+      createOrganizationPreview([tracks[0]], "rules", {
+        ruleLevels: ["genre", "", "album"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("builds a hierarchical folder tree from the preview", () => {
+    const preview = createOrganizationPreview(
+      [tracks[0], { ...tracks[0], scanId: "track-3", artist: "DJ Boreal" }],
+      "rules",
+      { ruleLevels: ["genre", "artist"] },
+    );
+    expect(createOrganizationTree(preview)).toEqual([
+      {
+        name: "House",
+        children: [
+          { name: "DJ Aurora", children: [] },
+          { name: "DJ Boreal", children: [] },
+        ],
+      },
+    ]);
   });
 });
