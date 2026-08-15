@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useLocale } from "@/components/i18n/locale-provider";
 import {
   DESKTOP_EXPORT_REQUEST_KEY,
   type DesktopExportRequest,
@@ -16,6 +17,7 @@ function hasDesktopExport() {
 
 export function DesktopExportLink({ request }: { request: DesktopExportRequest }) {
   const [available, setAvailable] = useState(false);
+  const locale = useLocale();
   useEffect(() => setAvailable(hasDesktopExport()), []);
 
   return (
@@ -25,7 +27,7 @@ export function DesktopExportLink({ request }: { request: DesktopExportRequest }
           className="button button--secondary button--small"
           href={`/crates/${request.crateId}/sort`}
         >
-          Ordenar
+          {locale === "en" ? "Sort" : "Ordenar"}
         </Link>
       ) : null}
       {available ? (
