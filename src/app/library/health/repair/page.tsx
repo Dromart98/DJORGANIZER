@@ -34,8 +34,8 @@ export default async function LostTrackRepairPage() {
         }
         description={
           en
-            ? "Reconnect a lost library reference to a verified file candidate from the active desktop scan."
-            : "Vuelve a conectar una referencia perdida de la biblioteca con un candidato de archivo verificable del escaneo de escritorio activo."
+            ? "Reconnect a lost library reference to a verified file candidate from the active desktop scan. Keep the folder scan active while reviewing and applying repairs."
+            : "Vuelve a conectar una referencia perdida de la biblioteca con un candidato de archivo verificable del escaneo de escritorio activo. Mantén ese escaneo activo mientras revisas y aplicas las reparaciones."
         }
         eyebrow={en ? "Maintenance" : "Mantenimiento"}
         title={en ? "Repair lost references" : "Reparar referencias perdidas"}
