@@ -66,6 +66,7 @@ type ScanSessionContextValue = {
   linksReady: boolean;
   missingTrackIds: string[];
   pathChanges: DesktopPathChange[];
+  repairTrackLinks(sessionId: string, links: LinkInput[]): void;
   replaceScanHealth(snapshot: DesktopScanHealthSnapshot): void;
   replaceTrackLinks(
     sessionId: string,
@@ -165,6 +166,30 @@ export function DesktopScanSessionProvider({ children }: { children: ReactNode }
     [],
   );
 
+  const repairTrackLinks = useCallback((sessionId: string, links: LinkInput[]) => {
+    setLinkState((current) => {
+      if (current.sessionId !== sessionId) return current;
+      const nextLinks = new Map(current.links);
+      const missingTrackIds = new Set(current.missingTrackIds);
+      const pathChanges = new Map(current.pathChanges);
+      for (const link of links) {
+        nextLinks.set(link.trackId, {
+          relativePath: link.relativePath,
+          scanId: link.scanId,
+          sessionId,
+        });
+        missingTrackIds.delete(link.trackId);
+        pathChanges.delete(link.trackId);
+      }
+      return {
+        ...current,
+        links: nextLinks,
+        missingTrackIds,
+        pathChanges,
+      };
+    });
+  }, []);
+
   const clearTrackLinks = useCallback(() => {
     setLinkState(emptyLinkState());
     setScanHealth(null);
@@ -191,11 +216,19 @@ export function DesktopScanSessionProvider({ children }: { children: ReactNode }
       linksReady: linkState.linksReady,
       missingTrackIds: [...linkState.missingTrackIds],
       pathChanges: [...linkState.pathChanges.values()],
+      repairTrackLinks,
       replaceScanHealth,
       replaceTrackLinks,
       scanHealth,
     }),
-    [clearTrackLinks, linkState, replaceScanHealth, replaceTrackLinks, scanHealth],
+    [
+      clearTrackLinks,
+      linkState,
+      repairTrackLinks,
+      replaceScanHealth,
+      replaceTrackLinks,
+      scanHealth,
+    ],
   );
 
   return <ScanSessionContext.Provider value={value}>{children}</ScanSessionContext.Provider>;
