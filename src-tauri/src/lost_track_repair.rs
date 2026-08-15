@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, collections::HashSet, fs, path::Path};
+use std::{collections::HashSet, fs, path::Path};
 
 use super::{
     file_version, hash_file, parse_library_fingerprint, persist_local_aliases,
@@ -55,7 +55,7 @@ pub(super) struct LostTrackRepairPreview {
     pub(super) unresolved_track_ids: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct LostTrackRepairApplyResult {
     pub(super) links: Vec<LibraryTrackLink>,
