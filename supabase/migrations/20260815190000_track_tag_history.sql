@@ -266,10 +266,12 @@ begin
     and assignment.tag_id = history_row.tag_id
     and assignment.track_id = any(history_row.track_ids);
 
-  if membership_count <> case
-    when history_row.operation = 'add' then expected_count
-    else 0
-  end then
+  if membership_count <> (
+    case
+      when history_row.operation = 'add' then expected_count
+      else 0
+    end
+  ) then
     raise exception 'Track tag state changed after history entry';
   end if;
 
