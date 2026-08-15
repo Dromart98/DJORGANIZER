@@ -44,12 +44,13 @@ test("@authenticated records and undoes a bulk track edit", async ({
   const bulkForm = page.locator("form.bulk-edit-form");
   await bulkForm.locator("#bulk-field").selectOption("genre");
   await bulkForm.locator("#bulk-value").fill("Disco");
-  page.once("dialog", (dialog) => dialog.accept());
+  page.once("dialog", (dialog) => void dialog.accept());
   await bulkForm.locator('button[type="submit"]').click();
 
   await expect(page).toHaveURL(/bulkUpdated=1/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "Recent bulk edits" })).toBeVisible();
-  await expect(page.getByText("2 tracks", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("2 tracks · Genre", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Previous values: empty", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Undo batch" })).toBeVisible();
 
   const firstRow = page.getByRole("row").filter({ hasText: first });
@@ -57,6 +58,12 @@ test("@authenticated records and undoes a bulk track edit", async ({
   await expect(firstRow).toContainText("Disco");
   await expect(secondRow).toContainText("Disco");
 
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toContain("2 tracks");
+    expect(dialog.message()).toContain("Genre");
+    expect(dialog.message()).toContain("Previous saved values".toLowerCase().split(" ")[0]);
+    void dialog.accept();
+  });
   await page.getByRole("button", { name: "Undo batch" }).click();
 
   await expect(page).toHaveURL(/bulkUndone=1/, { timeout: 20_000 });
