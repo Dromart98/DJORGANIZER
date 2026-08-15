@@ -6,6 +6,14 @@ export type TrackCrate = Pick<Tables<"crates">, "id" | "name">;
 const MEMBERSHIP_PAGE_SIZE = 500;
 const CRATE_LOOKUP_CHUNK_SIZE = 100;
 
+export function sortTrackCrates(crates: readonly TrackCrate[]) {
+  return [...crates].sort(
+    (left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+      left.id.localeCompare(right.id),
+  );
+}
+
 export async function listManualCratesForTrack(
   supabase: SupabaseClient<Database>,
   userId: string,
@@ -44,9 +52,5 @@ export async function listManualCratesForTrack(
     crates.push(...(data ?? []));
   }
 
-  return crates.sort(
-    (left, right) =>
-      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
-      left.id.localeCompare(right.id),
-  );
+  return sortTrackCrates(crates);
 }
