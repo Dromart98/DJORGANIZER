@@ -501,7 +501,13 @@ export function DesktopFolderScanner() {
       try {
         const library = await getDesktopLibraryLinkCandidatesAction();
         if (!library.candidates.length) {
-          if (!library.message) replaceTrackLinks(scanResult.sessionId, []);
+          if (!library.message) {
+            replaceTrackLinks(scanResult.sessionId, [], {
+              scannedRelativePaths: scanResult.tracks.map(
+                (track) => track.relativePath,
+              ),
+            });
+          }
           setLibraryLinkMessage(
             library.message
               ? translateKnown(locale, library.message)
@@ -577,7 +583,12 @@ export function DesktopFolderScanner() {
             ...link,
             relativePath: relativePathByScanId.get(link.scanId),
           })),
-          !library.message,
+          {
+            coverageComplete: !library.message,
+            scannedRelativePaths: scanResult.tracks.map(
+              (track) => track.relativePath,
+            ),
+          },
         );
         const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
         if (rawRequest) {
