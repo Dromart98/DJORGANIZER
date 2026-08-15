@@ -936,6 +936,7 @@ struct IncrementalScanResult {
 struct DesktopState {
     active_track_analyses: Mutex<HashMap<String, ActiveTrackAnalysis>>,
     active_maest_analyses: Mutex<HashMap<String, ActiveMaestAnalysis>>,
+    library_energy: Mutex<HashMap<(String, String), u8>>,
     metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
     pending_maest_genre_previews: Mutex<HashMap<MaestGenrePreviewKey, MaestGenrePreviewReceipt>>,
     reorganization_history: Mutex<Vec<ReorganizationRun>>,
@@ -1309,11 +1310,17 @@ enum OrganizationScheme {
     Genre,
     GenreArtist,
     KeyBpm,
+    BpmRange,
+    GenreBpmRange,
+    EnergyBpmRange,
+    KeyBpmRange,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReorganizationRequest {
+    #[serde(default)]
+    bpm_boundaries: Vec<u16>,
     scheme: OrganizationScheme,
     session_id: String,
     track_ids: Vec<String>,
@@ -2404,7 +2411,56 @@ fn safe_path_segment(value: Option<&str>, fallback: &str) -> String {
     sanitized
 }
 
-fn organization_folders(track: &ScannedAudioFile, scheme: &OrganizationScheme) -> Vec<String> {
+fn organization_scheme_uses_bpm_ranges(scheme: &OrganizationScheme) -> bool {
+    matches!(
+        scheme,
+        OrganizationScheme::BpmRange
+            | OrganizationScheme::GenreBpmRange
+            | OrganizationScheme::EnergyBpmRange
+            | OrganizationScheme::KeyBpmRange
+    )
+}
+
+fn validate_bpm_range_boundaries(boundaries: &[u16]) -> Result<(), String> {
+    if boundaries.is_empty() || boundaries.len() > 8 {
+        return Err("Configura entre 1 y 8 cortes de BPM.".to_owned());
+    }
+    if boundaries.iter().any(|value| !(20..=300).contains(value)) {
+        return Err("Los cortes de BPM deben estar entre 20 y 300.".to_owned());
+    }
+    if boundaries.windows(2).any(|window| window[0] >= window[1]) {
+        return Err(
+            "Los cortes de BPM deben estar en orden ascendente y sin duplicados.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+fn bpm_range_folder(bpm: Option<f64>, boundaries: &[u16]) -> String {
+    let Some(bpm) = bpm.filter(|value| value.is_finite()) else {
+        return "BPM desconocido".to_owned();
+    };
+    let rounded = bpm.round();
+    let first = boundaries[0];
+    if rounded < f64::from(first) {
+        return format!("Menos de {first} BPM");
+    }
+    for window in boundaries.windows(2) {
+        let lower = window[0];
+        let upper_exclusive = window[1];
+        if rounded < f64::from(upper_exclusive) {
+            return format!("{lower}–{} BPM", upper_exclusive - 1);
+        }
+    }
+    format!("{} BPM o más", boundaries[boundaries.len() - 1])
+}
+
+fn organization_folders(
+    track: &ScannedAudioFile,
+    scheme: &OrganizationScheme,
+    bpm_boundaries: &[u16],
+    energy: Option<u8>,
+) -> Vec<String> {
     match scheme {
         OrganizationScheme::Genre => vec![safe_path_segment(
             track.genre.as_deref(),
@@ -2421,6 +2477,22 @@ fn organization_folders(track: &ScannedAudioFile, scheme: &OrganizationScheme) -
                 .map(|bpm| format!("{} BPM", bpm.round()))
                 .unwrap_or_else(|| "BPM desconocido".to_owned()),
         ],
+        OrganizationScheme::BpmRange => vec![bpm_range_folder(track.bpm, bpm_boundaries)],
+        OrganizationScheme::GenreBpmRange => vec![
+            safe_path_segment(track.genre.as_deref(), "Género desconocido"),
+            bpm_range_folder(track.bpm, bpm_boundaries),
+        ],
+        OrganizationScheme::EnergyBpmRange => vec![
+            energy
+                .filter(|value| *value <= 10)
+                .map(|value| format!("Energía {value}"))
+                .unwrap_or_else(|| "Energía desconocida".to_owned()),
+            bpm_range_folder(track.bpm, bpm_boundaries),
+        ],
+        OrganizationScheme::KeyBpmRange => vec![
+            safe_path_segment(track.musical_key.as_deref(), "Tonalidad desconocida"),
+            bpm_range_folder(track.bpm, bpm_boundaries),
+        ],
         OrganizationScheme::ArtistAlbum => vec![
             safe_path_segment(track.artist.as_deref(), "Artista desconocido"),
             safe_path_segment(track.album.as_deref(), "Sin álbum"),
@@ -2428,11 +2500,34 @@ fn organization_folders(track: &ScannedAudioFile, scheme: &OrganizationScheme) -
     }
 }
 
-fn build_reorganization_plan(
+fn linked_energy_for_session(
+    state: &DesktopState,
+    session_id: &str,
+) -> Result<HashMap<String, u8>, String> {
+    let energy = state
+        .library_energy
+        .lock()
+        .map_err(|_| "No se pudo leer la energía vinculada de la biblioteca.".to_owned())?;
+    Ok(energy
+        .iter()
+        .filter_map(|((linked_session_id, scan_id), value)| {
+            (linked_session_id == session_id).then(|| (scan_id.clone(), *value))
+        })
+        .collect())
+}
+
+fn build_reorganization_plan_with_options(
     session: &ScanSession,
     track_ids: &[String],
     scheme: &OrganizationScheme,
+    bpm_boundaries: &[u16],
+    energy_by_scan_id: &HashMap<String, u8>,
 ) -> Result<Vec<AppliedMove>, String> {
+    if organization_scheme_uses_bpm_ranges(scheme) {
+        validate_bpm_range_boundaries(bpm_boundaries)?;
+    } else if !bpm_boundaries.is_empty() {
+        return Err("Los cortes de BPM solo se admiten en esquemas por rango.".to_owned());
+    }
     let selected = selected_session_tracks_from_session(session, track_ids)?;
     let mut used_targets = HashSet::with_capacity(selected.len());
     let mut moves = Vec::with_capacity(selected.len());
@@ -2454,7 +2549,8 @@ fn build_reorganization_plan(
             ));
         }
 
-        let folders = organization_folders(&session_track.track, scheme);
+        let energy = energy_by_scan_id.get(&session_track.track.scan_id).copied();
+        let folders = organization_folders(&session_track.track, scheme, bpm_boundaries, energy);
         let original_stem = Path::new(&session_track.track.name)
             .file_stem()
             .and_then(|value| value.to_str())
@@ -2498,6 +2594,99 @@ fn build_reorganization_plan(
         }
     }
     Ok(moves)
+}
+
+fn build_reorganization_plan(
+    session: &ScanSession,
+    track_ids: &[String],
+    scheme: &OrganizationScheme,
+) -> Result<Vec<AppliedMove>, String> {
+    build_reorganization_plan_with_options(session, track_ids, scheme, &[], &HashMap::new())
+}
+
+#[cfg(test)]
+mod bpm_range_organization_tests {
+    use super::*;
+
+    fn track(bpm: Option<f64>) -> ScannedAudioFile {
+        ScannedAudioFile {
+            scan_id: "scan-1".into(),
+            name: "Track.mp3".into(),
+            relative_path: "Track.mp3".into(),
+            extension: "mp3".into(),
+            size_bytes: 1,
+            metadata_read: true,
+            title: Some("Track".into()),
+            artist: Some("Artist".into()),
+            album: None,
+            genre: Some("House".into()),
+            duration_seconds: None,
+            bpm,
+            musical_key: Some("Am".into()),
+            duplicate_group: None,
+        }
+    }
+
+    #[test]
+    fn validates_reviewed_bpm_boundaries() {
+        assert!(validate_bpm_range_boundaries(&[100, 120, 140]).is_ok());
+        assert!(validate_bpm_range_boundaries(&[]).is_err());
+        assert!(validate_bpm_range_boundaries(&[19, 120]).is_err());
+        assert!(validate_bpm_range_boundaries(&[100, 100]).is_err());
+        assert!(validate_bpm_range_boundaries(&[140, 120]).is_err());
+        assert!(validate_bpm_range_boundaries(&[100, 301]).is_err());
+        assert!(validate_bpm_range_boundaries(&[20, 40, 60, 80, 100, 120, 140, 160, 180]).is_err());
+    }
+
+    #[test]
+    fn classifies_rounded_bpm_into_reviewed_ranges() {
+        let boundaries = [100, 120, 140];
+        assert_eq!(
+            bpm_range_folder(Some(99.4), &boundaries),
+            "Menos de 100 BPM"
+        );
+        assert_eq!(bpm_range_folder(Some(99.6), &boundaries), "100–119 BPM");
+        assert_eq!(bpm_range_folder(Some(124.0), &boundaries), "120–139 BPM");
+        assert_eq!(bpm_range_folder(Some(139.6), &boundaries), "140 BPM o más");
+        assert_eq!(bpm_range_folder(None, &boundaries), "BPM desconocido");
+    }
+
+    #[test]
+    fn combines_ranges_with_genre_key_and_linked_energy() {
+        let boundaries = [100, 120, 140];
+        let track = track(Some(124.0));
+        assert_eq!(
+            organization_folders(
+                &track,
+                &OrganizationScheme::GenreBpmRange,
+                &boundaries,
+                None
+            ),
+            vec!["House", "120–139 BPM"]
+        );
+        assert_eq!(
+            organization_folders(&track, &OrganizationScheme::KeyBpmRange, &boundaries, None),
+            vec!["Am", "120–139 BPM"]
+        );
+        assert_eq!(
+            organization_folders(
+                &track,
+                &OrganizationScheme::EnergyBpmRange,
+                &boundaries,
+                Some(7)
+            ),
+            vec!["Energía 7", "120–139 BPM"]
+        );
+        assert_eq!(
+            organization_folders(
+                &track,
+                &OrganizationScheme::EnergyBpmRange,
+                &boundaries,
+                None
+            ),
+            vec!["Energía desconocida", "120–139 BPM"]
+        );
+    }
 }
 
 fn selected_session_tracks_from_session(
@@ -4359,6 +4548,20 @@ async fn scan_music_folder_incrementally(
     session.tracks = tracks;
     session.truncated = false;
     drop(current_session);
+    let invalid_energy_scan_ids = removed_scan_ids
+        .iter()
+        .chain(updated_scan_ids.iter())
+        .cloned()
+        .collect::<HashSet<_>>();
+    if !invalid_energy_scan_ids.is_empty() {
+        state
+            .library_energy
+            .lock()
+            .map_err(|_| "No se pudo invalidar la energía vinculada anterior.".to_owned())?
+            .retain(|(linked_session_id, scan_id), _| {
+                linked_session_id != &session_id || !invalid_energy_scan_ids.contains(scan_id)
+            });
+    }
     state
         .pending_maest_genre_previews
         .lock()
@@ -4383,12 +4586,25 @@ async fn link_library_tracks(
     state: State<'_, DesktopState>,
     session_id: String,
     candidates: Vec<LibraryLinkCandidate>,
+    energies: HashMap<String, u8>,
 ) -> Result<LibraryLinkResult, String> {
     let alias_path = app
         .path()
         .app_data_dir()
         .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
         .join(LIBRARY_FILE_ALIASES_NAME);
+    let candidate_track_ids = candidates
+        .iter()
+        .map(|candidate| candidate.track_id.as_str())
+        .collect::<HashSet<_>>();
+    if energies.len() > candidate_track_ids.len()
+        || energies.iter().any(|(track_id, energy)| {
+            *energy > 10 || !candidate_track_ids.contains(track_id.as_str())
+        })
+    {
+        return Err("La energía vinculada de la biblioteca no es válida.".to_owned());
+    }
+
     let mut alias_store = read_local_alias_store(&alias_path);
     let session_tracks = {
         let current_session = state
@@ -4426,6 +4642,14 @@ async fn link_library_tracks(
         .collect::<Vec<_>>();
     links.sort_by(|left, right| left.track_id.cmp(&right.track_id));
     let linked_tracks = links.len();
+    let linked_energy = links
+        .iter()
+        .filter_map(|link| {
+            energies
+                .get(&link.track_id)
+                .map(|energy| (link.scan_id.clone(), *energy))
+        })
+        .collect::<Vec<_>>();
     update_alias_anchors(&mut alias_store, &candidates, matches.links.keys().cloned());
     write_local_alias_store(&alias_path, &alias_store)
         .map_err(|_| "No se pudo guardar el estado local de vínculos.".to_owned())?;
@@ -4441,6 +4665,16 @@ async fn link_library_tracks(
         })?;
     session.library_links = matches.links;
     drop(current_session);
+    {
+        let mut library_energy = state
+            .library_energy
+            .lock()
+            .map_err(|_| "No se pudo actualizar la energía vinculada.".to_owned())?;
+        library_energy.clear();
+        for (scan_id, energy) in linked_energy {
+            library_energy.insert((session_id.clone(), scan_id), energy);
+        }
+    }
     state
         .pending_maest_genre_previews
         .lock()
@@ -5251,6 +5485,7 @@ async fn preview_reorganization_plan(
     state: State<'_, DesktopState>,
     request: ReorganizationRequest,
 ) -> Result<ReorganizationResult, String> {
+    let energy_by_scan_id = linked_energy_for_session(state.inner(), &request.session_id)?;
     let current_session = state
         .scan_session
         .lock()
@@ -5261,7 +5496,13 @@ async fn preview_reorganization_plan(
         .ok_or_else(|| {
             "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
         })?;
-    let moves = build_reorganization_plan(session, &request.track_ids, &request.scheme)?;
+    let moves = build_reorganization_plan_with_options(
+        session,
+        &request.track_ids,
+        &request.scheme,
+        &request.bpm_boundaries,
+        &energy_by_scan_id,
+    )?;
     Ok(ReorganizationResult {
         applied: false,
         moves: moves
@@ -5281,6 +5522,7 @@ async fn apply_reorganization_plan(
     state: State<'_, DesktopState>,
     request: ReorganizationRequest,
 ) -> Result<ReorganizationResult, String> {
+    let energy_by_scan_id = linked_energy_for_session(state.inner(), &request.session_id)?;
     let (run, result_moves) = {
         let mut current_session = state
             .scan_session
@@ -5292,7 +5534,13 @@ async fn apply_reorganization_plan(
             .ok_or_else(|| {
                 "El escaneo ya no está disponible. Vuelve a seleccionar la carpeta.".to_owned()
             })?;
-        let moves = build_reorganization_plan(session, &request.track_ids, &request.scheme)?;
+        let moves = build_reorganization_plan_with_options(
+            session,
+            &request.track_ids,
+            &request.scheme,
+            &request.bpm_boundaries,
+            &energy_by_scan_id,
+        )?;
         if moves.is_empty() {
             return Ok(ReorganizationResult {
                 applied: true,

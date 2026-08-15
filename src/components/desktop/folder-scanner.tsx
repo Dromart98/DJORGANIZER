@@ -12,7 +12,9 @@ import {
 import {
   createOrganizationPreview,
   filterScannedTracks,
+  organizationSchemeUsesBpmRanges,
   paginateScannedTracks,
+  parseBpmRangeBoundaries,
   type OrganizationScheme,
   type ScanReviewFilter,
   type ScannedAudioFile,
@@ -250,11 +252,15 @@ export function DesktopFolderScanner() {
   const [linkedScanIds, setLinkedScanIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [linkedEnergyByScanId, setLinkedEnergyByScanId] = useState<
+    Map<string, number>
+  >(() => new Map());
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ScanReviewFilter>("all");
   const [page, setPage] = useState(1);
   const [organizationScheme, setOrganizationScheme] =
     useState<OrganizationScheme>("artist-album");
+  const [bpmBoundaryInput, setBpmBoundaryInput] = useState("");
   const [virtualDjListName, setVirtualDjListName] = useState("DJOrganizer");
   const [exportingVirtualDj, setExportingVirtualDj] =
     useState<VirtualDjExportFormat | null>(null);
@@ -304,9 +310,18 @@ export function DesktopFolderScanner() {
     if (exportTrackOrder) return exportTrackOrder.flatMap((scanId) => tracksByScanId.get(scanId) ?? []);
     return (result?.tracks ?? []).filter((track) => selectedTrackIds.has(track.scanId));
   }, [exportTrackOrder, result, selectedTrackIds]);
+  const bpmBoundaries = useMemo(
+    () => parseBpmRangeBoundaries(bpmBoundaryInput),
+    [bpmBoundaryInput],
+  );
+  const usesBpmRanges = organizationSchemeUsesBpmRanges(organizationScheme);
   const organizationPreview = useMemo(
-    () => createOrganizationPreview(selectedTracks, organizationScheme),
-    [organizationScheme, selectedTracks],
+    () =>
+      createOrganizationPreview(selectedTracks, organizationScheme, {
+        bpmBoundaries: bpmBoundaries ?? undefined,
+        energyByScanId: linkedEnergyByScanId,
+      }),
+    [bpmBoundaries, linkedEnergyByScanId, organizationScheme, selectedTracks],
   );
   const visibleTrackIds = pagination.items.map((track) => track.scanId);
   const allVisibleSelected =
@@ -335,6 +350,7 @@ export function DesktopFolderScanner() {
   const linkLibraryTracks = useCallback(
     async (core: TauriCore, scanResult: FolderScanResult) => {
       clearTrackLinks();
+      setLinkedEnergyByScanId(new Map());
       setLibraryLinkMessage(
         locale === "en"
           ? "Comparing with your DJOrganizer library…"
@@ -352,14 +368,34 @@ export function DesktopFolderScanner() {
           return;
         }
 
+        const energyByTrackId = new Map(
+          library.candidates.flatMap((candidate) =>
+            candidate.energy === null
+              ? []
+              : [[candidate.trackId, candidate.energy] as const],
+          ),
+        );
         const linkResult = await core.invoke<LibraryLinkResult>(
           "link_library_tracks",
           {
             sessionId: scanResult.sessionId,
-            candidates: library.candidates,
+            candidates: library.candidates.map((candidate) => ({
+              fileFingerprint: candidate.fileFingerprint,
+              fileSize: candidate.fileSize,
+              trackId: candidate.trackId,
+            })),
+            energies: Object.fromEntries(energyByTrackId),
           },
         );
         setLinkedScanIds(new Set(linkResult.links.map((link) => link.scanId)));
+        setLinkedEnergyByScanId(
+          new Map(
+            linkResult.links.flatMap((link) => {
+              const energy = energyByTrackId.get(link.trackId);
+              return energy === undefined ? [] : [[link.scanId, energy] as const];
+            }),
+          ),
+        );
         replaceTrackLinks(scanResult.sessionId, linkResult.links);
         const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
         if (rawRequest) {
@@ -929,6 +965,14 @@ export function DesktopFolderScanner() {
   async function runReorganization(apply: boolean) {
     const core = getTauriCore();
     if (!core || !result || !selectedTracks.length) return;
+    if (usesBpmRanges && !bpmBoundaries) {
+      setReorganizationMessage(
+        locale === "en"
+          ? "Enter between 1 and 8 increasing whole-number BPM cut points from 20 to 300 before simulating the plan."
+          : "Introduce entre 1 y 8 cortes BPM enteros, ascendentes y entre 20 y 300 antes de simular el plan.",
+      );
+      return;
+    }
     if (
       apply &&
       !window.confirm(
@@ -946,6 +990,7 @@ export function DesktopFolderScanner() {
         apply ? "apply_reorganization_plan" : "preview_reorganization_plan",
         {
           request: {
+            bpmBoundaries: usesBpmRanges ? bpmBoundaries ?? [] : [],
             scheme: organizationScheme,
             sessionId: result.sessionId,
             trackIds: selectedTracks.map((track) => track.scanId),
@@ -1652,7 +1697,7 @@ export function DesktopFolderScanner() {
                 </section>
               ) : null}
 
-              {organizationPreview.length ? (
+              {selectedTracks.length ? (
                 <section
                   aria-labelledby="desktop-plan-title"
                   className="desktop-reorganization-preview"
@@ -1676,13 +1721,38 @@ export function DesktopFolderScanner() {
                         <option value="genre">{t("Género")}</option>
                         <option value="genre-artist">{t("Género / artista")}</option>
                         <option value="key-bpm">{t("Tonalidad / BPM")}</option>
+                        <option value="bpm-range">{t("Rango de BPM")}</option>
+                        <option value="genre-bpm-range">{t("Género / rango de BPM")}</option>
+                        <option value="energy-bpm-range">{t("Energía / rango de BPM")}</option>
+                        <option value="key-bpm-range">{t("Tonalidad / rango de BPM")}</option>
                       </select>
                     </label>
                   </div>
+                  {usesBpmRanges ? (
+                    <label>
+                      {t("Cortes de BPM")}
+                      <input
+                        aria-invalid={Boolean(bpmBoundaryInput.trim()) && !bpmBoundaries}
+                        inputMode="numeric"
+                        onChange={(event) => setBpmBoundaryInput(event.target.value)}
+                        placeholder="100, 120, 130, 140"
+                        value={bpmBoundaryInput}
+                      />
+                      <small>
+                        {locale === "en"
+                          ? "Enter 1–8 increasing whole-number cut points from 20 to 300. The limits are reviewed here before any native simulation or move."
+                          : "Introduce 1–8 cortes enteros y ascendentes entre 20 y 300. Los límites se revisan aquí antes de cualquier simulación o movimiento nativo."}
+                      </small>
+                    </label>
+                  ) : null}
                   <p className="organization-muted">
-                    {locale === "en"
-                      ? `These paths are a safe proposal for ${organizationPreview.length.toLocaleString(locale)} tracks. The native simulation rechecks external changes and collisions immediately before applying the batch.`
-                      : `Estas rutas son una propuesta segura para ${organizationPreview.length.toLocaleString(locale)} pistas. La simulación nativa vuelve a comprobar cambios externos y colisiones justo antes de aplicar el lote.`}
+                    {usesBpmRanges && !bpmBoundaries
+                      ? locale === "en"
+                        ? "Enter valid BPM cut points to generate the organization preview."
+                        : "Introduce cortes BPM válidos para generar la previsualización de organización."
+                      : locale === "en"
+                        ? `These paths are a safe proposal for ${organizationPreview.length.toLocaleString(locale)} tracks. The native simulation rechecks external changes and collisions immediately before applying the batch.`
+                        : `Estas rutas son una propuesta segura para ${organizationPreview.length.toLocaleString(locale)} pistas. La simulación nativa vuelve a comprobar cambios externos y colisiones justo antes de aplicar el lote.`}
                   </p>
                   <ol>
                     {organizationPreview.slice(0, 10).map((item) => (
@@ -1705,7 +1775,7 @@ export function DesktopFolderScanner() {
                   <div className="action-row">
                     <button
                       className="button button--secondary"
-                      disabled={reorganizationBusy}
+                      disabled={reorganizationBusy || (usesBpmRanges && !bpmBoundaries)}
                       onClick={() => void runReorganization(false)}
                       type="button"
                     >
@@ -1713,7 +1783,7 @@ export function DesktopFolderScanner() {
                     </button>
                     <button
                       className="button button--primary"
-                      disabled={reorganizationBusy}
+                      disabled={reorganizationBusy || (usesBpmRanges && !bpmBoundaries)}
                       onClick={() => void runReorganization(true)}
                       type="button"
                     >

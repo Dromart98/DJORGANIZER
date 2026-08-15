@@ -43,6 +43,7 @@ export type DuplicateCheckResult = {
 
 
 export type DesktopLibraryLinkCandidate = {
+  energy: number | null;
   fileFingerprint: string;
   fileSize: number;
   trackId: string;
@@ -600,7 +601,7 @@ export async function getDesktopLibraryLinkCandidatesAction(): Promise<DesktopLi
   const supabase = await createClient();
   const { count, data, error } = await supabase
     .from("tracks")
-    .select("id, file_fingerprint, file_size", { count: "exact" })
+    .select("id, file_fingerprint, file_size, energy", { count: "exact" })
     .eq("user_id", user.id)
     .not("file_fingerprint", "is", null)
     .not("file_size", "is", null)
@@ -623,6 +624,13 @@ export async function getDesktopLibraryLinkCandidatesAction(): Promise<DesktopLi
     track.file_size >= 0
       ? [
           {
+            energy:
+              track.energy !== null &&
+              Number.isInteger(track.energy) &&
+              track.energy >= 0 &&
+              track.energy <= 10
+                ? track.energy
+                : null,
             fileFingerprint: track.file_fingerprint,
             fileSize: track.file_size,
             trackId: track.id,
