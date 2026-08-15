@@ -1,6 +1,6 @@
 begin;
 
-select plan(16);
+select plan(17);
 
 insert into auth.users (id, email)
 values
@@ -150,6 +150,78 @@ select throws_ok(
   'P0001',
   'Track changed after history entry',
   'Undo refuses to overwrite a later incompatible track change'
+);
+
+reset role;
+
+insert into public.tracks (
+  id,
+  user_id,
+  title,
+  artist
+)
+values (
+  '61100000-0000-4000-8000-000000000002',
+  '61000000-0000-4000-8000-000000000001',
+  'Current compatible state',
+  'Artist'
+);
+
+insert into public.track_edit_history (
+  id,
+  user_id,
+  track_id,
+  before_state,
+  after_state,
+  changed_fields,
+  created_at
+)
+select
+  '63000000-0000-4000-8000-000000000001',
+  t.user_id,
+  t.id,
+  jsonb_set(private.track_edit_snapshot(t), '{title}', '"Previous state"'::jsonb),
+  private.track_edit_snapshot(t),
+  array['title']::text[],
+  now() - interval '30 minutes'
+from public.tracks t
+where t.id = '61100000-0000-4000-8000-000000000002';
+
+insert into public.track_edit_history (
+  user_id,
+  track_id,
+  before_state,
+  after_state,
+  changed_fields,
+  created_at,
+  undone_at
+)
+select
+  '61000000-0000-4000-8000-000000000001',
+  '61100000-0000-4000-8000-000000000002',
+  '{}'::jsonb,
+  '{}'::jsonb,
+  array['title']::text[],
+  now() - ((11 - series.value) * interval '1 minute'),
+  now()
+from generate_series(1, 10) as series(value);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '61000000-0000-4000-8000-000000000001', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+select is(
+  (
+    select count(*)::integer
+    from public.list_track_edit_history(
+      '61100000-0000-4000-8000-000000000002'::uuid,
+      10
+    )
+    where id = '63000000-0000-4000-8000-000000000001'
+      and can_undo
+  ),
+  1,
+  'A compatible older entry remains reachable even when newer consumed rows fill the limit'
 );
 
 select set_config('request.jwt.claim.sub', '62000000-0000-4000-8000-000000000002', true);
