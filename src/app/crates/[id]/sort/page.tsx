@@ -20,7 +20,8 @@ import {
 import { organizationIdSchema } from "@/lib/organization/schemas";
 import { createClient } from "@/lib/supabase/server";
 
-const PREVIEW_LIMIT = 100;
+const MAX_SORT_TRACKS = 20_000;
+const PREVIEW_PAGE_SIZE = 100;
 
 type SortCratePageProps = {
   params: Promise<{ id: string }>;
@@ -29,6 +30,11 @@ type SortCratePageProps = {
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function positivePage(value: string | undefined) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 }
 
 function sortValue(track: CrateSortTrack, key: CrateSortKey, en: boolean) {
@@ -84,16 +90,29 @@ export default async function SortCratePage({
   const crate = data as ComparableCrate;
   if (crate.smart_rules !== null) redirect(`/crates/${crate.id}`);
 
-  const currentTrackIds = await resolveComparableCrateTrackIds(
-    supabase,
-    user.id,
-    crate,
-  );
-  const currentTracks = await loadCrateSortTracks(
-    supabase,
-    user.id,
-    currentTrackIds,
-  );
+  const { count: membershipCount, error: countError } = await supabase
+    .from("crate_tracks")
+    .select("track_id", { count: "exact", head: true })
+    .eq("crate_id", crate.id)
+    .eq("user_id", user.id);
+  if (countError) throw new Error("No se pudo comprobar el tamaño del crate.");
+
+  const totalTracks = membershipCount ?? 0;
+  const overLimit = totalTracks > MAX_SORT_TRACKS;
+  let currentTrackIds: string[] = [];
+  let currentTracks: CrateSortTrack[] = [];
+  if (!overLimit) {
+    currentTrackIds = await resolveComparableCrateTrackIds(
+      supabase,
+      user.id,
+      crate,
+    );
+    currentTracks = await loadCrateSortTracks(
+      supabase,
+      user.id,
+      currentTrackIds,
+    );
+  }
 
   const requestedKey = first(query.key);
   const requestedDirection = first(query.direction);
@@ -102,7 +121,9 @@ export default async function SortCratePage({
     ? requestedDirection
     : undefined;
   const preview =
-    key && direction ? sortCrateTracks(currentTracks, key, direction) : undefined;
+    !overLimit && key && direction
+      ? sortCrateTracks(currentTracks, key, direction)
+      : undefined;
   const previewTrackIds = preview?.map(({ id: trackId }) => trackId) ?? [];
   const changedPositions = preview
     ? previewTrackIds.reduce(
@@ -111,6 +132,25 @@ export default async function SortCratePage({
         0,
       )
     : 0;
+
+  const requestedPreviewPage = positivePage(first(query.previewPage));
+  const previewPageCount = preview
+    ? Math.max(1, Math.ceil(preview.length / PREVIEW_PAGE_SIZE))
+    : 1;
+  if (preview && requestedPreviewPage > previewPageCount) {
+    const params = new URLSearchParams({
+      direction: direction ?? "asc",
+      key: key ?? "bpm",
+      previewPage: String(previewPageCount),
+    });
+    redirect(`/crates/${crate.id}/sort?${params.toString()}`);
+  }
+  const previewPage = Math.min(requestedPreviewPage, previewPageCount);
+  const previewFrom = (previewPage - 1) * PREVIEW_PAGE_SIZE;
+  const previewRows = preview?.slice(
+    previewFrom,
+    previewFrom + PREVIEW_PAGE_SIZE,
+  );
 
   const errors: Record<string, string> = {
     changed: en
@@ -128,6 +168,15 @@ export default async function SortCratePage({
   const requestedError = first(query.error);
   const errorMessage = requestedError ? errors[requestedError] : null;
   const sorted = first(query.sorted) === "1";
+
+  function previewHref(page: number) {
+    const params = new URLSearchParams({
+      direction: direction ?? "asc",
+      key: key ?? "bpm",
+      previewPage: String(page),
+    });
+    return `/crates/${crate.id}/sort?${params.toString()}`;
+  }
 
   return (
     <>
@@ -156,6 +205,11 @@ export default async function SortCratePage({
           {en ? "The new crate order was saved." : "El nuevo orden del crate se ha guardado."}
         </p>
       ) : null}
+      {overLimit ? (
+        <p className="form-message form-message--error" role="alert">
+          {errors.limit}
+        </p>
+      ) : null}
 
       <form className="card library-filters" method="get">
         <div className="filter-primary">
@@ -179,25 +233,19 @@ export default async function SortCratePage({
           </label>
         </div>
         <div className="filter-actions">
-          <button className="button button--primary" type="submit">
+          <button className="button button--primary" disabled={overLimit} type="submit">
             {en ? "Preview order" : "Previsualizar orden"}
           </button>
         </div>
       </form>
 
-      {!currentTrackIds.length ? (
+      {totalTracks === 0 ? (
         <div className="card">
           <p>{en ? "This crate is empty." : "Este crate está vacío."}</p>
         </div>
       ) : null}
 
-      {currentTrackIds.length > 20000 ? (
-        <p className="form-message form-message--error" role="alert">
-          {errors.limit}
-        </p>
-      ) : null}
-
-      {preview && key && direction ? (
+      {preview && previewRows && key && direction ? (
         <section className="card stack">
           <div className="organization-section-heading">
             <div>
@@ -212,21 +260,51 @@ export default async function SortCratePage({
           </div>
 
           <ol className="crate-track-list">
-            {preview.slice(0, PREVIEW_LIMIT).map((track, index) => (
+            {previewRows.map((track, index) => (
               <li className="card crate-track" key={track.id}>
-                <span className="crate-track__position">{index + 1}</span>
+                <span className="crate-track__position">
+                  {previewFrom + index + 1}
+                </span>
                 <div>
                   <strong>{track.title}</strong>
-                  <span>{track.artist ?? (en ? "Unknown artist" : "Artista desconocido")}</span>
+                  <span>
+                    {track.artist ?? (en ? "Unknown artist" : "Artista desconocido")}
+                  </span>
                   <small>{sortValue(track, key, en)}</small>
                 </div>
               </li>
             ))}
           </ol>
-          {preview.length > PREVIEW_LIMIT ? (
-            <p className="organization-muted">
-              +{preview.length - PREVIEW_LIMIT} {en ? "more tracks" : "pistas más"}
-            </p>
+
+          {previewPageCount > 1 ? (
+            <nav
+              aria-label={en ? "Sort preview pages" : "Páginas de previsualización"}
+              className="pagination"
+            >
+              {previewPage > 1 ? (
+                <Link
+                  className="button button--secondary"
+                  href={previewHref(previewPage - 1)}
+                >
+                  {en ? "Previous" : "Anterior"}
+                </Link>
+              ) : (
+                <span />
+              )}
+              <span>
+                {previewPage} / {previewPageCount}
+              </span>
+              {previewPage < previewPageCount ? (
+                <Link
+                  className="button button--secondary"
+                  href={previewHref(previewPage + 1)}
+                >
+                  {en ? "Next" : "Siguiente"}
+                </Link>
+              ) : (
+                <span />
+              )}
+            </nav>
           ) : null}
 
           <form action={sortManualCrateAction}>
@@ -245,9 +323,7 @@ export default async function SortCratePage({
             />
             <button
               className="button button--primary"
-              disabled={
-                changedPositions === 0 || currentTrackIds.length > 20000
-              }
+              disabled={changedPositions === 0}
               type="submit"
             >
               {en ? "Apply order" : "Aplicar orden"}
