@@ -33,7 +33,20 @@ type CleanupTrackRow = {
   id: string;
   subgenre: string | null;
   title: string;
+  updated_at: string;
 };
+
+type UpdateTrackWithHistoryRpc = (
+  functionName: "update_track_with_history",
+  args: {
+    expected_updated_at: string;
+    requested_patch: TablesUpdate<"tracks">;
+    requested_track_id: string;
+  },
+) => Promise<{
+  data: { changed?: boolean } | null;
+  error: { message?: string } | null;
+}>;
 
 function cleanupUpdate(
   field: MetadataCleanupField,
@@ -95,6 +108,13 @@ function withStatus(
   return `/library/health/cleanup?${params.toString()}`;
 }
 
+function isStaleHistoryWrite(message?: string) {
+  return (
+    message?.includes("Track changed after form loaded") ||
+    message?.includes("Track not found")
+  );
+}
+
 export async function applyMetadataCleanupAction(formData: FormData) {
   const user = await requireUser();
   const page = cleanupPage(formData);
@@ -125,7 +145,7 @@ export async function applyMetadataCleanupAction(formData: FormData) {
   const trackIds = [...new Set(parsed.map((proposal) => proposal.trackId))];
   const { data: tracks, error: readError } = await supabase
     .from("tracks")
-    .select("id, title, artist, album, genre, subgenre")
+    .select("id, title, artist, album, genre, subgenre, updated_at")
     .eq("user_id", user.id)
     .in("id", trackIds);
 
@@ -154,31 +174,41 @@ export async function applyMetadataCleanupAction(formData: FormData) {
   let applied = 0;
   let failed = 0;
   const appliedTrackIds: string[] = [];
+  const updateTrackWithHistory = supabase.rpc.bind(
+    supabase,
+  ) as unknown as UpdateTrackWithHistoryRpc;
 
   for (const [trackId, proposals] of validByTrack) {
+    const track = byId.get(trackId);
+    if (!track) {
+      skipped += proposals.length;
+      continue;
+    }
+
     let update: TablesUpdate<"tracks"> = {};
     for (const proposal of proposals) {
       update = { ...update, ...cleanupUpdate(proposal.field, proposal.proposedValue) };
     }
 
-    let query = supabase
-      .from("tracks")
-      .update(update)
-      .eq("id", trackId)
-      .eq("user_id", user.id);
-    for (const proposal of proposals) {
-      query = query.eq(proposal.field, proposal.currentValue);
-    }
+    const { data, error } = await updateTrackWithHistory(
+      "update_track_with_history",
+      {
+        expected_updated_at: track.updated_at,
+        requested_patch: update,
+        requested_track_id: trackId,
+      },
+    );
 
-    const { data, error } = await query.select("id").maybeSingle();
     if (error) {
-      failed += proposals.length;
+      if (isStaleHistoryWrite(error.message)) skipped += proposals.length;
+      else failed += proposals.length;
       continue;
     }
-    if (!data) {
+    if (!data?.changed) {
       skipped += proposals.length;
       continue;
     }
+
     applied += proposals.length;
     appliedTrackIds.push(trackId);
   }
