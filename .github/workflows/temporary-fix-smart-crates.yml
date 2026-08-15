@@ -21,95 +21,95 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
+          from textwrap import dedent
 
           smart = Path('src/lib/organization/smart-crates.ts')
           text = smart.read_text(encoding='utf-8')
-          old = '''  const rows = data ?? [];
-          return {
-            count: rows.length ? Number(rows[0].total_count) : 0,
-            trackIds: rows.map((row) => row.track_id),
-          };'''
-          new = '''  const rows = data ?? [];
-          if (!rows.length && offset > 0) {
-            const { data: firstPage, error: countError } = await supabase.rpc(
-              "resolve_smart_crate_rule_tracks",
-              {
-                p_limit: 1,
-                p_offset: 0,
-                p_rules: rules as unknown as Json,
-                p_search: options.search?.trim().slice(0, 100) || null,
-              },
-            );
-            if (countError) throw new Error("No se pudo resolver el crate inteligente.");
+          start = text.index('  const rows = data ?? [];', text.index('export async function resolveSmartCrateTrackIds'))
+          end = text.index('\n}\n\nexport async function resolveSmartCrateTracks', start)
+          replacement = dedent('''
+            const rows = data ?? [];
+            if (!rows.length && offset > 0) {
+              const { data: firstPage, error: countError } = await supabase.rpc(
+                "resolve_smart_crate_rule_tracks",
+                {
+                  p_limit: 1,
+                  p_offset: 0,
+                  p_rules: rules as unknown as Json,
+                  p_search: options.search?.trim().slice(0, 100) || null,
+                },
+              );
+              if (countError) {
+                throw new Error("No se pudo resolver el crate inteligente.");
+              }
+              return {
+                count: firstPage?.length ? Number(firstPage[0].total_count) : 0,
+                trackIds: [],
+              };
+            }
             return {
-              count: firstPage?.length ? Number(firstPage[0].total_count) : 0,
-              trackIds: [],
+              count: rows.length ? Number(rows[0].total_count) : 0,
+              trackIds: rows.map((row) => row.track_id),
             };
-          }
-          return {
-            count: rows.length ? Number(rows[0].total_count) : 0,
-            trackIds: rows.map((row) => row.track_id),
-          };'''
-          if old not in text:
-              raise SystemExit('smart crate resolver anchor not found')
-          smart.write_text(text.replace(old, new, 1), encoding='utf-8')
+          ''').strip('\n')
+          smart.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
 
           tests = Path('src/lib/organization/smart-crates.test.ts')
           text = tests.read_text(encoding='utf-8')
-          text = text.replace(
+          if 'resolveSmartCrateTrackIds' not in text:
+            text = text.replace(
               'import { describe, expect, it } from "vitest";',
               'import { describe, expect, it, vi } from "vitest";',
               1,
-          )
-          text = text.replace(
-              '  SMART_CRATE_MAX_CONDITIONS,\n  type SmartCrateRules,',
-              '  resolveSmartCrateTrackIds,\n  SMART_CRATE_MAX_CONDITIONS,\n  type SmartCrateRules,',
+            )
+            text = text.replace(
+              '  SMART_CRATE_MAX_CONDITIONS,',
+              '  resolveSmartCrateTrackIds,\n  SMART_CRATE_MAX_CONDITIONS,',
               1,
-          )
-          anchor = '''  it("fails closed for malformed JSON", () => {
-            expect(parseSmartCrateRulesJson("{nope").success).toBe(false);
-          });
-          }''' 
-          replacement = '''  it("fails closed for malformed JSON", () => {
-            expect(parseSmartCrateRulesJson("{nope").success).toBe(false);
-          });
+            )
+            insert_at = text.rfind('\n});')
+            if insert_at < 0:
+              raise SystemExit('smart crate test insertion point not found')
+            new_test = dedent('''
 
-          it("preserves the total count when a requested page is empty", async () => {
-            const rpc = vi
-              .fn()
-              .mockResolvedValueOnce({ data: [], error: null })
-              .mockResolvedValueOnce({
-                data: [
-                  {
-                    total_count: 3,
-                    track_id: "00000000-0000-4000-8000-000000000001",
-                  },
-                ],
-                error: null,
+              it("preserves the total count when a requested page is empty", async () => {
+                const rpc = vi
+                  .fn()
+                  .mockResolvedValueOnce({ data: [], error: null })
+                  .mockResolvedValueOnce({
+                    data: [
+                      {
+                        total_count: 3,
+                        track_id: "00000000-0000-4000-8000-000000000001",
+                      },
+                    ],
+                    error: null,
+                  });
+                const result = await resolveSmartCrateTrackIds(
+                  { rpc } as never,
+                  rules,
+                  { limit: 100, offset: 100 },
+                );
+                expect(result).toEqual({ count: 3, trackIds: [] });
+                expect(rpc).toHaveBeenCalledTimes(2);
               });
-            const result = await resolveSmartCrateTrackIds(
-              { rpc } as never,
-              rules,
-              { limit: 100, offset: 100 },
-            );
-            expect(result).toEqual({ count: 3, trackIds: [] });
-            expect(rpc).toHaveBeenCalledTimes(2);
-          });
-          }'''
-          if anchor not in text:
-              raise SystemExit('smart crate test anchor not found')
-          tests.write_text(text.replace(anchor, replacement, 1), encoding='utf-8')
+            ''')
+            text = text[:insert_at] + new_test + text[insert_at:]
+          tests.write_text(text, encoding='utf-8')
 
           detail = Path('src/components/organization/smart-crate-detail.tsx')
           text = detail.read_text(encoding='utf-8')
           text = text.replace(
-              'import { DesktopExportLink } from "@/components/desktop/desktop-export-link";',
-              'import { SmartCrateExportLink } from "@/components/organization/smart-crate-export-link";',
-              1,
+            'import { DesktopExportLink } from "@/components/desktop/desktop-export-link";',
+            'import { SmartCrateExportLink } from "@/components/organization/smart-crate-export-link";',
+            1,
           )
           text = text.replace('  resolveAllSmartCrateTrackIds,\n', '', 1)
-          old = '''  const [{ data: tags, error: tagsError }, resolved, exportTrackIds] =
-            await Promise.all([
+          start = text.index('  const [{ data: tags, error: tagsError }, resolved, exportTrackIds] =')
+          end = text.index('\n  if (tagsError)', start)
+          block = dedent('''
+            const [{ data: tags, error: tagsError }, resolved] = await Promise.all([
               supabase
                 .from("tags")
                 .select("id, name")
@@ -120,215 +120,195 @@ jobs:
                 offset,
                 search,
               }),
-              resolveAllSmartCrateTrackIds(supabase, parsedRules.data),
-            ]);'''
-          new = '''  const [{ data: tags, error: tagsError }, resolved] = await Promise.all([
-            supabase
-              .from("tags")
-              .select("id, name")
-              .eq("user_id", userId)
-              .order("name", { ascending: true }),
-            resolveSmartCrateTracks(supabase, parsedRules.data, {
-              limit: PAGE_SIZE,
-              offset,
-              search,
-            }),
-          ]);'''
-          if old not in text:
-              raise SystemExit('smart crate detail resolver anchor not found')
-          text = text.replace(old, new, 1)
-          old = '''            <DesktopExportLink
-              request={{
-                crateId: crate.id,
-                crateName: crate.name,
-                trackIds: exportTrackIds,
-              }}
-            />'''
-          new = '''            <SmartCrateExportLink
-              crateId={crate.id}
-              crateName={crate.name}
-              locale={locale}
-            />'''
-          if old not in text:
-              raise SystemExit('smart crate export link anchor not found')
-          detail.write_text(text.replace(old, new, 1), encoding='utf-8')
+            ]);
+          ''').strip('\n')
+          text = text[:start] + block + text[end:]
+          text, count = re.subn(
+            r'\s*<DesktopExportLink\s+request=\{\{\s*crateId: crate\.id,\s*crateName: crate\.name,\s*trackIds: exportTrackIds,\s*\}\}\s*/>',
+            '\n            <SmartCrateExportLink\n              crateId={crate.id}\n              crateName={crate.name}\n              locale={locale}\n            />',
+            text,
+            count=1,
+          )
+          if count != 1:
+            raise SystemExit('smart crate export link anchor not found')
+          detail.write_text(text, encoding='utf-8')
 
-          export_action = Path('src/app/crates/smart-export-actions.ts')
-          export_action.write_text('''"use server";
+          Path('src/app/crates/smart-export-actions.ts').write_text(dedent('''
+            "use server";
 
-          import { requireUser } from "@/lib/auth/user";
-          import { organizationIdSchema } from "@/lib/organization/schemas";
-          import {
-            parseSmartCrateRules,
-            resolveAllSmartCrateTrackIds,
-          } from "@/lib/organization/smart-crates";
-          import { createClient } from "@/lib/supabase/server";
+            import { requireUser } from "@/lib/auth/user";
+            import { organizationIdSchema } from "@/lib/organization/schemas";
+            import {
+              parseSmartCrateRules,
+              resolveAllSmartCrateTrackIds,
+            } from "@/lib/organization/smart-crates";
+            import { createClient } from "@/lib/supabase/server";
 
-          export async function prepareSmartCrateExportAction(crateId: string) {
-            const user = await requireUser();
-            const parsedId = organizationIdSchema.safeParse(crateId);
-            if (!parsedId.success) {
-              return { ok: false as const, message: "El crate no es válido." };
-            }
-
-            const supabase = await createClient();
-            const { data: crate, error } = await supabase
-              .from("crates")
-              .select("id, smart_rules")
-              .eq("id", parsedId.data)
-              .eq("user_id", user.id)
-              .maybeSingle();
-            if (error || !crate || crate.smart_rules === null) {
-              return {
-                ok: false as const,
-                message: "No se pudo preparar la exportación del crate inteligente.",
-              };
-            }
-
-            const parsedRules = parseSmartCrateRules(crate.smart_rules);
-            if (!parsedRules.success) {
-              return {
-                ok: false as const,
-                message: "Las reglas guardadas de este crate no son válidas.",
-              };
-            }
-
-            try {
-              const trackIds = await resolveAllSmartCrateTrackIds(
-                supabase,
-                parsedRules.data,
-              );
-              return { ok: true as const, trackIds };
-            } catch {
-              return {
-                ok: false as const,
-                message: "No se pudo preparar la exportación del crate inteligente.",
-              };
-            }
-          }
-          '''.replace('\n          ', '\n').lstrip(), encoding='utf-8')
-
-          export_link = Path('src/components/organization/smart-crate-export-link.tsx')
-          export_link.write_text('''"use client";
-
-          import { useRouter } from "next/navigation";
-          import { useEffect, useState } from "react";
-          import { prepareSmartCrateExportAction } from "@/app/crates/smart-export-actions";
-          import {
-            DESKTOP_EXPORT_REQUEST_KEY,
-            type DesktopExportRequest,
-          } from "@/lib/desktop/export-request";
-          import type { Locale } from "@/lib/i18n/i18n";
-
-          function hasDesktopExport() {
-            return Boolean(
-              (window as Window & { __TAURI__?: { core?: { invoke?: unknown } } })
-                .__TAURI__?.core?.invoke,
-            );
-          }
-
-          export function SmartCrateExportLink({
-            crateId,
-            crateName,
-            locale,
-          }: {
-            crateId: string;
-            crateName: string;
-            locale: Locale;
-          }) {
-            const router = useRouter();
-            const [available, setAvailable] = useState(false);
-            const [busy, setBusy] = useState(false);
-            const [message, setMessage] = useState<string | null>(null);
-            useEffect(() => setAvailable(hasDesktopExport()), []);
-
-            if (!available) {
-              return (
-                <p className="organization-muted" role="status">
-                  {locale === "en"
-                    ? "Export is available when this library is opened in the desktop app."
-                    : "La exportación está disponible al abrir esta biblioteca en la aplicación de escritorio."}
-                </p>
-              );
-            }
-
-            async function prepareExport() {
-              setBusy(true);
-              setMessage(null);
-              const result = await prepareSmartCrateExportAction(crateId);
-              if (!result.ok) {
-                setMessage(result.message);
-                setBusy(false);
-                return;
+            export async function prepareSmartCrateExportAction(crateId: string) {
+              const user = await requireUser();
+              const parsedId = organizationIdSchema.safeParse(crateId);
+              if (!parsedId.success) {
+                return { ok: false as const, message: "El crate no es válido." };
               }
-              const request: DesktopExportRequest = {
-                crateId,
-                crateName,
-                trackIds: result.trackIds,
-              };
-              sessionStorage.setItem(
-                DESKTOP_EXPORT_REQUEST_KEY,
-                JSON.stringify(request),
+
+              const supabase = await createClient();
+              const { data: crate, error } = await supabase
+                .from("crates")
+                .select("id, smart_rules")
+                .eq("id", parsedId.data)
+                .eq("user_id", user.id)
+                .maybeSingle();
+              if (error || !crate || crate.smart_rules === null) {
+                return {
+                  ok: false as const,
+                  message: "No se pudo preparar la exportación del crate inteligente.",
+                };
+              }
+
+              const parsedRules = parseSmartCrateRules(crate.smart_rules);
+              if (!parsedRules.success) {
+                return {
+                  ok: false as const,
+                  message: "Las reglas guardadas de este crate no son válidas.",
+                };
+              }
+
+              try {
+                const trackIds = await resolveAllSmartCrateTrackIds(
+                  supabase,
+                  parsedRules.data,
+                );
+                return { ok: true as const, trackIds };
+              } catch {
+                return {
+                  ok: false as const,
+                  message: "No se pudo preparar la exportación del crate inteligente.",
+                };
+              }
+            }
+          ''').lstrip(), encoding='utf-8')
+
+          Path('src/components/organization/smart-crate-export-link.tsx').write_text(dedent('''
+            "use client";
+
+            import { useRouter } from "next/navigation";
+            import { useEffect, useState } from "react";
+            import { prepareSmartCrateExportAction } from "@/app/crates/smart-export-actions";
+            import {
+              DESKTOP_EXPORT_REQUEST_KEY,
+              type DesktopExportRequest,
+            } from "@/lib/desktop/export-request";
+            import type { Locale } from "@/lib/i18n/i18n";
+
+            function hasDesktopExport() {
+              return Boolean(
+                (window as Window & { __TAURI__?: { core?: { invoke?: unknown } } })
+                  .__TAURI__?.core?.invoke,
               );
-              router.push("/import");
             }
 
-            return (
-              <div>
-                <button
-                  className="button button--secondary button--small"
-                  disabled={busy}
-                  onClick={prepareExport}
-                  type="button"
-                >
-                  {busy
-                    ? locale === "en"
-                      ? "Preparing…"
-                      : "Preparando…"
-                    : locale === "en"
-                      ? "Export"
-                      : "Exportar"}
-                </button>
-                {message ? (
-                  <p className="organization-error" role="alert">
-                    {message}
+            export function SmartCrateExportLink({
+              crateId,
+              crateName,
+              locale,
+            }: {
+              crateId: string;
+              crateName: string;
+              locale: Locale;
+            }) {
+              const router = useRouter();
+              const [available, setAvailable] = useState(false);
+              const [busy, setBusy] = useState(false);
+              const [message, setMessage] = useState<string | null>(null);
+              useEffect(() => setAvailable(hasDesktopExport()), []);
+
+              if (!available) {
+                return (
+                  <p className="organization-muted" role="status">
+                    {locale === "en"
+                      ? "Export is available when this library is opened in the desktop app."
+                      : "La exportación está disponible al abrir esta biblioteca en la aplicación de escritorio."}
                   </p>
-                ) : null}
-              </div>
-            );
-          }
-          '''.replace('\n          ', '\n').lstrip(), encoding='utf-8')
+                );
+              }
+
+              async function prepareExport() {
+                setBusy(true);
+                setMessage(null);
+                const result = await prepareSmartCrateExportAction(crateId);
+                if (!result.ok) {
+                  setMessage(result.message);
+                  setBusy(false);
+                  return;
+                }
+                const request: DesktopExportRequest = {
+                  crateId,
+                  crateName,
+                  trackIds: result.trackIds,
+                };
+                sessionStorage.setItem(
+                  DESKTOP_EXPORT_REQUEST_KEY,
+                  JSON.stringify(request),
+                );
+                router.push("/import");
+              }
+
+              return (
+                <div>
+                  <button
+                    className="button button--secondary button--small"
+                    disabled={busy}
+                    onClick={prepareExport}
+                    type="button"
+                  >
+                    {busy
+                      ? locale === "en"
+                        ? "Preparing…"
+                        : "Preparando…"
+                      : locale === "en"
+                        ? "Export"
+                        : "Exportar"}
+                  </button>
+                  {message ? (
+                    <p className="organization-error" role="alert">
+                      {message}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            }
+          ''').lstrip(), encoding='utf-8')
 
           dbtest = Path('supabase/tests/database/smart_crates.test.sql')
           text = dbtest.read_text(encoding='utf-8')
-          old = '''  id, user_id, title, artist, genre, subgenre, bpm, musical_key, camelot_key,
-            energy, rating, release_year
-          )'''
-          new = '''  id, user_id, title, artist, genre, subgenre, subgenre_source, bpm, musical_key, camelot_key,
-            energy, energy_source, rating, release_year
-          )'''
-          if old not in text:
-              raise SystemExit('smart crate DB column anchor not found')
-          text = text.replace(old, new, 1)
           text = text.replace(
-              "'Deep One', 'DJ A', 'House', 'Deep House', 124, 'Am', '8A', 7, 4, 2024",
-              "'Deep One', 'DJ A', 'House', 'Deep House', 'manual', 124, 'Am', '8A', 7, 'manual', 4, 2024",
-              1,
+            'id, user_id, title, artist, genre, subgenre, bpm, musical_key, camelot_key,\n  energy, rating, release_year',
+            'id, user_id, title, artist, genre, subgenre, subgenre_source, bpm, musical_key, camelot_key,\n  energy, energy_source, rating, release_year',
+            1,
           )
           text = text.replace(
-              "'Tech One', 'DJ B', 'Techno', 'Peak Time', 132, 'Fm', '4A', 9, 5, 2023",
-              "'Tech One', 'DJ B', 'Techno', 'Peak Time', 'manual', 132, 'Fm', '4A', 9, 'manual', 5, 2023",
-              1,
+            "'Deep One', 'DJ A', 'House', 'Deep House', 124, 'Am', '8A', 7, 4, 2024",
+            "'Deep One', 'DJ A', 'House', 'Deep House', 'manual', 124, 'Am', '8A', 7, 'manual', 4, 2024",
+            1,
           )
+          text = text.replace(
+            "'Tech One', 'DJ B', 'Techno', 'Peak Time', 132, 'Fm', '4A', 9, 5, 2023",
+            "'Tech One', 'DJ B', 'Techno', 'Peak Time', 'manual', 132, 'Fm', '4A', 9, 'manual', 5, 2023",
+            1,
+          )
+          if 'subgenre_source' not in text or 'energy_source' not in text:
+            raise SystemExit('smart crate DB fixture update failed')
           dbtest.write_text(text, encoding='utf-8')
 
           roadmap = Path('docs/roadmap.md')
           text = roadmap.read_text(encoding='utf-8')
           old = '1. - [ ] Crear crates inteligentes con reglas persistentes sobre género,'
-          new = '1. - [x] Crear crates inteligentes con reglas persistentes sobre género,'
           if old not in text:
-              raise SystemExit('smart crate roadmap anchor not found')
-          roadmap.write_text(text.replace(old, new, 1), encoding='utf-8')
+            raise SystemExit('smart crate roadmap anchor not found')
+          roadmap.write_text(
+            text.replace(old, '1. - [x] Crear crates inteligentes con reglas persistentes sobre género,', 1),
+            encoding='utf-8',
+          )
 
           Path('.github/workflows/temporary-fix-smart-crates.yml').unlink()
       - name: Commit fixes
@@ -336,5 +316,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
+          git diff --cached --check
           git commit -m "Fix smart crate review findings"
           git push origin HEAD:feat/smart-crates
