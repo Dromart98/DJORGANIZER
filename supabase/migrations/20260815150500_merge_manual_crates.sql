@@ -42,6 +42,168 @@ create trigger lock_crate_track_mutation
 before insert or update or delete on public.crate_tracks
 for each row execute function public.lock_crate_track_mutation();
 
+create or replace function public.add_track_to_manual_crate(
+  requested_crate_id uuid,
+  requested_track_id uuid
+)
+returns integer
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := (select auth.uid());
+  next_position integer;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if requested_crate_id is null or requested_track_id is null then
+    raise exception 'Invalid crate track assignment';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(requested_crate_id::text, 0));
+
+  if not exists (
+    select 1
+    from public.crates c
+    where c.id = requested_crate_id
+      and c.user_id = current_user_id
+      and c.smart_rules is null
+  ) then
+    raise exception 'Manual crate not found';
+  end if;
+
+  if not exists (
+    select 1
+    from public.tracks t
+    where t.id = requested_track_id
+      and t.user_id = current_user_id
+  ) then
+    raise exception 'Track not found';
+  end if;
+
+  if exists (
+    select 1
+    from public.crate_tracks ct
+    where ct.crate_id = requested_crate_id
+      and ct.track_id = requested_track_id
+      and ct.user_id = current_user_id
+  ) then
+    raise exception 'Track already in crate';
+  end if;
+
+  select coalesce(max(ct.position), -1) + 1
+  into next_position
+  from public.crate_tracks ct
+  where ct.crate_id = requested_crate_id
+    and ct.user_id = current_user_id;
+
+  insert into public.crate_tracks (user_id, crate_id, track_id, position)
+  values (current_user_id, requested_crate_id, requested_track_id, next_position);
+
+  update public.crates
+  set updated_at = now()
+  where id = requested_crate_id
+    and user_id = current_user_id;
+
+  return next_position;
+end;
+$$;
+
+revoke all on function public.add_track_to_manual_crate(uuid, uuid)
+  from public, anon;
+grant execute on function public.add_track_to_manual_crate(uuid, uuid)
+  to authenticated;
+
+create or replace function public.move_track_in_manual_crate(
+  requested_crate_id uuid,
+  requested_track_id uuid,
+  requested_direction text
+)
+returns boolean
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := (select auth.uid());
+  ordered_track_ids uuid[];
+  current_index integer;
+  target_index integer;
+  moved_track_id uuid;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if requested_crate_id is null
+     or requested_track_id is null
+     or requested_direction not in ('up', 'down') then
+    raise exception 'Invalid crate reorder';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(requested_crate_id::text, 0));
+
+  if not exists (
+    select 1
+    from public.crates c
+    where c.id = requested_crate_id
+      and c.user_id = current_user_id
+      and c.smart_rules is null
+  ) then
+    raise exception 'Manual crate not found';
+  end if;
+
+  select coalesce(
+    array_agg(ct.track_id order by ct.position, ct.created_at, ct.track_id),
+    array[]::uuid[]
+  )
+  into ordered_track_ids
+  from public.crate_tracks ct
+  where ct.crate_id = requested_crate_id
+    and ct.user_id = current_user_id;
+
+  current_index := array_position(ordered_track_ids, requested_track_id);
+  if current_index is null then
+    raise exception 'Track not found in crate';
+  end if;
+
+  target_index := case requested_direction
+    when 'up' then current_index - 1
+    else current_index + 1
+  end;
+
+  if target_index < 1 or target_index > cardinality(ordered_track_ids) then
+    return false;
+  end if;
+
+  moved_track_id := ordered_track_ids[target_index];
+  ordered_track_ids[target_index] := ordered_track_ids[current_index];
+  ordered_track_ids[current_index] := moved_track_id;
+
+  update public.crate_tracks ct
+  set position = desired.ordinality::integer - 1
+  from unnest(ordered_track_ids) with ordinality as desired(track_id, ordinality)
+  where ct.crate_id = requested_crate_id
+    and ct.user_id = current_user_id
+    and ct.track_id = desired.track_id;
+
+  update public.crates
+  set updated_at = now()
+  where id = requested_crate_id
+    and user_id = current_user_id;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.move_track_in_manual_crate(uuid, uuid, text)
+  from public, anon;
+grant execute on function public.move_track_in_manual_crate(uuid, uuid, text)
+  to authenticated;
+
 create or replace function public.merge_manual_crates(
   source_crate_id uuid,
   target_crate_id uuid,
