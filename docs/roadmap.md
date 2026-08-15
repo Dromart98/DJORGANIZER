@@ -91,11 +91,14 @@ resultado directamente utilizable:
    únicamente de vínculos confirmados con la biblioteca y la variante por energía
    queda bloqueada mientras ese vínculo no esté sincronizado. No se crea una
    carpeta por valor exacto salvo elección expresa.
-5. - [ ] Sustituir la dependencia exclusiva de plantillas fijas por un constructor
-   de reglas de organización de uno a tres niveles. Los niveles disponibles serán
-   género, subgénero cuando exista, artista, álbum, tonalidad, Camelot, BPM,
-   rango de BPM, energía y año. Debe impedir combinaciones vacías o duplicadas y
-   mostrar el árbol resultante antes de mover archivos.
+5. - [x] Sustituir la dependencia exclusiva de plantillas fijas por un constructor
+   de reglas de organización de uno a tres niveles, manteniendo las plantillas
+   anteriores como atajos. Los niveles disponibles son género, subgénero, artista,
+   álbum, tonalidad, Camelot, BPM, rango de BPM, energía y año. Impide reglas
+   vacías, con huecos o niveles duplicados; subgénero, Camelot, energía y año solo
+   se habilitan con metadatos de Biblioteca vinculados a coincidencias locales
+   confirmadas. Muestra un árbol previo acotado para mantener el rendimiento y la
+   simulación nativa final valida siempre la selección completa antes de mover.
 6. - [x] Incorporar un campo persistente e independiente de subgénero. Añadirlo a
    migraciones, tipos, importación, edición individual y masiva, búsqueda,
    filtros, ordenación y sugerencias revisables. Mantener género y subgénero como

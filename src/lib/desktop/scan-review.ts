@@ -18,6 +18,7 @@ export interface ScannedAudioFile {
 }
 
 export const DESKTOP_SCAN_PAGE_SIZE = 25;
+export const ORGANIZATION_TREE_PREVIEW_PATH_LIMIT = 100;
 
 export function filterScannedTracks(
   tracks: readonly ScannedAudioFile[],
@@ -82,17 +83,44 @@ export type OrganizationScheme =
   | "bpm-range"
   | "genre-bpm-range"
   | "energy-bpm-range"
-  | "key-bpm-range";
+  | "key-bpm-range"
+  | "rules";
+
+export type OrganizationRuleLevel =
+  | "genre"
+  | "subgenre"
+  | "artist"
+  | "album"
+  | "key"
+  | "camelot"
+  | "bpm"
+  | "bpm-range"
+  | "energy"
+  | "year";
+
+export interface LinkedOrganizationMetadata {
+  camelotKey: string | null;
+  energy: number | null;
+  releaseYear: number | null;
+  subgenre: string | null;
+}
 
 export interface OrganizationPreviewOptions {
   bpmBoundaries?: readonly number[];
   energyByScanId?: ReadonlyMap<string, number>;
+  linkedMetadataByScanId?: ReadonlyMap<string, LinkedOrganizationMetadata>;
+  ruleLevels?: readonly (OrganizationRuleLevel | "")[];
 }
 
 export interface OrganizationPreviewItem {
   sourcePath: string;
   targetPath: string;
   collisionResolved: boolean;
+}
+
+export interface OrganizationTreeNode {
+  name: string;
+  children: OrganizationTreeNode[];
 }
 
 const WINDOWS_RESERVED_NAME =
@@ -103,9 +131,48 @@ const BPM_RANGE_SCHEMES = new Set<OrganizationScheme>([
   "energy-bpm-range",
   "key-bpm-range",
 ]);
+const LINKED_RULE_LEVELS = new Set<OrganizationRuleLevel>([
+  "subgenre",
+  "camelot",
+  "energy",
+  "year",
+]);
 
 export function organizationSchemeUsesBpmRanges(scheme: OrganizationScheme) {
   return BPM_RANGE_SCHEMES.has(scheme);
+}
+
+export function normalizeOrganizationRuleLevels(
+  levels: readonly (OrganizationRuleLevel | "")[],
+) {
+  if (!levels.length || levels.length > 3 || !levels[0]) return null;
+  const normalized: OrganizationRuleLevel[] = [];
+  let sawEmpty = false;
+  for (const level of levels) {
+    if (!level) {
+      sawEmpty = true;
+      continue;
+    }
+    if (sawEmpty || normalized.includes(level)) return null;
+    normalized.push(level);
+  }
+  return normalized.length ? normalized : null;
+}
+
+export function organizationRulesUseBpmRanges(
+  levels: readonly (OrganizationRuleLevel | "")[],
+) {
+  return normalizeOrganizationRuleLevels(levels)?.includes("bpm-range") ?? false;
+}
+
+export function organizationRulesUseLinkedMetadata(
+  levels: readonly (OrganizationRuleLevel | "")[],
+) {
+  return (
+    normalizeOrganizationRuleLevels(levels)?.some((level) =>
+      LINKED_RULE_LEVELS.has(level),
+    ) ?? false
+  );
 }
 
 export function parseBpmRangeBoundaries(input: string) {
@@ -128,7 +195,11 @@ export function normalizeBpmRangeBoundaries(boundaries: readonly number[]) {
   ) {
     return null;
   }
-  if (normalized.some((value, index) => index > 0 && value <= normalized[index - 1])) {
+  if (
+    normalized.some(
+      (value, index) => index > 0 && value <= normalized[index - 1],
+    )
+  ) {
     return null;
   }
   return normalized;
@@ -163,12 +234,65 @@ function bpmRangeFolder(bpm: number | null, boundaries: readonly number[]) {
   return `${boundaries[boundaries.length - 1]} BPM o más`;
 }
 
+function ruleLevelFolder(
+  track: ScannedAudioFile,
+  level: OrganizationRuleLevel,
+  options: OrganizationPreviewOptions,
+  bpmBoundaries: readonly number[] | null,
+) {
+  const linked = options.linkedMetadataByScanId?.get(track.scanId);
+  switch (level) {
+    case "genre":
+      return safePathSegment(track.genre, "Género desconocido");
+    case "subgenre":
+      return safePathSegment(linked?.subgenre ?? null, "Subgénero desconocido");
+    case "artist":
+      return safePathSegment(track.artist, "Artista desconocido");
+    case "album":
+      return safePathSegment(track.album, "Sin álbum");
+    case "key":
+      return safePathSegment(track.musicalKey, "Tonalidad desconocida");
+    case "camelot":
+      return safePathSegment(linked?.camelotKey ?? null, "Camelot desconocido");
+    case "bpm":
+      return safePathSegment(
+        track.bpm === null ? null : `${Math.round(track.bpm)} BPM`,
+        "BPM desconocido",
+      );
+    case "bpm-range":
+      return bpmBoundaries
+        ? bpmRangeFolder(track.bpm, bpmBoundaries)
+        : "BPM desconocido";
+    case "energy": {
+      const energy = linked?.energy ?? options.energyByScanId?.get(track.scanId);
+      return energy !== undefined &&
+        energy !== null &&
+        Number.isInteger(energy) &&
+        energy >= 0 &&
+        energy <= 10
+        ? `Energía ${energy}`
+        : "Energía desconocida";
+    }
+    case "year":
+      return linked?.releaseYear !== null && linked?.releaseYear !== undefined
+        ? `${linked.releaseYear}`
+        : "Año desconocido";
+  }
+}
+
 function organizationFolders(
   track: ScannedAudioFile,
   scheme: OrganizationScheme,
   options: OrganizationPreviewOptions,
   bpmBoundaries: readonly number[] | null,
+  ruleLevels: readonly OrganizationRuleLevel[] | null,
 ) {
+  if (scheme === "rules" && ruleLevels) {
+    return ruleLevels.map((level) =>
+      ruleLevelFolder(track, level, options, bpmBoundaries),
+    );
+  }
+
   if (scheme === "genre") {
     return [safePathSegment(track.genre, "Género desconocido")];
   }
@@ -200,9 +324,14 @@ function organizationFolders(
       return [safePathSegment(track.musicalKey, "Tonalidad desconocida"), range];
     }
     if (scheme === "energy-bpm-range") {
-      const energy = options.energyByScanId?.get(track.scanId);
+      const linked = options.linkedMetadataByScanId?.get(track.scanId);
+      const energy = linked?.energy ?? options.energyByScanId?.get(track.scanId);
       const energyFolder =
-        energy !== undefined && Number.isInteger(energy) && energy >= 0 && energy <= 10
+        energy !== undefined &&
+        energy !== null &&
+        Number.isInteger(energy) &&
+        energy >= 0 &&
+        energy <= 10
           ? `Energía ${energy}`
           : "Energía desconocida";
       return [energyFolder, range];
@@ -220,10 +349,18 @@ export function createOrganizationPreview(
   scheme: OrganizationScheme,
   options: OrganizationPreviewOptions = {},
 ) {
-  const bpmBoundaries = organizationSchemeUsesBpmRanges(scheme)
+  const ruleLevels =
+    scheme === "rules"
+      ? normalizeOrganizationRuleLevels(options.ruleLevels ?? [])
+      : null;
+  if (scheme === "rules" && !ruleLevels) return [];
+  const usesBpmRanges =
+    organizationSchemeUsesBpmRanges(scheme) ||
+    (ruleLevels?.includes("bpm-range") ?? false);
+  const bpmBoundaries = usesBpmRanges
     ? normalizeBpmRangeBoundaries(options.bpmBoundaries ?? [])
     : null;
-  if (organizationSchemeUsesBpmRanges(scheme) && !bpmBoundaries) return [];
+  if (usesBpmRanges && !bpmBoundaries) return [];
   const usedTargets = new Set<string>();
 
   return [...tracks]
@@ -233,7 +370,13 @@ export function createOrganizationPreview(
       }),
     )
     .map<OrganizationPreviewItem>((track) => {
-      const folders = organizationFolders(track, scheme, options, bpmBoundaries);
+      const folders = organizationFolders(
+        track,
+        scheme,
+        options,
+        bpmBoundaries,
+        ruleLevels,
+      );
       const originalStem = track.name.replace(/\.[^.]+$/, "");
       const stem = safePathSegment(track.title, originalStem || "Pista sin nombre");
       const extension =
@@ -256,4 +399,35 @@ export function createOrganizationPreview(
         collisionResolved: suffix > 1,
       };
     });
+}
+
+export function createOrganizationTree(
+  preview: readonly OrganizationPreviewItem[],
+): OrganizationTreeNode[] {
+  type OrganizationTreeMap = Map<string, OrganizationTreeMap>;
+  const root: OrganizationTreeMap = new Map();
+  for (const item of preview.slice(0, ORGANIZATION_TREE_PREVIEW_PATH_LIMIT)) {
+    const folders = item.targetPath.split("/").slice(0, -1);
+    let cursor = root;
+    for (const folder of folders) {
+      let child = cursor.get(folder);
+      if (!child) {
+        child = new Map();
+        cursor.set(folder, child);
+      }
+      cursor = child;
+    }
+  }
+
+  const toNodes = (node: OrganizationTreeMap): OrganizationTreeNode[] =>
+    [...node.entries()]
+      .sort(([left], [right]) =>
+        left.localeCompare(right, "es", { sensitivity: "base" }),
+      )
+      .map(([name, children]) => ({
+        name,
+        children: toNodes(children),
+      }));
+
+  return toNodes(root);
 }

@@ -11,11 +11,19 @@ import {
 } from "@/app/import/actions";
 import {
   createOrganizationPreview,
+  createOrganizationTree,
   filterScannedTracks,
+  normalizeOrganizationRuleLevels,
+  organizationRulesUseBpmRanges,
+  organizationRulesUseLinkedMetadata,
   organizationSchemeUsesBpmRanges,
+  ORGANIZATION_TREE_PREVIEW_PATH_LIMIT,
   paginateScannedTracks,
   parseBpmRangeBoundaries,
+  type LinkedOrganizationMetadata,
+  type OrganizationRuleLevel,
   type OrganizationScheme,
+  type OrganizationTreeNode,
   type ScanReviewFilter,
   type ScannedAudioFile,
 } from "@/lib/desktop/scan-review";
@@ -233,6 +241,60 @@ function formatTrackIdentity(track: ScannedAudioFile) {
   return identity.length ? identity.join(" · ") : track.relativePath;
 }
 
+const ORGANIZATION_RULE_LEVELS: OrganizationRuleLevel[] = [
+  "genre",
+  "subgenre",
+  "artist",
+  "album",
+  "key",
+  "camelot",
+  "bpm",
+  "bpm-range",
+  "energy",
+  "year",
+];
+
+function organizationRuleLabel(
+  level: OrganizationRuleLevel,
+  t: ReturnType<typeof useTranslator>["t"],
+) {
+  switch (level) {
+    case "genre":
+      return t("Género");
+    case "subgenre":
+      return t("Subgénero");
+    case "artist":
+      return t("Artista");
+    case "album":
+      return t("Álbum");
+    case "key":
+      return t("Tonalidad");
+    case "camelot":
+      return "Camelot";
+    case "bpm":
+      return "BPM";
+    case "bpm-range":
+      return t("Rango de BPM");
+    case "energy":
+      return t("Energía");
+    case "year":
+      return t("Año");
+  }
+}
+
+function OrganizationTreeList({ nodes }: { nodes: readonly OrganizationTreeNode[] }) {
+  return (
+    <ul>
+      {nodes.map((node) => (
+        <li key={node.name}>
+          <span>{node.name}</span>
+          {node.children.length ? <OrganizationTreeList nodes={node.children} /> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function DesktopFolderScanner() {
   const { format, locale, t } = useTranslator();
   const { clearTrackLinks, replaceTrackLinks } = useDesktopScanSession();
@@ -255,12 +317,17 @@ export function DesktopFolderScanner() {
   const [linkedEnergyByScanId, setLinkedEnergyByScanId] = useState<
     Map<string, number>
   >(() => new Map());
-  const [energyLinkReady, setEnergyLinkReady] = useState(false);
+  const [linkedOrganizationMetadataByScanId, setLinkedOrganizationMetadataByScanId] =
+    useState<Map<string, LinkedOrganizationMetadata>>(() => new Map());
+  const [organizationMetadataReady, setOrganizationMetadataReady] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ScanReviewFilter>("all");
   const [page, setPage] = useState(1);
   const [organizationScheme, setOrganizationScheme] =
     useState<OrganizationScheme>("artist-album");
+  const [organizationRuleLevels, setOrganizationRuleLevels] = useState<
+    (OrganizationRuleLevel | "")[]
+  >(["genre", "", ""]);
   const [bpmBoundaryInput, setBpmBoundaryInput] = useState("");
   const [virtualDjListName, setVirtualDjListName] = useState("DJOrganizer");
   const [exportingVirtualDj, setExportingVirtualDj] =
@@ -315,15 +382,48 @@ export function DesktopFolderScanner() {
     () => parseBpmRangeBoundaries(bpmBoundaryInput),
     [bpmBoundaryInput],
   );
-  const usesBpmRanges = organizationSchemeUsesBpmRanges(organizationScheme);
+  const normalizedOrganizationRuleLevels = useMemo(
+    () => normalizeOrganizationRuleLevels(organizationRuleLevels),
+    [organizationRuleLevels],
+  );
+  const usesBpmRanges =
+    organizationSchemeUsesBpmRanges(organizationScheme) ||
+    (organizationScheme === "rules" &&
+      organizationRulesUseBpmRanges(organizationRuleLevels));
+  const usesLinkedOrganizationMetadata =
+    organizationScheme === "energy-bpm-range" ||
+    (organizationScheme === "rules" &&
+      organizationRulesUseLinkedMetadata(organizationRuleLevels));
+  const organizationRulesValid =
+    organizationScheme !== "rules" || Boolean(normalizedOrganizationRuleLevels);
   const organizationPreview = useMemo(
     () =>
       createOrganizationPreview(selectedTracks, organizationScheme, {
         bpmBoundaries: bpmBoundaries ?? undefined,
         energyByScanId: linkedEnergyByScanId,
+        linkedMetadataByScanId: linkedOrganizationMetadataByScanId,
+        ruleLevels: organizationRuleLevels,
       }),
-    [bpmBoundaries, linkedEnergyByScanId, organizationScheme, selectedTracks],
+    [
+      bpmBoundaries,
+      linkedEnergyByScanId,
+      linkedOrganizationMetadataByScanId,
+      organizationRuleLevels,
+      organizationScheme,
+      selectedTracks,
+    ],
   );
+  const organizationTree = useMemo(
+    () =>
+      organizationScheme === "rules"
+        ? createOrganizationTree(organizationPreview)
+        : [],
+    [organizationPreview, organizationScheme],
+  );
+  const organizationConfigurationReady =
+    organizationRulesValid &&
+    (!usesBpmRanges || Boolean(bpmBoundaries)) &&
+    (!usesLinkedOrganizationMetadata || organizationMetadataReady);
   const visibleTrackIds = pagination.items.map((track) => track.scanId);
   const allVisibleSelected =
     visibleTrackIds.length > 0 &&
@@ -352,7 +452,8 @@ export function DesktopFolderScanner() {
     async (core: TauriCore, scanResult: FolderScanResult) => {
       clearTrackLinks();
       setLinkedEnergyByScanId(new Map());
-      setEnergyLinkReady(false);
+      setLinkedOrganizationMetadataByScanId(new Map());
+      setOrganizationMetadataReady(false);
       setLibraryLinkMessage(
         locale === "en"
           ? "Comparing with your DJOrganizer library…"
@@ -377,6 +478,17 @@ export function DesktopFolderScanner() {
               : [[candidate.trackId, candidate.energy] as const],
           ),
         );
+        const organizationMetadataByTrackId = new Map(
+          library.candidates.map((candidate) => [
+            candidate.trackId,
+            {
+              camelotKey: candidate.camelotKey,
+              energy: candidate.energy,
+              releaseYear: candidate.releaseYear,
+              subgenre: candidate.subgenre,
+            } satisfies LinkedOrganizationMetadata,
+          ] as const),
+        );
         const linkResult = await core.invoke<LibraryLinkResult>(
           "link_library_tracks",
           {
@@ -387,6 +499,16 @@ export function DesktopFolderScanner() {
               trackId: candidate.trackId,
             })),
             energies: Object.fromEntries(energyByTrackId),
+            organizationMetadata: Object.fromEntries(
+              [...organizationMetadataByTrackId].map(([trackId, metadata]) => [
+                trackId,
+                {
+                  camelotKey: metadata.camelotKey,
+                  releaseYear: metadata.releaseYear,
+                  subgenre: metadata.subgenre,
+                },
+              ]),
+            ),
           },
         );
         setLinkedScanIds(new Set(linkResult.links.map((link) => link.scanId)));
@@ -398,7 +520,15 @@ export function DesktopFolderScanner() {
             }),
           ),
         );
-        setEnergyLinkReady(true);
+        setLinkedOrganizationMetadataByScanId(
+          new Map(
+            linkResult.links.flatMap((link) => {
+              const metadata = organizationMetadataByTrackId.get(link.trackId);
+              return metadata === undefined ? [] : [[link.scanId, metadata] as const];
+            }),
+          ),
+        );
+        setOrganizationMetadataReady(true);
         replaceTrackLinks(scanResult.sessionId, linkResult.links);
         const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
         if (rawRequest) {
@@ -968,11 +1098,19 @@ export function DesktopFolderScanner() {
   async function runReorganization(apply: boolean) {
     const core = getTauriCore();
     if (!core || !result || !selectedTracks.length) return;
-    if (organizationScheme === "energy-bpm-range" && !energyLinkReady) {
+    if (!organizationRulesValid) {
       setReorganizationMessage(
         locale === "en"
-          ? "Relink this scan with the library before organizing by energy."
-          : "Vuelve a vincular este escaneo con la biblioteca antes de organizar por energía.",
+          ? "Choose between one and three unique organization levels without empty gaps."
+          : "Elige entre uno y tres niveles de organización únicos y sin huecos vacíos.",
+      );
+      return;
+    }
+    if (usesLinkedOrganizationMetadata && !organizationMetadataReady) {
+      setReorganizationMessage(
+        locale === "en"
+          ? "Relink this scan with the library before using subgenre, Camelot, energy or year."
+          : "Vuelve a vincular este escaneo con la biblioteca antes de usar subgénero, Camelot, energía o año.",
       );
       return;
     }
@@ -1002,6 +1140,10 @@ export function DesktopFolderScanner() {
         {
           request: {
             bpmBoundaries: usesBpmRanges ? bpmBoundaries ?? [] : [],
+            ruleLevels:
+              organizationScheme === "rules"
+                ? normalizedOrganizationRuleLevels ?? []
+                : [],
             scheme: organizationScheme,
             sessionId: result.sessionId,
             trackIds: selectedTracks.map((track) => track.scanId),
@@ -1736,9 +1878,48 @@ export function DesktopFolderScanner() {
                         <option value="genre-bpm-range">{t("Género / rango de BPM")}</option>
                         <option value="energy-bpm-range">{t("Energía / rango de BPM")}</option>
                         <option value="key-bpm-range">{t("Tonalidad / rango de BPM")}</option>
+                        <option value="rules">{t("Reglas personalizadas")}</option>
                       </select>
                     </label>
                   </div>
+                  {organizationScheme === "rules" ? (
+                    <div className="organization-rule-builder">
+                      {organizationRuleLevels.map((selectedLevel, index) => (
+                        <label key={index}>
+                          {index === 0
+                            ? t("Nivel 1")
+                            : index === 1
+                              ? t("Nivel 2 (opcional)")
+                              : t("Nivel 3 (opcional)")}
+                          <select
+                            onChange={(event) => {
+                              const nextLevel = event.target.value as OrganizationRuleLevel | "";
+                              setOrganizationRuleLevels((current) => {
+                                const next = [...current];
+                                next[index] = nextLevel;
+                                if (index === 1 && !nextLevel) next[2] = "";
+                                return next;
+                              });
+                            }}
+                            value={selectedLevel}
+                          >
+                            {index > 0 ? <option value="">{t("Sin nivel")}</option> : null}
+                            {ORGANIZATION_RULE_LEVELS.map((level) => (
+                              <option
+                                disabled={organizationRuleLevels.some(
+                                  (value, otherIndex) => otherIndex !== index && value === level,
+                                )}
+                                key={level}
+                                value={level}
+                              >
+                                {organizationRuleLabel(level, t)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
                   {usesBpmRanges ? (
                     <label>
                       {t("Cortes de BPM")}
@@ -1756,11 +1937,18 @@ export function DesktopFolderScanner() {
                       </small>
                     </label>
                   ) : null}
-                  {organizationScheme === "energy-bpm-range" && !energyLinkReady ? (
+                  {usesLinkedOrganizationMetadata && !organizationMetadataReady ? (
                     <p className="organization-muted" role="status">
                       {locale === "en"
-                        ? "Energy organization is disabled until this scan is linked successfully with the library."
-                        : "La organización por energía está desactivada hasta que este escaneo se vincule correctamente con la biblioteca."}
+                        ? "Rules that use subgenre, Camelot, energy or year are disabled until this scan is linked successfully with the library."
+                        : "Las reglas que usan subgénero, Camelot, energía o año están desactivadas hasta que este escaneo se vincule correctamente con la biblioteca."}
+                    </p>
+                  ) : null}
+                  {organizationScheme === "rules" && !organizationRulesValid ? (
+                    <p className="organization-muted" role="alert">
+                      {locale === "en"
+                        ? "Choose one to three unique levels without empty gaps."
+                        : "Elige de uno a tres niveles únicos y sin huecos vacíos."}
                     </p>
                   ) : null}
                   <p className="organization-muted">
@@ -1772,6 +1960,19 @@ export function DesktopFolderScanner() {
                         ? `These paths are a safe proposal for ${organizationPreview.length.toLocaleString(locale)} tracks. The native simulation rechecks external changes and collisions immediately before applying the batch.`
                         : `Estas rutas son una propuesta segura para ${organizationPreview.length.toLocaleString(locale)} pistas. La simulación nativa vuelve a comprobar cambios externos y colisiones justo antes de aplicar el lote.`}
                   </p>
+                  {organizationScheme === "rules" && organizationTree.length ? (
+                    <div className="organization-tree-preview">
+                      <strong>{t("Árbol resultante")}</strong>
+                      <OrganizationTreeList nodes={organizationTree} />
+                      {organizationPreview.length > ORGANIZATION_TREE_PREVIEW_PATH_LIMIT ? (
+                        <small>
+                          {locale === "en"
+                            ? `Tree preview limited to the first ${ORGANIZATION_TREE_PREVIEW_PATH_LIMIT.toLocaleString(locale)} proposed paths for performance. The final native simulation still validates the complete selection.`
+                            : `El árbol se limita a las primeras ${ORGANIZATION_TREE_PREVIEW_PATH_LIMIT.toLocaleString(locale)} rutas propuestas para mantener el rendimiento. La simulación nativa final sigue validando la selección completa.`}
+                        </small>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <ol>
                     {organizationPreview.slice(0, 10).map((item) => (
                       <li key={item.targetPath}>
@@ -1795,8 +1996,7 @@ export function DesktopFolderScanner() {
                       className="button button--secondary"
                       disabled={
                         reorganizationBusy ||
-                        (usesBpmRanges && !bpmBoundaries) ||
-                        (organizationScheme === "energy-bpm-range" && !energyLinkReady)
+                        !organizationConfigurationReady
                       }
                       onClick={() => void runReorganization(false)}
                       type="button"
@@ -1807,8 +2007,7 @@ export function DesktopFolderScanner() {
                       className="button button--primary"
                       disabled={
                         reorganizationBusy ||
-                        (usesBpmRanges && !bpmBoundaries) ||
-                        (organizationScheme === "energy-bpm-range" && !energyLinkReady)
+                        !organizationConfigurationReady
                       }
                       onClick={() => void runReorganization(true)}
                       type="button"

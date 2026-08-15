@@ -937,6 +937,8 @@ struct DesktopState {
     active_track_analyses: Mutex<HashMap<String, ActiveTrackAnalysis>>,
     active_maest_analyses: Mutex<HashMap<String, ActiveMaestAnalysis>>,
     library_energy: Mutex<HashMap<(String, String), u8>>,
+    library_organization_metadata:
+        Mutex<HashMap<(String, String), LibraryOrganizationMetadataInput>>,
     metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
     pending_maest_genre_previews: Mutex<HashMap<MaestGenrePreviewKey, MaestGenrePreviewReceipt>>,
     reorganization_history: Mutex<Vec<ReorganizationRun>>,
@@ -1314,6 +1316,22 @@ enum OrganizationScheme {
     GenreBpmRange,
     EnergyBpmRange,
     KeyBpmRange,
+    Rules,
+}
+
+#[derive(Clone, Debug, Deserialize, Hash, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum OrganizationRuleLevel {
+    Genre,
+    Subgenre,
+    Artist,
+    Album,
+    Key,
+    Camelot,
+    Bpm,
+    BpmRange,
+    Energy,
+    Year,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1321,6 +1339,8 @@ enum OrganizationScheme {
 struct ReorganizationRequest {
     #[serde(default)]
     bpm_boundaries: Vec<u16>,
+    #[serde(default)]
+    rule_levels: Vec<OrganizationRuleLevel>,
     scheme: OrganizationScheme,
     session_id: String,
     track_ids: Vec<String>,
@@ -1563,6 +1583,14 @@ struct LibraryLinkCandidate {
     file_fingerprint: String,
     file_size: u64,
     track_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LibraryOrganizationMetadataInput {
+    camelot_key: Option<String>,
+    release_year: Option<i16>,
+    subgenre: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -2411,14 +2439,45 @@ fn safe_path_segment(value: Option<&str>, fallback: &str) -> String {
     sanitized
 }
 
-fn organization_scheme_uses_bpm_ranges(scheme: &OrganizationScheme) -> bool {
+fn validate_organization_rule_levels(levels: &[OrganizationRuleLevel]) -> Result<(), String> {
+    if levels.is_empty() || levels.len() > 3 {
+        return Err("Configura entre uno y tres niveles de organización.".to_owned());
+    }
+    let unique = levels.iter().collect::<HashSet<_>>();
+    if unique.len() != levels.len() {
+        return Err("No repitas niveles en una regla de organización.".to_owned());
+    }
+    Ok(())
+}
+
+fn organization_rules_use_bpm_ranges(levels: &[OrganizationRuleLevel]) -> bool {
+    levels.contains(&OrganizationRuleLevel::BpmRange)
+}
+
+fn organization_rules_use_linked_metadata(levels: &[OrganizationRuleLevel]) -> bool {
+    levels.iter().any(|level| {
+        matches!(
+            level,
+            OrganizationRuleLevel::Subgenre
+                | OrganizationRuleLevel::Camelot
+                | OrganizationRuleLevel::Energy
+                | OrganizationRuleLevel::Year
+        )
+    })
+}
+
+fn organization_scheme_uses_bpm_ranges(
+    scheme: &OrganizationScheme,
+    rule_levels: &[OrganizationRuleLevel],
+) -> bool {
     matches!(
         scheme,
         OrganizationScheme::BpmRange
             | OrganizationScheme::GenreBpmRange
             | OrganizationScheme::EnergyBpmRange
             | OrganizationScheme::KeyBpmRange
-    )
+    ) || matches!(scheme, OrganizationScheme::Rules)
+        && organization_rules_use_bpm_ranges(rule_levels)
 }
 
 fn validate_bpm_range_boundaries(boundaries: &[u16]) -> Result<(), String> {
@@ -2455,13 +2514,61 @@ fn bpm_range_folder(bpm: Option<f64>, boundaries: &[u16]) -> String {
     format!("{} BPM o más", boundaries[boundaries.len() - 1])
 }
 
+fn organization_rule_folder(
+    track: &ScannedAudioFile,
+    level: &OrganizationRuleLevel,
+    bpm_boundaries: &[u16],
+    energy: Option<u8>,
+    metadata: Option<&LibraryOrganizationMetadataInput>,
+) -> String {
+    match level {
+        OrganizationRuleLevel::Genre => {
+            safe_path_segment(track.genre.as_deref(), "Género desconocido")
+        }
+        OrganizationRuleLevel::Subgenre => safe_path_segment(
+            metadata.and_then(|value| value.subgenre.as_deref()),
+            "Subgénero desconocido",
+        ),
+        OrganizationRuleLevel::Artist => {
+            safe_path_segment(track.artist.as_deref(), "Artista desconocido")
+        }
+        OrganizationRuleLevel::Album => safe_path_segment(track.album.as_deref(), "Sin álbum"),
+        OrganizationRuleLevel::Key => {
+            safe_path_segment(track.musical_key.as_deref(), "Tonalidad desconocida")
+        }
+        OrganizationRuleLevel::Camelot => safe_path_segment(
+            metadata.and_then(|value| value.camelot_key.as_deref()),
+            "Camelot desconocido",
+        ),
+        OrganizationRuleLevel::Bpm => track
+            .bpm
+            .map(|bpm| format!("{} BPM", bpm.round()))
+            .unwrap_or_else(|| "BPM desconocido".to_owned()),
+        OrganizationRuleLevel::BpmRange => bpm_range_folder(track.bpm, bpm_boundaries),
+        OrganizationRuleLevel::Energy => energy
+            .filter(|value| *value <= 10)
+            .map(|value| format!("Energía {value}"))
+            .unwrap_or_else(|| "Energía desconocida".to_owned()),
+        OrganizationRuleLevel::Year => metadata
+            .and_then(|value| value.release_year)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "Año desconocido".to_owned()),
+    }
+}
+
 fn organization_folders(
     track: &ScannedAudioFile,
     scheme: &OrganizationScheme,
+    rule_levels: &[OrganizationRuleLevel],
     bpm_boundaries: &[u16],
     energy: Option<u8>,
+    metadata: Option<&LibraryOrganizationMetadataInput>,
 ) -> Vec<String> {
     match scheme {
+        OrganizationScheme::Rules => rule_levels
+            .iter()
+            .map(|level| organization_rule_folder(track, level, bpm_boundaries, energy, metadata))
+            .collect(),
         OrganizationScheme::Genre => vec![safe_path_segment(
             track.genre.as_deref(),
             "Género desconocido",
@@ -2516,14 +2623,39 @@ fn linked_energy_for_session(
         .collect())
 }
 
+fn linked_organization_metadata_for_session(
+    state: &DesktopState,
+    session_id: &str,
+) -> Result<HashMap<String, LibraryOrganizationMetadataInput>, String> {
+    let metadata = state
+        .library_organization_metadata
+        .lock()
+        .map_err(|_| "No se pudieron leer los metadatos vinculados de la biblioteca.".to_owned())?;
+    Ok(metadata
+        .iter()
+        .filter_map(|((linked_session_id, scan_id), value)| {
+            (linked_session_id == session_id).then(|| (scan_id.clone(), value.clone()))
+        })
+        .collect())
+}
+
 fn build_reorganization_plan_with_options(
     session: &ScanSession,
     track_ids: &[String],
     scheme: &OrganizationScheme,
+    rule_levels: &[OrganizationRuleLevel],
     bpm_boundaries: &[u16],
     energy_by_scan_id: &HashMap<String, u8>,
+    metadata_by_scan_id: &HashMap<String, LibraryOrganizationMetadataInput>,
 ) -> Result<Vec<AppliedMove>, String> {
-    if organization_scheme_uses_bpm_ranges(scheme) {
+    if matches!(scheme, OrganizationScheme::Rules) {
+        validate_organization_rule_levels(rule_levels)?;
+    } else if !rule_levels.is_empty() {
+        return Err(
+            "Los niveles personalizados solo se admiten con reglas personalizadas.".to_owned(),
+        );
+    }
+    if organization_scheme_uses_bpm_ranges(scheme, rule_levels) {
         validate_bpm_range_boundaries(bpm_boundaries)?;
     } else if !bpm_boundaries.is_empty() {
         return Err("Los cortes de BPM solo se admiten en esquemas por rango.".to_owned());
@@ -2550,7 +2682,15 @@ fn build_reorganization_plan_with_options(
         }
 
         let energy = energy_by_scan_id.get(&session_track.track.scan_id).copied();
-        let folders = organization_folders(&session_track.track, scheme, bpm_boundaries, energy);
+        let metadata = metadata_by_scan_id.get(&session_track.track.scan_id);
+        let folders = organization_folders(
+            &session_track.track,
+            scheme,
+            rule_levels,
+            bpm_boundaries,
+            energy,
+            metadata,
+        );
         let original_stem = Path::new(&session_track.track.name)
             .file_stem()
             .and_then(|value| value.to_str())
@@ -2601,7 +2741,15 @@ fn build_reorganization_plan(
     track_ids: &[String],
     scheme: &OrganizationScheme,
 ) -> Result<Vec<AppliedMove>, String> {
-    build_reorganization_plan_with_options(session, track_ids, scheme, &[], &HashMap::new())
+    build_reorganization_plan_with_options(
+        session,
+        track_ids,
+        scheme,
+        &[],
+        &[],
+        &HashMap::new(),
+        &HashMap::new(),
+    )
 }
 
 #[cfg(test)]
@@ -2652,39 +2800,129 @@ mod bpm_range_organization_tests {
     }
 
     #[test]
-    fn combines_ranges_with_genre_key_and_linked_energy() {
+    fn validates_custom_rule_levels() {
+        assert!(validate_organization_rule_levels(&[OrganizationRuleLevel::Genre]).is_ok());
+        assert!(validate_organization_rule_levels(&[
+            OrganizationRuleLevel::Genre,
+            OrganizationRuleLevel::Artist,
+            OrganizationRuleLevel::Album,
+        ])
+        .is_ok());
+        assert!(validate_organization_rule_levels(&[]).is_err());
+        assert!(validate_organization_rule_levels(&[
+            OrganizationRuleLevel::Genre,
+            OrganizationRuleLevel::Genre,
+        ])
+        .is_err());
+        assert!(validate_organization_rule_levels(&[
+            OrganizationRuleLevel::Genre,
+            OrganizationRuleLevel::Artist,
+            OrganizationRuleLevel::Album,
+            OrganizationRuleLevel::Key,
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn builds_custom_folders_from_file_and_linked_metadata() {
+        let boundaries = [100, 120, 140];
+        let track = track(Some(124.0));
+        let metadata = LibraryOrganizationMetadataInput {
+            camelot_key: Some("8A".into()),
+            release_year: Some(2024),
+            subgenre: Some("Deep House".into()),
+        };
+        assert_eq!(
+            organization_folders(
+                &track,
+                &OrganizationScheme::Rules,
+                &[
+                    OrganizationRuleLevel::Subgenre,
+                    OrganizationRuleLevel::Camelot,
+                    OrganizationRuleLevel::Year,
+                ],
+                &boundaries,
+                Some(7),
+                Some(&metadata),
+            ),
+            vec!["Deep House", "8A", "2024"]
+        );
+        assert_eq!(
+            organization_folders(
+                &track,
+                &OrganizationScheme::Rules,
+                &[
+                    OrganizationRuleLevel::Energy,
+                    OrganizationRuleLevel::BpmRange
+                ],
+                &boundaries,
+                Some(7),
+                Some(&metadata),
+            ),
+            vec!["Energía 7", "120–139 BPM"]
+        );
+    }
+
+    #[test]
+    fn custom_linked_levels_use_neutral_fallbacks() {
+        let track = track(None);
+        assert_eq!(
+            organization_folders(
+                &track,
+                &OrganizationScheme::Rules,
+                &[
+                    OrganizationRuleLevel::Subgenre,
+                    OrganizationRuleLevel::Camelot,
+                    OrganizationRuleLevel::Year,
+                ],
+                &[],
+                None,
+                None,
+            ),
+            vec![
+                "Subgénero desconocido",
+                "Camelot desconocido",
+                "Año desconocido",
+            ]
+        );
+    }
+
+    #[test]
+    fn combines_ranges_with_existing_presets() {
         let boundaries = [100, 120, 140];
         let track = track(Some(124.0));
         assert_eq!(
             organization_folders(
                 &track,
                 &OrganizationScheme::GenreBpmRange,
+                &[],
                 &boundaries,
-                None
+                None,
+                None,
             ),
             vec!["House", "120–139 BPM"]
         );
         assert_eq!(
-            organization_folders(&track, &OrganizationScheme::KeyBpmRange, &boundaries, None),
+            organization_folders(
+                &track,
+                &OrganizationScheme::KeyBpmRange,
+                &[],
+                &boundaries,
+                None,
+                None,
+            ),
             vec!["Am", "120–139 BPM"]
         );
         assert_eq!(
             organization_folders(
                 &track,
                 &OrganizationScheme::EnergyBpmRange,
+                &[],
                 &boundaries,
-                Some(7)
+                Some(7),
+                None,
             ),
             vec!["Energía 7", "120–139 BPM"]
-        );
-        assert_eq!(
-            organization_folders(
-                &track,
-                &OrganizationScheme::EnergyBpmRange,
-                &boundaries,
-                None
-            ),
-            vec!["Energía desconocida", "120–139 BPM"]
         );
     }
 }
@@ -4561,6 +4799,15 @@ async fn scan_music_folder_incrementally(
             .retain(|(linked_session_id, scan_id), _| {
                 linked_session_id != &session_id || !invalid_energy_scan_ids.contains(scan_id)
             });
+        state
+            .library_organization_metadata
+            .lock()
+            .map_err(|_| {
+                "No se pudieron invalidar los metadatos vinculados anteriores.".to_owned()
+            })?
+            .retain(|(linked_session_id, scan_id), _| {
+                linked_session_id != &session_id || !invalid_energy_scan_ids.contains(scan_id)
+            });
     }
     state
         .pending_maest_genre_previews
@@ -4587,6 +4834,7 @@ async fn link_library_tracks(
     session_id: String,
     candidates: Vec<LibraryLinkCandidate>,
     energies: HashMap<String, u8>,
+    organization_metadata: Option<HashMap<String, LibraryOrganizationMetadataInput>>,
 ) -> Result<LibraryLinkResult, String> {
     let alias_path = app
         .path()
@@ -4597,6 +4845,7 @@ async fn link_library_tracks(
         .iter()
         .map(|candidate| candidate.track_id.as_str())
         .collect::<HashSet<_>>();
+    let organization_metadata = organization_metadata.unwrap_or_default();
     if energies.len() > candidate_track_ids.len()
         || energies.iter().any(|(track_id, energy)| {
             *energy > 10 || !candidate_track_ids.contains(track_id.as_str())
@@ -4604,6 +4853,40 @@ async fn link_library_tracks(
     {
         return Err("La energía vinculada de la biblioteca no es válida.".to_owned());
     }
+    if organization_metadata.len() > candidate_track_ids.len()
+        || organization_metadata.iter().any(|(track_id, metadata)| {
+            !candidate_track_ids.contains(track_id.as_str())
+                || metadata.subgenre.as_ref().is_some_and(|value| {
+                    let trimmed = value.trim();
+                    trimmed.is_empty() || trimmed.chars().count() > 120
+                })
+                || metadata.camelot_key.as_ref().is_some_and(|value| {
+                    let trimmed = value.trim();
+                    let suffix = trimmed.chars().last();
+                    let number = trimmed
+                        .get(..trimmed.len().saturating_sub(1))
+                        .and_then(|value| value.parse::<u8>().ok());
+                    !matches!(suffix, Some('A' | 'B'))
+                        || !number.is_some_and(|value| (1..=12).contains(&value))
+                })
+                || metadata
+                    .release_year
+                    .is_some_and(|value| !(1000..=9999).contains(&value))
+        })
+    {
+        return Err("Los metadatos vinculados de la biblioteca no son válidos.".to_owned());
+    }
+
+    state
+        .library_energy
+        .lock()
+        .map_err(|_| "No se pudo reiniciar la energía vinculada.".to_owned())?
+        .clear();
+    state
+        .library_organization_metadata
+        .lock()
+        .map_err(|_| "No se pudieron reiniciar los metadatos vinculados.".to_owned())?
+        .clear();
 
     let mut alias_store = read_local_alias_store(&alias_path);
     let session_tracks = {
@@ -4650,6 +4933,15 @@ async fn link_library_tracks(
                 .map(|energy| (link.scan_id.clone(), *energy))
         })
         .collect::<Vec<_>>();
+    let linked_organization_metadata = links
+        .iter()
+        .filter_map(|link| {
+            organization_metadata
+                .get(&link.track_id)
+                .cloned()
+                .map(|metadata| (link.scan_id.clone(), metadata))
+        })
+        .collect::<Vec<_>>();
     update_alias_anchors(&mut alias_store, &candidates, matches.links.keys().cloned());
     write_local_alias_store(&alias_path, &alias_store)
         .map_err(|_| "No se pudo guardar el estado local de vínculos.".to_owned())?;
@@ -4673,6 +4965,15 @@ async fn link_library_tracks(
         library_energy.clear();
         for (scan_id, energy) in linked_energy {
             library_energy.insert((session_id.clone(), scan_id), energy);
+        }
+    }
+    {
+        let mut linked_metadata = state
+            .library_organization_metadata
+            .lock()
+            .map_err(|_| "No se pudieron actualizar los metadatos vinculados.".to_owned())?;
+        for (scan_id, metadata) in linked_organization_metadata {
+            linked_metadata.insert((session_id.clone(), scan_id), metadata);
         }
     }
     state
@@ -5486,6 +5787,8 @@ async fn preview_reorganization_plan(
     request: ReorganizationRequest,
 ) -> Result<ReorganizationResult, String> {
     let energy_by_scan_id = linked_energy_for_session(state.inner(), &request.session_id)?;
+    let metadata_by_scan_id =
+        linked_organization_metadata_for_session(state.inner(), &request.session_id)?;
     let current_session = state
         .scan_session
         .lock()
@@ -5500,8 +5803,10 @@ async fn preview_reorganization_plan(
         session,
         &request.track_ids,
         &request.scheme,
+        &request.rule_levels,
         &request.bpm_boundaries,
         &energy_by_scan_id,
+        &metadata_by_scan_id,
     )?;
     Ok(ReorganizationResult {
         applied: false,
@@ -5523,6 +5828,8 @@ async fn apply_reorganization_plan(
     request: ReorganizationRequest,
 ) -> Result<ReorganizationResult, String> {
     let energy_by_scan_id = linked_energy_for_session(state.inner(), &request.session_id)?;
+    let metadata_by_scan_id =
+        linked_organization_metadata_for_session(state.inner(), &request.session_id)?;
     let (run, result_moves) = {
         let mut current_session = state
             .scan_session
@@ -5538,8 +5845,10 @@ async fn apply_reorganization_plan(
             session,
             &request.track_ids,
             &request.scheme,
+            &request.rule_levels,
             &request.bpm_boundaries,
             &energy_by_scan_id,
+            &metadata_by_scan_id,
         )?;
         if moves.is_empty() {
             return Ok(ReorganizationResult {
