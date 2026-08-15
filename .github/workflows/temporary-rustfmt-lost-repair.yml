@@ -1,0 +1,31 @@
+name: Temporary rustfmt lost repair
+
+on:
+  push:
+    branches:
+      - feat/repair-lost-track-references
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/repair-lost-track-references
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt
+      - name: Apply rustfmt
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml
+      - name: Commit formatting and remove temporary workflow
+        run: |
+          git config user.name "Dromart98"
+          git config user.email "davidromanmartin@yahoo.es"
+          git add src-tauri/src/lib.rs src-tauri/src/lost_track_repair.rs
+          git rm .github/workflows/temporary-rustfmt-lost-repair.yml
+          git commit -m "Format lost reference repair"
+          git push origin HEAD:feat/repair-lost-track-references
