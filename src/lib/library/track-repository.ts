@@ -124,6 +124,9 @@ export async function listTracks(
     .select("*", { count: "exact" })
     .eq("user_id", userId);
 
+  if (query.status === "active") request = request.is("archived_at", null);
+  if (query.status === "archived") request = request.not("archived_at", "is", null);
+
   const search = query.q ? safeSearchTerm(query.q) : "";
   if (search) {
     const pattern = `%${search}%`;
@@ -192,6 +195,7 @@ export async function listCompatibleTracks(
   userId: string,
   source: Tables<"tracks">,
 ) {
+  if (source.archived_at) return [];
   const matches = compatibleCamelotKeys(source.camelot_key);
   if (!matches.length) return [];
   const reasons = new Map(
@@ -201,6 +205,7 @@ export async function listCompatibleTracks(
     .from("tracks")
     .select("*")
     .eq("user_id", userId)
+    .is("archived_at", null)
     .neq("id", source.id)
     .in("camelot_key", matches.map((match) => match.camelotKey));
   const bpmRange = compatibleBpmRange(source.bpm);
@@ -227,4 +232,3 @@ export async function listCompatibleTracks(
         reasons.get(track.camelot_key ?? "") ?? "Tonalidad compatible",
     }));
 }
-

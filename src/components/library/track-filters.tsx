@@ -5,7 +5,7 @@ import { useTranslator } from "@/components/i18n/locale-provider";
 import type { TrackQuery } from "@/lib/library/track-query";
 
 export function TrackFilters({ query }: { query: TrackQuery }) {
-  const { t } = useTranslator();
+  const { locale, t } = useTranslator();
   return (
     <form className="library-filters card" method="get">
       <div className="filter-primary">
@@ -34,6 +34,18 @@ export function TrackFilters({ query }: { query: TrackQuery }) {
         <label className="field">
           <span>Camelot</span>
           <input defaultValue={query.camelot} maxLength={3} name="camelot" />
+        </label>
+        <label className="field">
+          <span>{locale === "en" ? "Status" : "Estado"}</span>
+          <select defaultValue={query.status} name="status">
+            <option value="active">
+              {locale === "en" ? "Active" : "Activas"}
+            </option>
+            <option value="archived">
+              {locale === "en" ? "Archived" : "Archivadas"}
+            </option>
+            <option value="all">{locale === "en" ? "All" : "Todas"}</option>
+          </select>
         </label>
       </div>
       <details className="filter-advanced">

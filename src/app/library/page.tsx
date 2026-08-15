@@ -53,7 +53,8 @@ export default async function LibraryPage({
     redirect(buildLibraryHref(query, { page: page.pageCount }));
   }
   const hasFilters = Boolean(
-    query.q ||
+    query.status !== "active" ||
+      query.q ||
       query.genre ||
       query.subgenre ||
       query.bpmMin !== undefined ||
@@ -131,7 +132,7 @@ export default async function LibraryPage({
             pages: page.pageCount,
           })}
         </p>
-        {hasFilters && page.count > 0 ? (
+        {hasFilters && query.status === "active" && page.count > 0 ? (
           <CreateCrateFromFilters
             filteredCount={page.count}
             searchParams={filteredSearchParams}

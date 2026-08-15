@@ -22,16 +22,25 @@ describe("parseTrackQuery", () => {
       direction: "desc",
       page: 3,
       sort: "bpm",
+      status: "active",
     });
     expect(databaseSortColumn(query.sort)).toBe("bpm");
   });
 
   it("usa valores seguros para parámetros inválidos", () => {
-    expect(parseTrackQuery({ page: "-1", sort: "drop-table" })).toMatchObject({
+    expect(
+      parseTrackQuery({ page: "-1", sort: "drop-table", status: "deleted" }),
+    ).toMatchObject({
       direction: "asc",
       page: 1,
       sort: "created",
+      status: "active",
     });
+  });
+
+  it("acepta el filtro explícito de pistas archivadas", () => {
+    expect(parseTrackQuery({ status: "archived" }).status).toBe("archived");
+    expect(parseTrackQuery({ status: "all" }).status).toBe("all");
   });
 });
 
@@ -42,6 +51,19 @@ describe("URL de biblioteca", () => {
       "q=night&genre=House",
     );
     expect(buildLibraryHref(query, { page: 2 })).toContain("page=2");
+  });
+
+  it("conserva estados explícitos y omite el estado activo por defecto", () => {
+    const archived = parseTrackQuery({ status: "archived" });
+    expect(buildLibraryHref(archived, { page: 2 })).toContain(
+      "status=archived",
+    );
+
+    const all = parseTrackQuery({ status: "all" });
+    expect(buildLibraryHref(all, { page: 1 })).toContain("status=all");
+
+    const active = parseTrackQuery({});
+    expect(buildLibraryHref(active, { page: 1 })).not.toContain("status=");
   });
 
   it("elimina delimitadores reservados de una búsqueda", () => {

@@ -15,6 +15,7 @@ import {
   type SmartCrateLogic,
   type SmartCrateOperator,
   type SmartCrateRules,
+  type SmartCrateTrackStatus,
 } from "@/lib/organization/smart-crates";
 
 type TagOption = { id: string; name: string };
@@ -135,19 +136,23 @@ export function SmartCrateForm({
   tags,
 }: Props) {
   const { locale } = useTranslator();
+  const [trackStatus, setTrackStatus] = useState<SmartCrateTrackStatus>(
+    initialRules?.trackStatus ?? "active",
+  );
   const [logic, setLogic] = useState<SmartCrateLogic>(initialRules?.logic ?? "and");
   const [groups, setGroups] = useState<UiGroup[]>(() => toUiGroups(initialRules));
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof previewSmartCrateAction>> | null>(null);
   const [pending, startTransition] = useTransition();
 
   const rules = useMemo<SmartCrateRules>(() => ({
+    trackStatus,
     version: 1,
     logic,
     groups: groups.map((group) => ({
       logic: group.logic,
       conditions: group.conditions.map(({ id: _id, ...condition }) => condition),
     })),
-  }), [groups, logic]);
+  }), [groups, logic, trackStatus]);
   const validation = smartCrateRulesSchema.safeParse(rules);
   const totalConditions = groups.reduce((total, group) => total + group.conditions.length, 0);
   const text = locale === "en" ? {
@@ -157,6 +162,10 @@ export function SmartCrateForm({
     description: "Description",
     parent: "Save inside",
     none: "None",
+    trackStatus: "Tracks",
+    activeTracks: "Active only",
+    archivedTracks: "Archived only",
+    allTracks: "Active and archived",
     groups: "Combine groups",
     all: "All must match (AND)",
     any: "Any may match (OR)",
@@ -177,6 +186,10 @@ export function SmartCrateForm({
     description: "Descripción",
     parent: "Guardar dentro de",
     none: "Ninguna",
+    trackStatus: "Pistas",
+    activeTracks: "Solo activas",
+    archivedTracks: "Solo archivadas",
+    allTracks: "Activas y archivadas",
     groups: "Combinar grupos",
     all: "Deben cumplirse todos (Y)",
     any: "Puede cumplirse cualquiera (O)",
@@ -241,6 +254,20 @@ export function SmartCrateForm({
           {crates.filter((crate) => crate.id !== crateId).map((crate) => (
             <option key={crate.id} value={crate.id}>{crate.name}</option>
           ))}
+        </select>
+      </label>
+      <label className="field">
+        {text.trackStatus}
+        <select
+          value={trackStatus}
+          onChange={(event) => {
+            setTrackStatus(event.target.value as SmartCrateTrackStatus);
+            setPreview(null);
+          }}
+        >
+          <option value="active">{text.activeTracks}</option>
+          <option value="archived">{text.archivedTracks}</option>
+          <option value="all">{text.allTracks}</option>
         </select>
       </label>
       <label className="field">

@@ -34,6 +34,14 @@ describe("smart crate rules", () => {
     expect(parseSmartCrateRulesJson(JSON.stringify(rules)).success).toBe(true);
   });
 
+  it("accepts explicit archived modes while legacy rules stay valid", () => {
+    expect(parseSmartCrateRules(rules).success).toBe(true);
+    const archived = parseSmartCrateRules({ ...rules, trackStatus: "archived" });
+    expect(archived.success).toBe(true);
+    if (archived.success) expect(archived.data.trackStatus).toBe("archived");
+    expect(parseSmartCrateRules({ ...rules, trackStatus: "invalid" }).success).toBe(false);
+  });
+
   it("accepts tag conditions using persistent tag ids", () => {
     expect(
       parseSmartCrateRules({

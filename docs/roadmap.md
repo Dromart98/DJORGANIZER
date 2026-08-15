@@ -150,7 +150,7 @@ de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
    el usuario confirma cada reparación y Tauri revalida sesión, versión, huella y
    alias original antes de guardar únicamente el vínculo local. Las rutas absolutas
    permanecen dentro de la sesión nativa y ningún archivo de audio se modifica.
-5. - [ ] Permitir archivar pistas inactivas sin borrar ni mover el archivo. Las
+5. - [x] Permitir archivar pistas inactivas sin borrar ni mover el archivo. Las
    pistas archivadas quedarán fuera de la biblioteca principal, recomendaciones y
    crates inteligentes salvo filtro explícito, y podrán restaurarse conservando
    sus metadatos, etiquetas y relaciones.
