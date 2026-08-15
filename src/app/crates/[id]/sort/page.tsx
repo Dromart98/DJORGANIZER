@@ -39,6 +39,10 @@ function sortValue(track: CrateSortTrack, key: CrateSortKey, en: boolean) {
       return track.camelot_key ?? "—";
     case "energy":
       return track.energy === null ? "—" : `${track.energy}/10`;
+    case "genre":
+      return track.genre ?? "—";
+    case "subgenre":
+      return track.subgenre ?? "—";
     case "rating":
       return track.rating === null
         ? en
@@ -161,6 +165,8 @@ export default async function SortCratePage({
               <option value="bpm">BPM</option>
               <option value="camelot">Camelot</option>
               <option value="energy">{en ? "Energy" : "Energía"}</option>
+              <option value="genre">{en ? "Genre" : "Género"}</option>
+              <option value="subgenre">{en ? "Subgenre" : "Subgénero"}</option>
               <option value="rating">{en ? "Rating" : "Valoración"}</option>
             </select>
           </label>
