@@ -1,0 +1,42 @@
+name: Temporary fix PR124 compile
+
+on:
+  push:
+    branches:
+      - feat/repair-lost-track-references
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/repair-lost-track-references
+          fetch-depth: 0
+      - name: Apply focused compile fix
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src-tauri/src/lost_track_repair.rs')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('use std::{cmp::Ordering, collections::HashSet, fs, path::Path};', 'use std::{collections::HashSet, fs, path::Path};', 1)
+          old = '#[derive(Clone, Debug, Serialize)]\n#[serde(rename_all = "camelCase")]\npub(super) struct LostTrackRepairApplyResult {'
+          new = '#[derive(Debug, Serialize)]\n#[serde(rename_all = "camelCase")]\npub(super) struct LostTrackRepairApplyResult {'
+          if old not in text:
+              raise SystemExit('apply result derive anchor not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt
+      - name: Format and commit
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          git config user.name "Dromart98"
+          git config user.email "davidromanmartin@yahoo.es"
+          git add src-tauri/src/lost_track_repair.rs
+          git rm .github/workflows/temporary-fix-pr124-compile.yml
+          git commit -m "Fix lost reference repair compile contract"
+          git push origin HEAD:feat/repair-lost-track-references
