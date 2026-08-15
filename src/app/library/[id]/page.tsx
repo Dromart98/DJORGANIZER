@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeleteTrackForm } from "@/components/library/delete-track-form";
+import { TrackEditHistory } from "@/components/library/track-edit-history";
 import { TrackForm } from "@/components/library/track-form";
 import { TrackTags } from "@/components/library/track-tags";
 import { PageHeader } from "@/components/ui/page-header";
@@ -13,6 +14,7 @@ import {
 } from "@/lib/i18n/functional";
 import type { Locale } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
+import { listTrackEditHistory } from "@/lib/library/track-history";
 import {
   getTrack,
   listCompatibleTracks,
@@ -59,10 +61,11 @@ export default async function TrackDetailPage({
   const supabase = await createClient();
   const track = await getTrack(supabase, user.id, parsedId.data);
   if (!track) notFound();
-  const [tags, compatibleTracks, trackCrates] = await Promise.all([
+  const [tags, compatibleTracks, trackCrates, editHistory] = await Promise.all([
     listUserTags(supabase, user.id),
     listCompatibleTracks(supabase, user.id, track),
     listManualCratesForTrack(supabase, user.id, track.id),
+    listTrackEditHistory(supabase, track.id),
   ]);
   const trackTags = await listTrackTags(supabase, user.id, [track.id]);
 
@@ -89,6 +92,27 @@ export default async function TrackDetailPage({
       {query.updated === "1" ? (
         <p className="form-message form-message--success" role="status">
           {t("Los cambios se guardaron correctamente.")}
+        </p>
+      ) : null}
+      {query.undone === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          {locale === "en"
+            ? "The individual edit was undone."
+            : "La edición individual se deshizo correctamente."}
+        </p>
+      ) : null}
+      {query.undoError === "changed" ? (
+        <p className="form-message form-message--error" role="alert">
+          {locale === "en"
+            ? "This edit cannot be undone because the track changed afterwards."
+            : "No se puede deshacer esta edición porque la pista cambió después."}
+        </p>
+      ) : null}
+      {query.undoError === "failed" ? (
+        <p className="form-message form-message--error" role="alert">
+          {locale === "en"
+            ? "The edit could not be undone."
+            : "No se pudo deshacer la edición."}
         </p>
       ) : null}
       {query.tagged === "1" ? (
@@ -148,6 +172,7 @@ export default async function TrackDetailPage({
         </dl>
       </section>
       <TrackForm mode="update" track={track} />
+      <TrackEditHistory entries={editHistory} locale={locale} trackId={track.id} />
       <TrackTags
         assignedTags={trackTags[track.id] ?? []}
         availableTags={tags}
