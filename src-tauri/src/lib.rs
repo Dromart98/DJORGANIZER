@@ -1,5 +1,6 @@
 mod audio_decoder;
 mod audio_resampler;
+mod lost_track_repair;
 mod maest;
 mod maest_inference_pipeline;
 mod maest_pipeline;
@@ -941,6 +942,8 @@ struct DesktopState {
         Mutex<HashMap<(String, String), LibraryOrganizationMetadataInput>>,
     metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
     pending_maest_genre_previews: Mutex<HashMap<MaestGenrePreviewKey, MaestGenrePreviewReceipt>>,
+    pending_lost_track_repairs:
+        Mutex<HashMap<(String, String, String), lost_track_repair::LostTrackRepairReceipt>>,
     reorganization_history: Mutex<Vec<ReorganizationRun>>,
     scan_session: Mutex<Option<ScanSession>>,
 }
@@ -5869,6 +5872,36 @@ async fn list_metadata_write_history(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+async fn preview_lost_track_repairs(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    session_id: String,
+    library_tracks: Vec<lost_track_repair::LostTrackRepairLibraryTrack>,
+) -> Result<lost_track_repair::LostTrackRepairPreview, String> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    lost_track_repair::preview(state.inner(), session_id, library_tracks, &alias_path)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn apply_lost_track_repairs(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    session_id: String,
+    selections: Vec<lost_track_repair::LostTrackRepairSelection>,
+) -> Result<lost_track_repair::LostTrackRepairApplyResult, String> {
+    let alias_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
+        .join(LIBRARY_FILE_ALIASES_NAME);
+    lost_track_repair::apply(state.inner(), session_id, selections, &alias_path)
+}
+
+#[tauri::command(rename_all = "camelCase")]
 async fn preview_reorganization_plan(
     state: State<'_, DesktopState>,
     request: ReorganizationRequest,
@@ -6746,6 +6779,8 @@ pub fn run() {
             choose_and_scan_music_folder,
             scan_music_folder_incrementally,
             link_library_tracks,
+            preview_lost_track_repairs,
+            apply_lost_track_repairs,
             preview_maest_genre_write,
             apply_maest_genre_write,
             preview_maest_subgenre_write,

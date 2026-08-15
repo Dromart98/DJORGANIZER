@@ -141,10 +141,15 @@ de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
    propuesto, permitir selección individual o masiva y no sobrescribir
    correcciones manuales sin confirmación. Escribir cambios en audio seguirá
    requiriendo Tauri, copia de seguridad, relectura y validación.
-4. - [ ] Reparar referencias a pistas perdidas mediante coincidencias verificables
-   por huella, hash cuando exista, tamaño, duración y metadatos. Mostrar las
-   alternativas y su confianza, exigir confirmación por pista o lote y no inventar
-   coincidencias. Las rutas absolutas permanecerán dentro de la sesión nativa.
+4. - [x] Reparar referencias a pistas perdidas mediante coincidencias verificables
+   por huella/hash, tamaño, duración y metadatos. El centro de salud prepara hasta
+   25 referencias por lote y Tauri muestra como máximo tres alternativas por pista
+   con confianza y razones visibles. La coincidencia exacta por hash+tamaño obtiene
+   confianza máxima; la recuperación por metadatos exige título+duración y artista
+   o álbum con un umbral conservador. Ningún candidato se aplica automáticamente:
+   el usuario confirma cada reparación y Tauri revalida sesión, versión, huella y
+   alias original antes de guardar únicamente el vínculo local. Las rutas absolutas
+   permanecen dentro de la sesión nativa y ningún archivo de audio se modifica.
 5. - [ ] Permitir archivar pistas inactivas sin borrar ni mover el archivo. Las
    pistas archivadas quedarán fuera de la biblioteca principal, recomendaciones y
    crates inteligentes salvo filtro explícito, y podrán restaurarse conservando
