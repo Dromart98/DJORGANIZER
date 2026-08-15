@@ -255,6 +255,7 @@ export function DesktopFolderScanner() {
   const [linkedEnergyByScanId, setLinkedEnergyByScanId] = useState<
     Map<string, number>
   >(() => new Map());
+  const [energyLinkReady, setEnergyLinkReady] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ScanReviewFilter>("all");
   const [page, setPage] = useState(1);
@@ -351,6 +352,7 @@ export function DesktopFolderScanner() {
     async (core: TauriCore, scanResult: FolderScanResult) => {
       clearTrackLinks();
       setLinkedEnergyByScanId(new Map());
+      setEnergyLinkReady(false);
       setLibraryLinkMessage(
         locale === "en"
           ? "Comparing with your DJOrganizer library…"
@@ -396,6 +398,7 @@ export function DesktopFolderScanner() {
             }),
           ),
         );
+        setEnergyLinkReady(true);
         replaceTrackLinks(scanResult.sessionId, linkResult.links);
         const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
         if (rawRequest) {
@@ -965,6 +968,14 @@ export function DesktopFolderScanner() {
   async function runReorganization(apply: boolean) {
     const core = getTauriCore();
     if (!core || !result || !selectedTracks.length) return;
+    if (organizationScheme === "energy-bpm-range" && !energyLinkReady) {
+      setReorganizationMessage(
+        locale === "en"
+          ? "Relink this scan with the library before organizing by energy."
+          : "Vuelve a vincular este escaneo con la biblioteca antes de organizar por energía.",
+      );
+      return;
+    }
     if (usesBpmRanges && !bpmBoundaries) {
       setReorganizationMessage(
         locale === "en"
@@ -1745,6 +1756,13 @@ export function DesktopFolderScanner() {
                       </small>
                     </label>
                   ) : null}
+                  {organizationScheme === "energy-bpm-range" && !energyLinkReady ? (
+                    <p className="organization-muted" role="status">
+                      {locale === "en"
+                        ? "Energy organization is disabled until this scan is linked successfully with the library."
+                        : "La organización por energía está desactivada hasta que este escaneo se vincule correctamente con la biblioteca."}
+                    </p>
+                  ) : null}
                   <p className="organization-muted">
                     {usesBpmRanges && !bpmBoundaries
                       ? locale === "en"
@@ -1775,7 +1793,11 @@ export function DesktopFolderScanner() {
                   <div className="action-row">
                     <button
                       className="button button--secondary"
-                      disabled={reorganizationBusy || (usesBpmRanges && !bpmBoundaries)}
+                      disabled={
+                        reorganizationBusy ||
+                        (usesBpmRanges && !bpmBoundaries) ||
+                        (organizationScheme === "energy-bpm-range" && !energyLinkReady)
+                      }
                       onClick={() => void runReorganization(false)}
                       type="button"
                     >
@@ -1783,7 +1805,11 @@ export function DesktopFolderScanner() {
                     </button>
                     <button
                       className="button button--primary"
-                      disabled={reorganizationBusy || (usesBpmRanges && !bpmBoundaries)}
+                      disabled={
+                        reorganizationBusy ||
+                        (usesBpmRanges && !bpmBoundaries) ||
+                        (organizationScheme === "energy-bpm-range" && !energyLinkReady)
+                      }
                       onClick={() => void runReorganization(true)}
                       type="button"
                     >
