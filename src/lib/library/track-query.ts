@@ -14,6 +14,7 @@ const SORT_COLUMNS = {
 
 export type TrackSort = keyof typeof SORT_COLUMNS;
 export type TrackDirection = "asc" | "desc";
+export type TrackStatus = "active" | "archived" | "all";
 
 export type TrackQuery = {
   bpmMax?: number;
@@ -29,6 +30,7 @@ export type TrackQuery = {
   q?: string;
   rating?: number;
   sort: TrackSort;
+  status: TrackStatus;
 };
 
 const textValue = (maximum: number) =>
@@ -67,6 +69,7 @@ const querySchema = z.object({
   sort: z
     .enum(["artist", "bpm", "created", "duration", "key", "title", "subgenre"])
     .catch("created"),
+  status: z.enum(["active", "archived", "all"]).catch("active"),
 });
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -90,6 +93,7 @@ export function parseTrackQuery(searchParams: SearchParams): TrackQuery {
     q: firstValue(searchParams.q),
     rating: firstValue(searchParams.rating),
     sort: firstValue(searchParams.sort),
+    status: firstValue(searchParams.status),
   });
 
   return {
@@ -128,6 +132,7 @@ export function queryToSearchParams(query: TrackQuery) {
     ["rating", query.rating],
     ["sort", query.sort],
     ["direction", query.direction],
+    ["status", query.status === "active" ? undefined : query.status],
     ["page", query.page],
   ];
 
