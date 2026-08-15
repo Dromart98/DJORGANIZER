@@ -20,12 +20,14 @@ export function DesktopExportLink({ request }: { request: DesktopExportRequest }
 
   return (
     <div className="organization-inline-actions">
-      <Link
-        className="button button--secondary button--small"
-        href={`/crates/${request.crateId}/sort`}
-      >
-        Ordenar
-      </Link>
+      {request.crateId ? (
+        <Link
+          className="button button--secondary button--small"
+          href={`/crates/${request.crateId}/sort`}
+        >
+          Ordenar
+        </Link>
+      ) : null}
       {available ? (
         <Link
           className="button button--secondary button--small"
