@@ -200,7 +200,7 @@ select throws_ok(
     current_setting('test.changed_tag_history_id')::uuid
   )$$,
   'P0001',
-  'Track tag state changed after history entry',
+  'Tag history entry was superseded by a later change',
   'Undo refuses to overwrite a later tag change'
 );
 
