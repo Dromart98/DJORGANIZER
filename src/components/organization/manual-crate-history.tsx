@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { undoManualCrateHistoryAction } from "@/app/crates/history-actions";
 import type { Locale } from "@/lib/i18n/i18n";
 import type { ManualCrateHistoryEntry } from "@/lib/organization/manual-crate-history";
@@ -26,10 +27,13 @@ export function ManualCrateHistory({
   locale: Locale;
 }) {
   const en = locale === "en";
+  const searchParams = useSearchParams();
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   });
+  const undone = searchParams.get("historyUndone") === "1";
+  const undoError = searchParams.get("historyUndoError");
 
   return (
     <section aria-labelledby="manual-crate-history-title" className="card">
@@ -42,6 +46,25 @@ export function ManualCrateHistory({
         </div>
         <span>{entries.length}</span>
       </div>
+
+      {undone ? (
+        <p className="form-message form-message--success" role="status">
+          {en
+            ? "The crate change was undone."
+            : "El cambio del crate se deshizo correctamente."}
+        </p>
+      ) : null}
+      {undoError ? (
+        <p className="form-message form-message--error" role="alert">
+          {undoError === "changed"
+            ? en
+              ? "This change cannot be undone because the crate changed afterwards."
+              : "No se puede deshacer este cambio porque el crate cambió después."
+            : en
+              ? "The crate change could not be undone."
+              : "No se pudo deshacer el cambio del crate."}
+        </p>
+      ) : null}
 
       {entries.length ? (
         <ul className="available-track-list">
