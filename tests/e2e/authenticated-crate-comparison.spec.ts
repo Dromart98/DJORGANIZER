@@ -65,13 +65,15 @@ test("@authenticated compares shared and exclusive crate tracks", async ({
   await page.getByLabel("Second crate").selectOption({ label: rightCrate });
   await page.getByRole("button", { name: "Compare", exact: true }).click();
 
-  const common = page.getByRole("heading", { name: "In both crates" }).locator("..");
+  const common = page
+    .getByRole("heading", { name: "In both crates" })
+    .locator("xpath=ancestor::section");
   const leftOnly = page
     .getByRole("heading", { name: `Only in ${leftCrate}` })
-    .locator("..");
+    .locator("xpath=ancestor::section");
   const rightOnly = page
     .getByRole("heading", { name: `Only in ${rightCrate}` })
-    .locator("..");
+    .locator("xpath=ancestor::section");
 
   await expect(common).toContainText(commonTitle);
   await expect(common).not.toContainText(leftTitle);
