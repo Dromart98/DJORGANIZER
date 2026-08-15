@@ -1,6 +1,6 @@
 # Roadmap de DJOrganizer
 
-Actualizado: 2026-08-14.
+Actualizado: 2026-08-15.
 
 Este documento distingue lo que ya está disponible de las fases que todavía
 requieren implementación. Cada fase funcional se entrega en una rama y pull
@@ -62,13 +62,18 @@ y [Export](https://virtualdj.com/manuals/virtualdj/appendix/export.html).
 Orden de implementación recomendado para convertir el análisis musical en un
 resultado directamente utilizable:
 
-1. - [ ] Añadir una pantalla de acciones al terminar el análisis que muestre el
-   resumen de pistas correctas, ambiguas, duplicadas y fallidas. Debe permitir
-   revisar resultados, crear un crate directamente, previsualizar la
-   organización, mover archivos con reglas configurables, escribir metadatos,
-   exportar desde el mismo recorrido o terminar sin modificar nada. La
-   previsualización será obligatoria antes de cualquier movimiento y ninguna
-   acción destructiva se ejecutará automáticamente.
+1. - [x] Añadir una pantalla de acciones al terminar el análisis que muestre el
+   resumen de pistas sin incidencias, que requieren revisión, duplicadas y
+   fallidas, manteniendo omitidas o canceladas separadas de los fallos reales.
+   En el lote de Biblioteca los duplicados ya se resuelven durante Importar y se
+   muestran explícitamente como cero, en vez de inventar duplicados nuevos sobre
+   pistas persistidas. El recorrido permite revisar resultados, crear un crate,
+   continuar a la previsualización de organización, mover con las reglas
+   configuradas, escribir metadatos, exportar o terminar sin modificar nada. La
+   previsualización sigue siendo obligatoria antes de cualquier movimiento y
+   ninguna acción destructiva se ejecuta automáticamente. Los reintentos de
+   pistas fallidas conservan los resultados previos y un bloqueo de preparación
+   queda reflejado en el resumen final.
 2. - [x] Permitir crear un crate directamente desde la tanda analizada, la
    selección actual o los filtros activos. Debe conservar el orden visible,
    excluir únicamente las pistas que el usuario confirme y mostrar errores
