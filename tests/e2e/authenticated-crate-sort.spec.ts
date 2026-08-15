@@ -10,7 +10,6 @@ async function addTrack(
   page: import("@playwright/test").Page,
   values: { genre: string; subgenre: string; title: string },
 ) {
-  await page.goto("/library/new");
   await page.getByLabel("Title *").fill(values.title);
   await page.getByLabel("Genre").fill(values.genre);
   await page.getByLabel("Subgenre").fill(values.subgenre);
@@ -75,7 +74,9 @@ test("@authenticated previews and applies genre and subgenre ordering", async ({
   await expect(page).toHaveURL(/\/library\/new$/, { timeout: 20_000 });
 
   await addTrack(page, { genre: "Techno", subgenre: "Peak Time", title: alpha });
+  await page.goto("/library/new");
   await addTrack(page, { genre: "House", subgenre: "Deep House", title: beta });
+  await page.goto("/library/new");
   await addTrack(page, { genre: "House", subgenre: "Afro House", title: gamma });
   await createCrate(page, crateName, [alpha, beta, gamma]);
 
