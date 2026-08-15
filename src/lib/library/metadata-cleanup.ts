@@ -105,6 +105,10 @@ function isUniformCase(value: string) {
   return value === value.toLocaleLowerCase() || value === value.toLocaleUpperCase();
 }
 
+function hasCompactSeparatorToken(value: string) {
+  return /\S[/&]\S/u.test(value);
+}
+
 function titleCaseWord(word: string, index: number) {
   const lower = word.toLocaleLowerCase();
   const exception = CASE_EXCEPTIONS.get(lower);
@@ -117,7 +121,7 @@ function titleCaseWord(word: string, index: number) {
 }
 
 function normalizeUniformCase(value: string) {
-  if (!isUniformCase(value)) return value;
+  if (!isUniformCase(value) || hasCompactSeparatorToken(value)) return value;
   return value
     .split(" ")
     .map((word, index) => titleCaseWord(word, index))
