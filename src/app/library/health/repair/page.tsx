@@ -45,8 +45,8 @@ export default async function LostTrackRepairPage() {
         <strong>{en ? "No automatic matches" : "Sin coincidencias automáticas"}</strong>
         <p className={styles.muted}>
           {en
-            ? "DJOrganizer shows only candidates supported by strong evidence. You choose the file, and the desktop app verifies the scan version and fingerprint again immediately before saving the local alias. Absolute paths never leave the native session."
-            : "DJOrganizer muestra únicamente candidatos respaldados por evidencia sólida. Tú eliges el archivo y la aplicación de escritorio vuelve a verificar la versión del escaneo y la huella justo antes de guardar el alias local. Las rutas absolutas nunca salen de la sesión nativa."}
+            ? "DJOrganizer shows only candidates supported by strong evidence. You choose the file, and the desktop app verifies the scan version and fingerprint again immediately before saving the local alias. The repair stores only that local link: it does not modify the audio file or persist an absolute path."
+            : "DJOrganizer muestra únicamente candidatos respaldados por evidencia sólida. Tú eliges el archivo y la aplicación de escritorio vuelve a verificar la versión del escaneo y la huella justo antes de guardar el alias local. La reparación solo guarda ese vínculo local: no modifica el archivo de audio ni persiste una ruta absoluta."}
         </p>
       </div>
 
