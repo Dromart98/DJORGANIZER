@@ -942,7 +942,8 @@ struct DesktopState {
         Mutex<HashMap<(String, String), LibraryOrganizationMetadataInput>>,
     metadata_write_history: Mutex<Vec<MetadataWriteRun>>,
     pending_maest_genre_previews: Mutex<HashMap<MaestGenrePreviewKey, MaestGenrePreviewReceipt>>,
-    pending_lost_track_repairs: Mutex<HashMap<(String, String, String), lost_track_repair::LostTrackRepairReceipt>>,
+    pending_lost_track_repairs:
+        Mutex<HashMap<(String, String, String), lost_track_repair::LostTrackRepairReceipt>>,
     reorganization_history: Mutex<Vec<ReorganizationRun>>,
     scan_session: Mutex<Option<ScanSession>>,
 }
@@ -5882,12 +5883,7 @@ async fn preview_lost_track_repairs(
         .app_data_dir()
         .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
         .join(LIBRARY_FILE_ALIASES_NAME);
-    lost_track_repair::preview(
-        state.inner(),
-        session_id,
-        library_tracks,
-        &alias_path,
-    )
+    lost_track_repair::preview(state.inner(), session_id, library_tracks, &alias_path)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -5902,12 +5898,7 @@ async fn apply_lost_track_repairs(
         .app_data_dir()
         .map_err(|_| "No se pudo abrir el estado local de vínculos.".to_owned())?
         .join(LIBRARY_FILE_ALIASES_NAME);
-    lost_track_repair::apply(
-        state.inner(),
-        session_id,
-        selections,
-        &alias_path,
-    )
+    lost_track_repair::apply(state.inner(), session_id, selections, &alias_path)
 }
 
 #[tauri::command(rename_all = "camelCase")]

@@ -3,8 +3,8 @@ use std::{cmp::Ordering, collections::HashSet, fs, path::Path};
 
 use super::{
     file_version, hash_file, parse_library_fingerprint, persist_local_aliases,
-    read_local_alias_store, valid_library_track_id, DesktopState, FileVersion,
-    LibraryTrackLink, LocalFileIdentity, ScanSession, SessionTrack, MAX_SAFE_JSON_INTEGER,
+    read_local_alias_store, valid_library_track_id, DesktopState, FileVersion, LibraryTrackLink,
+    LocalFileIdentity, ScanSession, SessionTrack, MAX_SAFE_JSON_INTEGER,
 };
 
 pub(super) const MAX_REPAIR_TRACKS: usize = 25;
@@ -185,10 +185,14 @@ fn valid_library_track(track: &LostTrackRepairLibraryTrack) -> bool {
         && parse_library_fingerprint(&track.file_fingerprint).is_ok()
         && !track.title.trim().is_empty()
         && track.title.chars().count() <= 300
-        && [track.artist.as_ref(), track.album.as_ref(), track.genre.as_ref()]
-            .into_iter()
-            .flatten()
-            .all(|value| value.chars().count() <= 300 && !value.chars().any(char::is_control))
+        && [
+            track.artist.as_ref(),
+            track.album.as_ref(),
+            track.genre.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .all(|value| value.chars().count() <= 300 && !value.chars().any(char::is_control))
         && valid_duration(track.duration_seconds).is_some() == track.duration_seconds.is_some()
 }
 
@@ -220,7 +224,10 @@ fn score_for_library_track(
         .filter(|track| !already_linked_scan_ids.contains(track.track.scan_id.as_str()))
         .filter_map(|track| {
             let (confidence, reasons, fingerprint) = score_candidate(library, track)?;
-            let version = session.file_versions.get(&track.track.relative_path)?.clone();
+            let version = session
+                .file_versions
+                .get(&track.track.relative_path)?
+                .clone();
             Some(ScoredCandidate {
                 confidence,
                 fingerprint,
@@ -231,16 +238,13 @@ fn score_for_library_track(
         })
         .collect::<Vec<_>>();
     scored.sort_by(|left, right| {
-        right
-            .confidence
-            .cmp(&left.confidence)
-            .then_with(|| {
-                left.track
-                    .track
-                    .relative_path
-                    .to_ascii_lowercase()
-                    .cmp(&right.track.track.relative_path.to_ascii_lowercase())
-            })
+        right.confidence.cmp(&left.confidence).then_with(|| {
+            left.track
+                .track
+                .relative_path
+                .to_ascii_lowercase()
+                .cmp(&right.track.track.relative_path.to_ascii_lowercase())
+        })
     });
     scored.truncate(MAX_CANDIDATES_PER_TRACK);
     scored
@@ -272,7 +276,9 @@ pub(super) fn preview(
     let session = current_session
         .as_ref()
         .filter(|session| session.id == session_id)
-        .ok_or_else(|| "El escaneo ya no está disponible. Vuelve a escanear la carpeta.".to_owned())?;
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a escanear la carpeta.".to_owned()
+        })?;
 
     let mut previews = Vec::new();
     let mut unresolved = Vec::new();
@@ -302,7 +308,11 @@ pub(super) fn preview(
             .collect();
         for candidate in scored {
             receipts.push((
-                (session_id.clone(), library.track_id.clone(), candidate.track.track.scan_id.clone()),
+                (
+                    session_id.clone(),
+                    library.track_id.clone(),
+                    candidate.track.track.scan_id.clone(),
+                ),
                 LostTrackRepairReceipt {
                     anchor: anchor.clone(),
                     file_version: candidate.version,
@@ -383,7 +393,9 @@ pub(super) fn apply(
     let session = current_session
         .as_mut()
         .filter(|session| session.id == session_id)
-        .ok_or_else(|| "El escaneo ya no está disponible. Vuelve a escanear la carpeta.".to_owned())?;
+        .ok_or_else(|| {
+            "El escaneo ya no está disponible. Vuelve a escanear la carpeta.".to_owned()
+        })?;
 
     let linked_scan_ids = session
         .library_links
