@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   compactMutationQueue,
+  discardFailedMutations,
   findSyncConflict,
   formDataToOfflinePayload,
   offlineEntityForAction,
@@ -38,6 +39,27 @@ describe("offline mutation queue", () => {
         { revision: "v2" },
       )?.reason,
     ).toBe("revision-mismatch");
+  });
+
+  it("discards failed mutations without removing pending or conflict entries", () => {
+    const pending = { ...base, operation: "update" as const, status: "pending" as const };
+    const failed = {
+      ...base,
+      id: "failed",
+      operation: "update" as const,
+      status: "failed" as const,
+    };
+    const conflict = {
+      ...base,
+      id: "conflict",
+      operation: "update" as const,
+      status: "conflict" as const,
+    };
+
+    expect(discardFailedMutations([pending, failed, conflict])).toEqual([
+      pending,
+      conflict,
+    ]);
   });
 
   it("serializes repeated form fields without files", () => {
