@@ -62,6 +62,12 @@ export function compactMutationQueue(
   );
 }
 
+export function discardFailedMutations(
+  mutations: readonly OfflineMutation[],
+): OfflineMutation[] {
+  return mutations.filter((mutation) => mutation.status !== "failed");
+}
+
 export function findSyncConflict(
   mutation: OfflineMutation,
   remote: { revision?: string } | null,
