@@ -1,0 +1,26 @@
+name: Temporary health roadmap sync
+
+on:
+  push:
+    branches:
+      - feat/library-health-center
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/library-health-center
+          fetch-depth: 0
+      - run: python .github/scripts/mark_health_roadmap.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Mark library health center complete"
+          git push origin HEAD:feat/library-health-center
