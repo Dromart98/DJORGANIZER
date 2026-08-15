@@ -62,4 +62,12 @@ test("@authenticated creates a crate from the current library selection in visib
   await expect(crateTracks).toHaveCount(2);
   await expect(crateTracks.nth(0)).toContainText(zuluTitle);
   await expect(crateTracks.nth(1)).toContainText(alphaTitle);
+
+  await page.goto("/library?sort=title&direction=asc");
+  const alphaRow = page.locator("tbody tr").filter({ hasText: alphaTitle });
+  await alphaRow.getByRole("link", { name: /View and edit/ }).click();
+  const cratesSection = page
+    .getByRole("heading", { name: "Crates", exact: true })
+    .locator("xpath=ancestor::section");
+  await expect(cratesSection.getByRole("link", { name: crateName })).toBeVisible();
 });

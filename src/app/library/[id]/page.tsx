@@ -20,6 +20,7 @@ import {
   listUserTags,
 } from "@/lib/library/track-repository";
 import { trackIdSchema } from "@/lib/library/track-schema";
+import { listManualCratesForTrack } from "@/lib/organization/track-crates";
 import { createClient } from "@/lib/supabase/server";
 
 type TrackDetailPageProps = {
@@ -58,9 +59,10 @@ export default async function TrackDetailPage({
   const supabase = await createClient();
   const track = await getTrack(supabase, user.id, parsedId.data);
   if (!track) notFound();
-  const [tags, compatibleTracks] = await Promise.all([
+  const [tags, compatibleTracks, trackCrates] = await Promise.all([
     listUserTags(supabase, user.id),
     listCompatibleTracks(supabase, user.id, track),
+    listManualCratesForTrack(supabase, user.id, track.id),
   ]);
   const trackTags = await listTrackTags(supabase, user.id, [track.id]);
 
@@ -152,6 +154,34 @@ export default async function TrackDetailPage({
         trackId={track.id}
         trackTitle={track.title}
       />
+      <section aria-labelledby="track-crates-title" className="card">
+        <div className="organization-section-heading">
+          <div>
+            <p className="eyebrow">
+              {locale === "en" ? "Organization" : "Organización"}
+            </p>
+            <h2 id="track-crates-title">Crates</h2>
+          </div>
+          <span>{trackCrates.length}</span>
+        </div>
+        {trackCrates.length ? (
+          <ul className="tag-list">
+            {trackCrates.map((crate) => (
+              <li key={crate.id}>
+                <Link className="table-action" href={`/crates/${crate.id}`}>
+                  {crate.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="organization-muted">
+            {locale === "en"
+              ? "This track is not in any manual crate."
+              : "Esta pista no está en ningún crate manual."}
+          </p>
+        )}
+      </section>
       <section className="recommendations">
         <div className="organization-section-heading">
           <div>
@@ -192,4 +222,3 @@ export default async function TrackDetailPage({
     </>
   );
 }
-
