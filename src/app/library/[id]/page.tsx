@@ -171,7 +171,7 @@ export default async function TrackDetailPage({
           </div>
         </dl>
       </section>
-      <TrackForm mode="update" track={track} />
+      <TrackForm key={track.updated_at} mode="update" track={track} />
       <TrackEditHistory entries={editHistory} locale={locale} trackId={track.id} />
       <TrackTags
         assignedTags={trackTags[track.id] ?? []}
