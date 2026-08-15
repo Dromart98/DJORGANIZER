@@ -7,6 +7,7 @@ import {
   updateCrateAction,
 } from "@/app/crates/actions";
 import { DeleteCrateForm } from "@/components/organization/delete-organization-forms";
+import { SmartCrateDetail } from "@/components/organization/smart-crate-detail";
 import { DesktopExportLink } from "@/components/desktop/desktop-export-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
@@ -117,6 +118,18 @@ export default async function CrateDetailPage({
     throw new Error("No se pudo cargar el crate.");
   }
   if (!crate) notFound();
+  if (crate.smart_rules !== null) {
+    return (
+      <SmartCrateDetail
+        allCrates={allCrates ?? []}
+        crate={crate}
+        locale={locale}
+        requestedPage={requestedPage}
+        search={search}
+        userId={user.id}
+      />
+    );
+  }
   const totalMemberships = membershipCount ?? 0;
   const cratePageCount = Math.max(
     1,

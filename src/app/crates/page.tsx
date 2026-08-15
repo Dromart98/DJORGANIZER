@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createCrateAction, createTagAction } from "@/app/crates/actions";
 import { DeleteTagForm } from "@/components/organization/delete-organization-forms";
+import { SmartCrateForm } from "@/components/organization/smart-crate-form";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
@@ -145,6 +146,7 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
             <div className="crate-grid">
               {crateRows.map((crate: Tables<"crates">) => {
                 const count = crateCounts.get(crate.id) ?? 0;
+                const smart = crate.smart_rules !== null;
                 return (
                   <Link
                     className="card crate-card"
@@ -168,7 +170,11 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                       </p>
                     </div>
                     <span>
-                      {formatTrackCount(locale, count)}
+                      {smart
+                        ? locale === "en"
+                          ? "Smart"
+                          : "Inteligente"
+                        : formatTrackCount(locale, count)}
                     </span>
                   </Link>
                 );
@@ -267,6 +273,14 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
               </Link>
             </Card>
           )}
+
+
+          {hasTracks ? (
+            <SmartCrateForm
+              crates={crateRows.map(({ id, name }) => ({ id, name }))}
+              tags={tagRows.map(({ id, name }) => ({ id, name }))}
+            />
+          ) : null}
 
           <div
             className="card organization-form organization-form--tags"

@@ -123,7 +123,7 @@ cambiado externamente.
 Orden de implementación recomendado para mejorar la preparación y el mantenimiento
 de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
 
-1. - [ ] Crear crates inteligentes con reglas persistentes sobre género,
+1. - [x] Crear crates inteligentes con reglas persistentes sobre género,
    subgénero, BPM, rango de BPM, tonalidad, Camelot, energía, valoración, año,
    etiquetas y demás campos compatibles. Deben admitir grupos `Y` y `O`, mostrar
    una previsualización del resultado y actualizarse al cambiar la biblioteca sin
