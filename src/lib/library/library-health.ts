@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
+const HEALTH_TRACK_PREVIEW_LIMIT = 25;
+
 export type LibraryHealthTrack = {
   artist: string | null;
   bpm: number | null;
@@ -61,7 +63,7 @@ export async function getLibraryHealth(
       .or("bpm.is.null,musical_key.is.null")
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
-      .limit(25),
+      .limit(HEALTH_TRACK_PREVIEW_LIMIT),
   ]);
 
   if (needsAnalysisRows.error) {
