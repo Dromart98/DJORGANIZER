@@ -25,69 +25,55 @@ jobs:
           path = Path('src/components/desktop/folder-scanner.tsx')
           text = path.read_text(encoding='utf-8')
 
-          old = '  const { clearTrackLinks, replaceTrackLinks } = useDesktopScanSession();'
-          new = '  const { clearTrackLinks, replaceScanHealth, replaceTrackLinks } = useDesktopScanSession();'
-          if old not in text:
-              raise SystemExit('provider destructuring anchor not found')
-          text = text.replace(old, new, 1)
+          def replace_once(old: str, new: str, label: str):
+              global text
+              if text.count(old) != 1:
+                  raise SystemExit(f'{label} anchor count: {text.count(old)}')
+              text = text.replace(old, new, 1)
 
-          old = '''    async (core: TauriCore, scanResult: FolderScanResult) => {
-                clearTrackLinks();
-                setLinkedEnergyByScanId(new Map());'''
-          new = '''    async (core: TauriCore, scanResult: FolderScanResult) => {
-                setLinkedEnergyByScanId(new Map());'''
-          if old not in text:
-              raise SystemExit('link reset anchor not found')
-          text = text.replace(old, new, 1)
-
-          old = '''        if (!library.candidates.length) {
-                  setLibraryLinkMessage('''
-          new = '''        if (!library.candidates.length) {
-                  replaceTrackLinks(scanResult.sessionId, []);
-                  setLibraryLinkMessage('''
-          if old not in text:
-              raise SystemExit('no-candidates anchor not found')
-          text = text.replace(old, new, 1)
-
-          old = '        replaceTrackLinks(scanResult.sessionId, linkResult.links);'
-          new = '''        const relativePathByScanId = new Map(
-                  scanResult.tracks.map((track) => [track.scanId, track.relativePath]),
-                );
-                replaceTrackLinks(
-                  scanResult.sessionId,
-                  linkResult.links.map((link) => ({
-                    ...link,
-                    relativePath: relativePathByScanId.get(link.scanId),
-                  })),
-                );'''
-          if old not in text:
-              raise SystemExit('replace links anchor not found')
-          text = text.replace(old, new, 1)
-
-          old = '''      setResult(nextResult);
-                clearTrackLinks();
-                setWatchingFolder(false);'''
-          new = '''      setResult(nextResult);
-                clearTrackLinks();
-                replaceScanHealth(nextResult);
-                setWatchingFolder(false);'''
-          if old not in text:
-              raise SystemExit('initial scan health anchor not found')
-          text = text.replace(old, new, 1)
-
-          old = '''        setResult(incremental.scan);
-                setSelectedTrackIds('''
-          new = '''        setResult(incremental.scan);
-                replaceScanHealth(incremental.scan);
-                setSelectedTrackIds('''
-          if old not in text:
-              raise SystemExit('incremental scan health anchor not found')
-          text = text.replace(old, new, 1)
-
-          text = text.replace(
+          replace_once(
+              '  const { clearTrackLinks, replaceTrackLinks } = useDesktopScanSession();',
+              '  const { clearTrackLinks, replaceScanHealth, replaceTrackLinks } = useDesktopScanSession();',
+              'provider destructuring',
+          )
+          replace_once(
+              '      clearTrackLinks();\n      setLinkedEnergyByScanId(new Map());',
+              '      setLinkedEnergyByScanId(new Map());',
+              'link reset',
+          )
+          replace_once(
+              '        if (!library.candidates.length) {\n',
+              '        if (!library.candidates.length) {\n          replaceTrackLinks(scanResult.sessionId, []);\n',
+              'no candidates',
+          )
+          replace_once(
+              '        replaceTrackLinks(scanResult.sessionId, linkResult.links);',
+              '''        const relativePathByScanId = new Map(
+                    scanResult.tracks.map((track) => [track.scanId, track.relativePath]),
+                  );
+                  replaceTrackLinks(
+                    scanResult.sessionId,
+                    linkResult.links.map((link) => ({
+                      ...link,
+                      relativePath: relativePathByScanId.get(link.scanId),
+                    })),
+                  );''',
+              'replace links',
+          )
+          replace_once(
+              '      clearTrackLinks();\n      setWatchingFolder(false);',
+              '      clearTrackLinks();\n      replaceScanHealth(nextResult);\n      setWatchingFolder(false);',
+              'initial scan health',
+          )
+          replace_once(
+              '        setResult(incremental.scan);\n',
+              '        setResult(incremental.scan);\n        replaceScanHealth(incremental.scan);\n',
+              'incremental scan health',
+          )
+          replace_once(
               '    [clearTrackLinks, locale, replaceTrackLinks, t],',
               '    [locale, replaceTrackLinks, t],',
-              1,
+              'link callback deps',
           )
 
           path.write_text(text, encoding='utf-8')
