@@ -1,36 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database";
+import type { Database, Tables } from "@/types/database";
+
+export type ComparableCrate = Pick<
+  Tables<"crates">,
+  "id" | "name" | "smart_rules"
+>;
 
 export type CrateComparison = {
   common: string[];
   leftOnly: string[];
   rightOnly: string[];
 };
-
-export type BoundedCrateComparison = {
-  common: { count: number; trackIds: string[] };
-  leftOnly: { count: number; trackIds: string[] };
-  rightOnly: { count: number; trackIds: string[] };
-};
-
-type CompareCratesRpcRow = {
-  relation: "common" | "left_only" | "right_only";
-  relation_count: number;
-  relation_order: number;
-  track_id: string;
-};
-
-type CompareCratesRpc = (
-  functionName: "compare_crates",
-  args: {
-    p_left_crate_id: string;
-    p_limit_per_relation: number;
-    p_right_crate_id: string;
-  },
-) => Promise<{
-  data: CompareCratesRpcRow[] | null;
-  error: { message: string } | null;
-}>;
 
 export function compareCrateTrackIds(
   leftTrackIds: string[],
@@ -48,36 +28,31 @@ export function compareCrateTrackIds(
   };
 }
 
-export async function compareCrates(
+export async function resolveComparableCrateTrackIds(
   supabase: SupabaseClient<Database>,
-  leftCrateId: string,
-  rightCrateId: string,
-  limitPerRelation = 200,
-): Promise<BoundedCrateComparison> {
-  const rpc = supabase.rpc.bind(supabase) as unknown as CompareCratesRpc;
-  const { data, error } = await rpc("compare_crates", {
-    p_left_crate_id: leftCrateId,
-    p_limit_per_relation: Math.min(Math.max(Math.trunc(limitPerRelation), 1), 500),
-    p_right_crate_id: rightCrateId,
-  });
-  if (error) throw new Error("No se pudieron comparar los crates.");
-
-  const comparison: BoundedCrateComparison = {
-    common: { count: 0, trackIds: [] },
-    leftOnly: { count: 0, trackIds: [] },
-    rightOnly: { count: 0, trackIds: [] },
-  };
-
-  for (const row of data ?? []) {
-    const target =
-      row.relation === "common"
-        ? comparison.common
-        : row.relation === "left_only"
-          ? comparison.leftOnly
-          : comparison.rightOnly;
-    target.count = Number(row.relation_count);
-    target.trackIds.push(row.track_id);
+  userId: string,
+  crate: ComparableCrate,
+) {
+  if (crate.smart_rules !== null) {
+    throw new Error("Las herramientas avanzadas operan sobre crates manuales.");
   }
 
-  return comparison;
+  const trackIds: string[] = [];
+  for (let from = 0; ; from += 500) {
+    const { data, error } = await supabase
+      .from("crate_tracks")
+      .select("track_id, position, created_at")
+      .eq("user_id", userId)
+      .eq("crate_id", crate.id)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("track_id", { ascending: true })
+      .range(from, from + 499);
+    if (error) throw new Error("No se pudo cargar el contenido del crate.");
+    const page = data ?? [];
+    trackIds.push(...page.map((membership) => membership.track_id));
+    if (page.length < 500) break;
+  }
+
+  return [...new Set(trackIds)];
 }
