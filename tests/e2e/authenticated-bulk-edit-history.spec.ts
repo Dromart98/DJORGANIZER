@@ -61,7 +61,7 @@ test("@authenticated records and undoes a bulk track edit", async ({
   page.once("dialog", (dialog) => {
     expect(dialog.message()).toContain("2 tracks");
     expect(dialog.message()).toContain("Genre");
-    expect(dialog.message()).toContain("Previous saved values".toLowerCase().split(" ")[0]);
+    expect(dialog.message()).toContain("previous saved values");
     void dialog.accept();
   });
   await page.getByRole("button", { name: "Undo batch" }).click();
