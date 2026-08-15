@@ -83,7 +83,7 @@ test("@authenticated previews and applies genre and subgenre ordering", async ({
   await page.getByRole("link", { name: crateName }).click();
   await expectCrateOrder(page, [alpha, beta, gamma]);
 
-  await page.getByRole("link", { name: "Ordenar" }).click();
+  await page.getByRole("link", { name: "Sort" }).click();
   await page.getByLabel("Sort by").selectOption("genre");
   await page.getByLabel("Direction").selectOption("asc");
   await page.getByRole("button", { name: "Preview order" }).click();
@@ -94,7 +94,7 @@ test("@authenticated previews and applies genre and subgenre ordering", async ({
   await page.getByRole("link", { name: "Back to crate" }).click();
   await expectCrateOrder(page, [beta, gamma, alpha]);
 
-  await page.getByRole("link", { name: "Ordenar" }).click();
+  await page.getByRole("link", { name: "Sort" }).click();
   await page.getByLabel("Sort by").selectOption("subgenre");
   await page.getByLabel("Direction").selectOption("asc");
   await page.getByRole("button", { name: "Preview order" }).click();
