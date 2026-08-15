@@ -97,8 +97,8 @@ export default async function TrackDetailPage({
       {query.undone === "1" ? (
         <p className="form-message form-message--success" role="status">
           {locale === "en"
-            ? "The individual edit was undone."
-            : "La edición individual se deshizo correctamente."}
+            ? "The edit was undone."
+            : "La edición se deshizo correctamente."}
         </p>
       ) : null}
       {query.undoError === "changed" ? (
