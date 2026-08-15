@@ -1,9 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Tables } from "@/types/database";
-import {
-  parseSmartCrateRules,
-  resolveAllSmartCrateTrackIds,
-} from "@/lib/organization/smart-crates";
 
 export type ComparableCrate = Pick<
   Tables<"crates">,
@@ -38,21 +34,19 @@ export async function resolveComparableCrateTrackIds(
   crate: ComparableCrate,
 ) {
   if (crate.smart_rules !== null) {
-    const parsed = parseSmartCrateRules(crate.smart_rules);
-    if (!parsed.success) {
-      throw new Error("El crate inteligente tiene reglas no válidas.");
-    }
-    return resolveAllSmartCrateTrackIds(supabase, parsed.data);
+    throw new Error("Las herramientas avanzadas operan sobre crates manuales.");
   }
 
   const trackIds: string[] = [];
   for (let from = 0; ; from += 500) {
     const { data, error } = await supabase
       .from("crate_tracks")
-      .select("track_id, position")
+      .select("track_id, position, created_at")
       .eq("user_id", userId)
       .eq("crate_id", crate.id)
       .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("track_id", { ascending: true })
       .range(from, from + 499);
     if (error) throw new Error("No se pudo cargar el contenido del crate.");
     const page = data ?? [];
