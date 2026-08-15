@@ -9,6 +9,14 @@ export type TrackEditHistoryEntry = {
   undone_at: string | null;
 };
 
+export type BulkTrackEditHistoryBatch = {
+  batch_id: string;
+  can_undo: boolean;
+  created_at: string;
+  track_count: number;
+  undone_at: string | null;
+};
+
 type ListTrackEditHistoryRpc = (
   functionName: "list_track_edit_history",
   args: {
@@ -17,6 +25,14 @@ type ListTrackEditHistoryRpc = (
   },
 ) => Promise<{
   data: TrackEditHistoryEntry[] | null;
+  error: { message?: string } | null;
+}>;
+
+type ListBulkTrackEditHistoryRpc = (
+  functionName: "list_bulk_track_edit_batches",
+  args: { requested_limit: number },
+) => Promise<{
+  data: BulkTrackEditHistoryBatch[] | null;
   error: { message?: string } | null;
 }>;
 
@@ -31,5 +47,17 @@ export async function listTrackEditHistory(
     requested_track_id: trackId,
   });
   if (error) throw new Error("No se pudo cargar el historial de edición.");
+  return data ?? [];
+}
+
+export async function listBulkTrackEditHistory(
+  supabase: SupabaseClient<Database>,
+  limit = 10,
+): Promise<BulkTrackEditHistoryBatch[]> {
+  const rpc = supabase.rpc.bind(supabase) as unknown as ListBulkTrackEditHistoryRpc;
+  const { data, error } = await rpc("list_bulk_track_edit_batches", {
+    requested_limit: Math.max(1, Math.min(limit, 50)),
+  });
+  if (error) throw new Error("No se pudo cargar el historial de edición masiva.");
   return data ?? [];
 }
