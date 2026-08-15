@@ -39,9 +39,11 @@ function reasonLabel(locale: Locale, reason: MetadataCleanupReason) {
 
 export function MetadataCleanupReview({
   locale,
+  page,
   proposals,
 }: {
   locale: Locale;
+  page: number;
   proposals: MetadataCleanupProposal[];
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -62,6 +64,7 @@ export function MetadataCleanupReview({
 
   return (
     <form action={applyMetadataCleanupAction} className={styles.review}>
+      <input name="page" type="hidden" value={page} />
       <div className={styles.reviewToolbar}>
         <div>
           <strong>
