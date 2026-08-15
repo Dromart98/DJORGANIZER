@@ -8,64 +8,6 @@ permissions:
   contents: read
 
 jobs:
-  patch-health-reconciliation:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-        with:
-          ref: feat/library-health-center
-          fetch-depth: 0
-
-      - name: Apply missing-file proof patch
-        shell: python
-        run: |
-          from pathlib import Path
-          path = Path('src/components/desktop/folder-scanner.tsx')
-          text = path.read_text(encoding='utf-8')
-
-          old = '          if (!library.message) replaceTrackLinks(scanResult.sessionId, []);'
-          new = '''          if (!library.message) {
-            replaceTrackLinks(scanResult.sessionId, [], {
-              scannedRelativePaths: scanResult.tracks.map(
-                (track) => track.relativePath,
-              ),
-            });
-          }'''
-          if text.count(old) != 1:
-              raise SystemExit(f'empty links anchor count: {text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          old = '''          })),
-          !library.message,
-        );'''
-          new = '''          })),
-          {
-            coverageComplete: !library.message,
-            scannedRelativePaths: scanResult.tracks.map(
-              (track) => track.relativePath,
-            ),
-          },
-        );'''
-          if text.count(old) != 1:
-              raise SystemExit(f'linked paths anchor count: {text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
-
-      - name: Restore CI and commit patch
-        shell: bash
-        run: |
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/ci.yml
-          rm -f .github/workflows/temporary-missing-file-proof.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "Use confirmed paths for missing files"
-          git push origin HEAD:feat/library-health-center
-
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
