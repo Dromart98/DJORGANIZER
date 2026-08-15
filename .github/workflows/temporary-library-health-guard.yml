@@ -1,0 +1,43 @@
+name: Temporary library health guard
+
+on:
+  push:
+    branches:
+      - feat/library-health-center
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Guard health linking failures') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/library-health-center
+          fetch-depth: 0
+      - name: Guard failed library lookup
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/components/desktop/folder-scanner.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = '''        if (!library.candidates.length) {
+                    replaceTrackLinks(scanResult.sessionId, []);
+                    setLibraryLinkMessage('''
+          new = '''        if (!library.candidates.length) {
+                    if (!library.message) replaceTrackLinks(scanResult.sessionId, []);
+                    setLibraryLinkMessage('''
+          if old not in text:
+              raise SystemExit('empty candidate guard anchor not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          Path('.github/workflows/temporary-library-health-guard.yml').unlink()
+      - name: Commit guard
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Guard health linking failures"
+          git push origin HEAD:feat/library-health-center
