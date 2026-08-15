@@ -75,10 +75,21 @@ function currentValue(row: CleanupTrackRow, field: MetadataCleanupField) {
   return row[field];
 }
 
-function withStatus(applied: number, skipped: number, failed: number) {
+function cleanupPage(formData: FormData) {
+  const parsed = Number(formData.get("page"));
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function withStatus(
+  page: number,
+  applied: number,
+  skipped: number,
+  failed: number,
+) {
   const params = new URLSearchParams({
     applied: String(applied),
     failed: String(failed),
+    page: String(page),
     skipped: String(skipped),
   });
   return `/library/health/cleanup?${params.toString()}`;
@@ -86,9 +97,10 @@ function withStatus(applied: number, skipped: number, failed: number) {
 
 export async function applyMetadataCleanupAction(formData: FormData) {
   const user = await requireUser();
+  const page = cleanupPage(formData);
   const raw = formData.getAll("proposal");
   if (!raw.length || raw.length > MAX_CLEANUP_PROPOSALS) {
-    redirect(withStatus(0, 0, raw.length ? raw.length : 0));
+    redirect(withStatus(page, 0, 0, raw.length ? raw.length : 0));
   }
 
   const parsed: CleanupProposalInput[] = [];
@@ -107,7 +119,7 @@ export async function applyMetadataCleanupAction(formData: FormData) {
     }
   }
 
-  if (!parsed.length) redirect(withStatus(0, raw.length, 0));
+  if (!parsed.length) redirect(withStatus(page, 0, raw.length, 0));
 
   const supabase = await createClient();
   const trackIds = [...new Set(parsed.map((proposal) => proposal.trackId))];
@@ -117,7 +129,7 @@ export async function applyMetadataCleanupAction(formData: FormData) {
     .eq("user_id", user.id)
     .in("id", trackIds);
 
-  if (readError) redirect(withStatus(0, 0, parsed.length));
+  if (readError) redirect(withStatus(page, 0, 0, parsed.length));
 
   const byId = new Map((tracks ?? []).map((track) => [track.id, track]));
   const validByTrack = new Map<string, CleanupProposalInput[]>();
@@ -178,5 +190,5 @@ export async function applyMetadataCleanupAction(formData: FormData) {
     for (const trackId of appliedTrackIds) revalidatePath(`/library/${trackId}`);
   }
 
-  redirect(withStatus(applied, skipped, failed));
+  redirect(withStatus(page, applied, skipped, failed));
 }
