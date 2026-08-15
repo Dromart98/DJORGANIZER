@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { DesktopExportLink } from "@/components/desktop/desktop-export-link";
+import { SmartCrateExportLink } from "@/components/organization/smart-crate-export-link";
 import { DeleteCrateForm } from "@/components/organization/delete-organization-forms";
 import { SmartCrateForm } from "@/components/organization/smart-crate-form";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -10,7 +10,6 @@ import { formatTrackCount, translate } from "@/lib/i18n/functional";
 import type { Locale } from "@/lib/i18n/i18n";
 import {
   parseSmartCrateRules,
-  resolveAllSmartCrateTrackIds,
   resolveSmartCrateTracks,
 } from "@/lib/organization/smart-crates";
 import { createClient } from "@/lib/supabase/server";
@@ -52,20 +51,18 @@ export async function SmartCrateDetail({
   }
   const supabase = await createClient();
   const offset = (requestedPage - 1) * PAGE_SIZE;
-  const [{ data: tags, error: tagsError }, resolved, exportTrackIds] =
-    await Promise.all([
-      supabase
-        .from("tags")
-        .select("id, name")
-        .eq("user_id", userId)
-        .order("name", { ascending: true }),
-      resolveSmartCrateTracks(supabase, parsedRules.data, {
-        limit: PAGE_SIZE,
-        offset,
-        search,
-      }),
-      resolveAllSmartCrateTrackIds(supabase, parsedRules.data),
-    ]);
+const [{ data: tags, error: tagsError }, resolved] = await Promise.all([
+  supabase
+    .from("tags")
+    .select("id, name")
+    .eq("user_id", userId)
+    .order("name", { ascending: true }),
+  resolveSmartCrateTracks(supabase, parsedRules.data, {
+    limit: PAGE_SIZE,
+    offset,
+    search,
+  }),
+]);
   if (tagsError) throw new Error("No se pudieron cargar las etiquetas.");
 
   const pageCount = Math.max(1, Math.ceil(resolved.count / PAGE_SIZE));
@@ -130,12 +127,10 @@ export async function SmartCrateDetail({
               <h2>{formatTrackCount(locale, resolved.count)}</h2>
             </div>
             <span>{text.matching}</span>
-            <DesktopExportLink
-              request={{
-                crateId: crate.id,
-                crateName: crate.name,
-                trackIds: exportTrackIds,
-              }}
+            <SmartCrateExportLink
+              crateId={crate.id}
+              crateName={crate.name}
+              locale={locale}
             />
           </div>
 

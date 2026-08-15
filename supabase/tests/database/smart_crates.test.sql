@@ -12,19 +12,19 @@ select set_config('request.jwt.claim.sub', '31000000-0000-4000-8000-000000000001
 select set_config('request.jwt.claim.role', 'authenticated', true);
 
 insert into public.tracks (
-  id, user_id, title, artist, genre, subgenre, bpm, musical_key, camelot_key,
-  energy, rating, release_year
+  id, user_id, title, artist, genre, subgenre, subgenre_source, bpm, musical_key, camelot_key,
+  energy, energy_source, rating, release_year
 )
 values
   (
     '31100000-0000-4000-8000-000000000001',
     '31000000-0000-4000-8000-000000000001',
-    'Deep One', 'DJ A', 'House', 'Deep House', 124, 'Am', '8A', 7, 4, 2024
+    'Deep One', 'DJ A', 'House', 'Deep House', 'manual', 124, 'Am', '8A', 7, 'manual', 4, 2024
   ),
   (
     '31200000-0000-4000-8000-000000000001',
     '31000000-0000-4000-8000-000000000001',
-    'Tech One', 'DJ B', 'Techno', 'Peak Time', 132, 'Fm', '4A', 9, 5, 2023
+    'Tech One', 'DJ B', 'Techno', 'Peak Time', 'manual', 132, 'Fm', '4A', 9, 'manual', 5, 2023
   );
 
 insert into public.tags (id, user_id, name)

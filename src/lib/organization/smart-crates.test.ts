@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   parseSmartCrateRules,
   parseSmartCrateRulesJson,
+  resolveSmartCrateTrackIds,
   SMART_CRATE_MAX_CONDITIONS,
   type SmartCrateRules,
 } from "./smart-crates";
@@ -106,4 +107,27 @@ describe("smart crate rules", () => {
   it("fails closed for malformed JSON", () => {
     expect(parseSmartCrateRulesJson("{nope").success).toBe(false);
   });
+
+it("preserves the total count when a requested page is empty", async () => {
+  const rpc = vi
+    .fn()
+    .mockResolvedValueOnce({ data: [], error: null })
+    .mockResolvedValueOnce({
+      data: [
+        {
+          total_count: 3,
+          track_id: "00000000-0000-4000-8000-000000000001",
+        },
+      ],
+      error: null,
+    });
+  const result = await resolveSmartCrateTrackIds(
+    { rpc } as never,
+    rules,
+    { limit: 100, offset: 100 },
+  );
+  expect(result).toEqual({ count: 3, trackIds: [] });
+  expect(rpc).toHaveBeenCalledTimes(2);
+});
+
 });

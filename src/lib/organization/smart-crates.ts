@@ -209,11 +209,29 @@ export async function resolveSmartCrateTrackIds(
     p_search: options.search?.trim().slice(0, 100) || null,
   });
   if (error) throw new Error("No se pudo resolver el crate inteligente.");
-  const rows = data ?? [];
+const rows = data ?? [];
+if (!rows.length && offset > 0) {
+  const { data: firstPage, error: countError } = await supabase.rpc(
+    "resolve_smart_crate_rule_tracks",
+    {
+      p_limit: 1,
+      p_offset: 0,
+      p_rules: rules as unknown as Json,
+      p_search: options.search?.trim().slice(0, 100) || null,
+    },
+  );
+  if (countError) {
+    throw new Error("No se pudo resolver el crate inteligente.");
+  }
   return {
-    count: rows.length ? Number(rows[0].total_count) : 0,
-    trackIds: rows.map((row) => row.track_id),
+    count: firstPage?.length ? Number(firstPage[0].total_count) : 0,
+    trackIds: [],
   };
+}
+return {
+  count: rows.length ? Number(rows[0].total_count) : 0,
+  trackIds: rows.map((row) => row.track_id),
+};
 }
 
 export async function resolveSmartCrateTracks(
