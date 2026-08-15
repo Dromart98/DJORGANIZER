@@ -1,0 +1,32 @@
+name: Temporary Rust type fix
+
+on:
+  push:
+    branches:
+      - feat/bpm-range-organization
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/bpm-range-organization
+          fetch-depth: 0
+      - name: Apply explicit scan id types
+        run: |
+          perl -0pi -e 's/let added_scan_ids =/let added_scan_ids: Vec<String> =/' src-tauri/src/lib.rs
+          perl -0pi -e 's/let removed_scan_ids =/let removed_scan_ids: Vec<String> =/' src-tauri/src/lib.rs
+          perl -0pi -e 's/let updated_scan_ids =/let updated_scan_ids: Vec<String> =/' src-tauri/src/lib.rs
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          git rm .github/workflows/temporary-rust-types.yml
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix incremental scan id type inference"
+          git push origin HEAD:feat/bpm-range-organization
