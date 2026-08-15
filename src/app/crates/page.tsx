@@ -116,6 +116,11 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
   return (
     <>
       <PageHeader
+        action={
+          <Link className="button button--secondary" href="/crates/tools">
+            {locale === "en" ? "Advanced tools" : "Herramientas avanzadas"}
+          </Link>
+        }
         description={t("Ordena sesiones y reutiliza etiquetas.")}
         eyebrow={t("Organización")}
         title={t("Crates y etiquetas")}
