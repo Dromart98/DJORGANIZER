@@ -577,6 +577,7 @@ export function DesktopFolderScanner() {
             ...link,
             relativePath: relativePathByScanId.get(link.scanId),
           })),
+          !library.message,
         );
         const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
         if (rawRequest) {
