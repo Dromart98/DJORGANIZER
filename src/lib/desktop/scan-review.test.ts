@@ -92,7 +92,6 @@ describe("paginateScannedTracks", () => {
   });
 });
 
-
 describe("desktop organization preview", () => {
   it("sanitizes traversal, reserved names and filesystem punctuation", () => {
     expect(safePathSegment("../CON", "Fallback")).toBe("_CON");
@@ -131,7 +130,13 @@ describe("desktop organization preview", () => {
     ]);
   });
 
-  it("supports genre and harmonic organization schemes", () => {
+  it("supports single-level genre, genre/artist and harmonic schemes", () => {
+    expect(createOrganizationPreview([tracks[0]], "genre")[0].targetPath).toBe(
+      "House/Opening.mp3",
+    );
+    expect(createOrganizationPreview([tracks[1]], "genre")[0].targetPath).toBe(
+      "Género desconocido/Closing.flac",
+    );
     expect(createOrganizationPreview([tracks[0]], "genre-artist")[0].targetPath)
       .toBe("House/DJ Aurora/Opening.mp3");
     expect(createOrganizationPreview([tracks[0]], "key-bpm")[0].targetPath)
