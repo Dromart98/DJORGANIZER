@@ -1,0 +1,495 @@
+name: Temporary archive inactive tracks
+
+on:
+  push:
+    branches:
+      - feat/archive-inactive-tracks
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Implement inactive track archiving') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/archive-inactive-tracks
+          fetch-depth: 0
+      - name: Apply focused archive implementation
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'anchor not found in {path}: {old[:80]!r}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Generated Supabase types: nullable archive timestamp preserves every relation.
+          path = Path('src/types/database.ts')
+          text = path.read_text(encoding='utf-8')
+          row_anchor = '          artist: string | null;\n          artwork_url: string | null;'
+          if row_anchor not in text:
+              raise SystemExit('tracks Row anchor not found')
+          text = text.replace(row_anchor, '          archived_at: string | null;\n          artist: string | null;\n          artwork_url: string | null;', 1)
+          optional_anchor = '          artist?: string | null;\n          artwork_url?: string | null;'
+          if text.count(optional_anchor) != 2:
+              raise SystemExit(f'expected two tracks optional anchors, got {text.count(optional_anchor)}')
+          text = text.replace(optional_anchor, '          archived_at?: string | null;\n          artist?: string | null;\n          artwork_url?: string | null;')
+          path.write_text(text, encoding='utf-8')
+
+          # Library query contract: active by default, archived/all only by explicit filter.
+          replace_once(
+              'src/lib/library/track-query.ts',
+              'export type TrackDirection = "asc" | "desc";\n\nexport type TrackQuery = {\n',
+              'export type TrackDirection = "asc" | "desc";\nexport type TrackArchiveFilter = "active" | "archived" | "all";\n\nexport type TrackQuery = {\n  archive: TrackArchiveFilter;\n',
+          )
+          replace_once(
+              'src/lib/library/track-query.ts',
+              'const querySchema = z.object({\n  bpmMax:',
+              'const querySchema = z.object({\n  archive: z.enum(["active", "archived", "all"]).catch("active"),\n  bpmMax:',
+          )
+          replace_once(
+              'src/lib/library/track-query.ts',
+              '  const parsed = querySchema.parse({\n    bpmMax:',
+              '  const parsed = querySchema.parse({\n    archive: firstValue(searchParams.archive),\n    bpmMax:',
+          )
+          replace_once(
+              'src/lib/library/track-query.ts',
+              '  const entries: [string, string | number | undefined][] = [\n    ["q", query.q],',
+              '  const entries: [string, string | number | undefined][] = [\n    ["archive", query.archive === "active" ? undefined : query.archive],\n    ["q", query.q],',
+          )
+
+          # Repository filtering and harmonic recommendations.
+          replace_once(
+              'src/lib/library/track-repository.ts',
+              '  let request = supabase\n    .from("tracks")\n    .select("*", { count: "exact" })\n    .eq("user_id", userId);\n\n  const search =',
+              '  let request = supabase\n    .from("tracks")\n    .select("*", { count: "exact" })\n    .eq("user_id", userId);\n\n  if (query.archive === "active") request = request.is("archived_at", null);\n  if (query.archive === "archived") request = request.not("archived_at", "is", null);\n\n  const search =',
+          )
+          replace_once(
+              'src/lib/library/track-repository.ts',
+              '    .eq("user_id", userId)\n    .neq("id", source.id)\n    .in("camelot_key", matches.map((match) => match.camelotKey));',
+              '    .eq("user_id", userId)\n    .is("archived_at", null)\n    .neq("id", source.id)\n    .in("camelot_key", matches.map((match) => match.camelotKey));',
+          )
+
+          # Reversible server actions. No deletes, file moves, tag changes or crate membership changes.
+          replace_once(
+              'src/app/library/actions.ts',
+              'function withLibraryStatus(returnTo: string, status: string) {\n  const url = new URL(returnTo, "https://djorganizer.local");\n  url.searchParams.set(status, "1");\n  return `${url.pathname}${url.search}`;\n}\n\nexport async function bulkUpdateTracksAction',
+              '''function withLibraryStatus(returnTo: string, status: string) {
+  const url = new URL(returnTo, "https://djorganizer.local");
+  url.searchParams.set(status, "1");
+  return `${url.pathname}${url.search}`;
+}
+
+async function setTracksArchivedState(formData: FormData, archived: boolean) {
+  const user = await requireUser();
+  const ids = [...new Set(trackIdsSchema.parse(formData.getAll("trackId")))];
+  const returnTo = libraryReturnTo(formData);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tracks")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("user_id", user.id)
+    .in("id", ids)
+    .select("id");
+
+  if (error || (data ?? []).length !== ids.length) {
+    redirect(withLibraryStatus(returnTo, "archiveError"));
+  }
+
+  revalidatePath("/library");
+  revalidatePath("/crates");
+  redirect(withLibraryStatus(returnTo, archived ? "archived" : "restored"));
+}
+
+export async function archiveTracksAction(formData: FormData) {
+  return setTracksArchivedState(formData, true);
+}
+
+export async function restoreTracksAction(formData: FormData) {
+  return setTracksArchivedState(formData, false);
+}
+
+export async function bulkUpdateTracksAction''',
+          )
+
+          # Library filter UI.
+          replace_once(
+              'src/components/library/track-filters.tsx',
+              '  const { t } = useTranslator();',
+              '  const { locale, t } = useTranslator();',
+          )
+          replace_once(
+              'src/components/library/track-filters.tsx',
+              '''          <label className="field">
+            <span>{t("Valoración mínima")}</span>
+            <select defaultValue={query.rating ?? ""} name="rating">
+              <option value="">{t("Cualquiera")}</option>
+              {[0, 1, 2, 3, 4, 5].map((rating) => (
+                <option key={rating} value={rating}>
+                  {rating}+
+                </option>
+              ))}
+            </select>
+          </label>
+''',
+              '''          <label className="field">
+            <span>{t("Valoración mínima")}</span>
+            <select defaultValue={query.rating ?? ""} name="rating">
+              <option value="">{t("Cualquiera")}</option>
+              {[0, 1, 2, 3, 4, 5].map((rating) => (
+                <option key={rating} value={rating}>
+                  {rating}+
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>{locale === "en" ? "Status" : "Estado"}</span>
+            <select defaultValue={query.archive} name="archive">
+              <option value="active">{locale === "en" ? "Active" : "Activas"}</option>
+              <option value="archived">{locale === "en" ? "Archived" : "Archivadas"}</option>
+              <option value="all">{locale === "en" ? "All" : "Todas"}</option>
+            </select>
+          </label>
+''',
+          )
+
+          # Bulk archive/restore UI; selecting one track also provides an individual operation.
+          replace_once(
+              'src/components/library/track-table.tsx',
+              'import { deleteTracksAction } from "@/app/library/actions";',
+              '''import {
+  archiveTracksAction,
+  deleteTracksAction,
+  restoreTracksAction,
+} from "@/app/library/actions";''',
+          )
+          replace_once(
+              'src/components/library/track-table.tsx',
+              '''          <form
+            action={deleteTracksAction}
+''',
+              '''          {query.archive !== "archived" ? (
+            <form action={archiveTracksAction}>
+              {Array.from(selected).map((id) => (
+                <input key={id} name="trackId" type="hidden" value={id} />
+              ))}
+              <input name="returnTo" type="hidden" value={returnTo} />
+              <button
+                className="button button--secondary button--small"
+                disabled={selected.size === 0}
+                type="submit"
+              >
+                {locale === "en" ? "Archive selection" : "Archivar selección"}
+              </button>
+            </form>
+          ) : null}
+          {query.archive !== "active" ? (
+            <form action={restoreTracksAction}>
+              {Array.from(selected).map((id) => (
+                <input key={id} name="trackId" type="hidden" value={id} />
+              ))}
+              <input name="returnTo" type="hidden" value={returnTo} />
+              <button
+                className="button button--secondary button--small"
+                disabled={selected.size === 0}
+                type="submit"
+              >
+                {locale === "en" ? "Restore selection" : "Restaurar selección"}
+              </button>
+            </form>
+          ) : null}
+          <form
+            action={deleteTracksAction}
+''',
+          )
+
+          # Library page status and explicit archive filter behavior.
+          replace_once(
+              'src/app/library/page.tsx',
+              '''      {rawSearchParams.bulkError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          {t("No se pudo aplicar la edición. Revisa el valor introducido.")}
+        </p>
+      ) : null}
+
+      <TrackFilters query={query} />''',
+              '''      {rawSearchParams.bulkError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          {t("No se pudo aplicar la edición. Revisa el valor introducido.")}
+        </p>
+      ) : null}
+      {rawSearchParams.archived === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          {locale === "en" ? "The selection was archived." : "La selección se archivó."}
+        </p>
+      ) : null}
+      {rawSearchParams.restored === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          {locale === "en" ? "The selection was restored." : "La selección se restauró."}
+        </p>
+      ) : null}
+      {rawSearchParams.archiveError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          {locale === "en" ? "The archive state could not be updated." : "No se pudo actualizar el estado de archivo."}
+        </p>
+      ) : null}
+
+      <TrackFilters query={query} />''',
+          )
+          replace_once(
+              'src/app/library/page.tsx',
+              '  const hasFilters = Boolean(\n    query.q ||',
+              '  const hasFilters = Boolean(\n    query.archive !== "active" ||\n      query.q ||',
+          )
+          replace_once(
+              'src/app/library/page.tsx',
+              '        {hasFilters && page.count > 0 ? (',
+              '        {query.archive === "active" && hasFilters && page.count > 0 ? (',
+          )
+
+          # Smart crate contract: old rules remain valid, active is the SQL default.
+          replace_once(
+              'src/lib/organization/smart-crates.ts',
+              'export type SmartCrateLogic = "and" | "or";\n',
+              'export type SmartCrateLogic = "and" | "or";\nexport type SmartCrateArchiveMode = "active" | "archived" | "all";\n',
+          )
+          replace_once(
+              'src/lib/organization/smart-crates.ts',
+              '  .object({\n    version: z.literal(1),',
+              '  .object({\n    archiveMode: z.enum(["active", "archived", "all"]).optional(),\n    version: z.literal(1),',
+          )
+
+          # Smart crate form exposes the only supported opt-in for archived tracks.
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  type SmartCrateField,\n  type SmartCrateLogic,',
+              '  type SmartCrateArchiveMode,\n  type SmartCrateField,\n  type SmartCrateLogic,',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  const { locale } = useTranslator();\n  const [logic, setLogic] = useState<SmartCrateLogic>(initialRules?.logic ?? "and");',
+              '  const { locale } = useTranslator();\n  const [archiveMode, setArchiveMode] = useState<SmartCrateArchiveMode>(initialRules?.archiveMode ?? "active");\n  const [logic, setLogic] = useState<SmartCrateLogic>(initialRules?.logic ?? "and");',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  const rules = useMemo<SmartCrateRules>(() => ({\n    version: 1,',
+              '  const rules = useMemo<SmartCrateRules>(() => ({\n    archiveMode,\n    version: 1,',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  }), [groups, logic]);',
+              '  }), [archiveMode, groups, logic]);',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '    parent: "Save inside",\n    none: "None",\n    groups:',
+              '    parent: "Save inside",\n    none: "None",\n    archiveMode: "Tracks",\n    activeTracks: "Active only",\n    archivedTracks: "Archived only",\n    allTracks: "Active and archived",\n    groups:',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '    parent: "Guardar dentro de",\n    none: "Ninguna",\n    groups:',
+              '    parent: "Guardar dentro de",\n    none: "Ninguna",\n    archiveMode: "Pistas",\n    activeTracks: "Solo activas",\n    archivedTracks: "Solo archivadas",\n    allTracks: "Activas y archivadas",\n    groups:',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '''      <label className="field">
+        {text.groups}
+        <select value={logic} onChange={(event) => { setLogic(event.target.value as SmartCrateLogic); setPreview(null); }}>
+''',
+              '''      <label className="field">
+        {text.archiveMode}
+        <select
+          value={archiveMode}
+          onChange={(event) => {
+            setArchiveMode(event.target.value as SmartCrateArchiveMode);
+            setPreview(null);
+          }}
+        >
+          <option value="active">{text.activeTracks}</option>
+          <option value="archived">{text.archivedTracks}</option>
+          <option value="all">{text.allTracks}</option>
+        </select>
+      </label>
+      <label className="field">
+        {text.groups}
+        <select value={logic} onChange={(event) => { setLogic(event.target.value as SmartCrateLogic); setPreview(null); }}>
+''',
+          )
+
+          # Focused TypeScript tests.
+          replace_once(
+              'src/lib/library/track-query.test.ts',
+              '    expect(query).toMatchObject({\n      bpmMax:',
+              '    expect(query).toMatchObject({\n      archive: "active",\n      bpmMax:',
+          )
+          replace_once(
+              'src/lib/library/track-query.test.ts',
+              '  it("usa valores seguros para parámetros inválidos", () => {\n',
+              '''  it("mantiene archivadas fuera por defecto y conserva el filtro explícito", () => {
+    expect(parseTrackQuery({}).archive).toBe("active");
+    expect(parseTrackQuery({ archive: "archived" }).archive).toBe("archived");
+    expect(buildLibraryHref(parseTrackQuery({ archive: "archived" }), { page: 2 })).toContain("archive=archived");
+  });
+
+  it("usa valores seguros para parámetros inválidos", () => {
+''',
+          )
+          replace_once(
+              'src/lib/organization/smart-crates.test.ts',
+              '  it("accepts tag conditions using persistent tag ids", () => {',
+              '''  it("accepts explicit archive modes while legacy rules remain valid", () => {
+    expect(parseSmartCrateRules(rules).success).toBe(true);
+    const archived = parseSmartCrateRules({ ...rules, archiveMode: "archived" });
+    expect(archived.success).toBe(true);
+    if (archived.success) expect(archived.data.archiveMode).toBe("archived");
+    expect(parseSmartCrateRules({ ...rules, archiveMode: "invalid" }).success).toBe(false);
+  });
+
+  it("accepts tag conditions using persistent tag ids", () => {''',
+          )
+
+          # Database tests: archived tracks are excluded unless the smart rule opts in.
+          path = Path('supabase/tests/database/smart_crates.test.sql')
+          text = path.read_text(encoding='utf-8')
+          if 'select plan(8);' not in text:
+              raise SystemExit('smart crate pgTAP plan anchor not found')
+          text = text.replace('select plan(8);', 'select plan(10);', 1)
+          finish_anchor = 'select * from finish();\nrollback;'
+          if finish_anchor not in text:
+              raise SystemExit('smart crate pgTAP finish anchor not found')
+          archive_tests = '''update public.tracks
+set archived_at = now()
+where id = '31200000-0000-4000-8000-000000000001';
+
+select is(
+  (
+    select count(*)::integer
+    from public.resolve_smart_crate_rule_tracks(
+      '{"version":1,"logic":"and","groups":[{"logic":"and","conditions":[{"field":"tag","operator":"has","value":"31300000-0000-4000-8000-000000000001"}]}]}'::jsonb,
+      0, 100, null
+    )
+  ),
+  0,
+  'Smart crates exclude archived tracks by default'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.resolve_smart_crate_rule_tracks(
+      '{"version":1,"archiveMode":"archived","logic":"and","groups":[{"logic":"and","conditions":[{"field":"tag","operator":"has","value":"31300000-0000-4000-8000-000000000001"}]}]}'::jsonb,
+      0, 100, null
+    )
+  ),
+  1,
+  'Smart crates include archived tracks only through an explicit archive mode'
+);
+
+'''
+          path.write_text(text.replace(finish_anchor, archive_tests + finish_anchor, 1), encoding='utf-8')
+
+          # New migration: column + indexes + smart resolver and filtered-crate resolver updated in place.
+          smart_source = Path('supabase/migrations/20260815102000_smart_crates.sql').read_text(encoding='utf-8')
+          smart_start = smart_source.index('create or replace function public.resolve_smart_crate_rule_tracks(')
+          smart_function = smart_source[smart_start:]
+          smart_anchor = '    where t.user_id = (select auth.uid())\n      and jsonb_typeof(p_rules) = \'object\''
+          if smart_anchor not in smart_function:
+              raise SystemExit('smart resolver where anchor not found')
+          smart_function = smart_function.replace(
+              smart_anchor,
+              '''    where t.user_id = (select auth.uid())
+      and case coalesce(p_rules ->> 'archiveMode', 'active')
+        when 'active' then t.archived_at is null
+        when 'archived' then t.archived_at is not null
+        when 'all' then true
+        else false
+      end
+      and jsonb_typeof(p_rules) = 'object' ''',
+              1,
+          )
+          filtered_source = Path('supabase/migrations/20260814154500_create_filtered_crate_rpc.sql').read_text(encoding='utf-8')
+          filtered_anchor = '    where tracks.user_id = current_user_id\n      and ('
+          if filtered_anchor not in filtered_source:
+              raise SystemExit('filtered crate where anchor not found')
+          filtered_function = filtered_source.replace(
+              filtered_anchor,
+              '    where tracks.user_id = current_user_id\n      and tracks.archived_at is null\n      and (',
+              1,
+          )
+          migration = '''alter table public.tracks
+  add column archived_at timestamptz;
+
+create index tracks_user_archived_at_idx
+  on public.tracks (user_id, archived_at);
+
+''' + smart_function.strip() + '\n\n' + filtered_function.strip() + '\n'
+          Path('supabase/migrations/20260815140000_archive_inactive_tracks.sql').write_text(migration, encoding='utf-8')
+
+          # Real authenticated regression flow.
+          Path('tests/e2e/authenticated-library-archive.spec.ts').write_text('''import { expect, test } from "@playwright/test";
+
+test.skip(
+  process.env.E2E_AUTHENTICATED !== "1",
+  "Requires the ephemeral Supabase stack configured by CI.",
+);
+
+test("@authenticated archives and restores a library track without deleting it", async ({ page }, testInfo) => {
+  const runId = `${Date.now()}-${testInfo.workerIndex}`;
+  const email = `e2e-archive-${runId}@djorganizer.test`;
+  const password = `DjOrganizer-${runId}!`;
+  const title = `Archive ${runId}`;
+
+  await page.context().addCookies([{ name: "djorganizer-locale", url: "http://127.0.0.1:3100", value: "en" }]);
+  await page.goto("/signup?next=/library/new");
+  await page.getByLabel("Name").fill("Archive E2E");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page).toHaveURL(/\\/library\\/new$/, { timeout: 20_000 });
+
+  await page.getByLabel("Title *").fill(title);
+  await page.getByRole("button", { name: "Add track" }).click();
+  await expect(page).toHaveURL(/\\/library\\/[0-9a-f-]+$/, { timeout: 20_000 });
+
+  await page.goto("/library");
+  await page.getByRole("checkbox", { name: `Select ${title}` }).check();
+  await page.getByRole("button", { name: "Archive selection" }).click();
+  await expect(page.getByText("The selection was archived.")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+
+  await page.getByLabel("Status").selectOption("archived");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page).toHaveURL(/archive=archived/);
+  await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+
+  await page.getByRole("checkbox", { name: `Select ${title}` }).check();
+  await page.getByRole("button", { name: "Restore selection" }).click();
+  await expect(page.getByText("The selection was restored.")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+
+  await page.goto("/library");
+  await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+});
+''', encoding='utf-8')
+
+          # Roadmap reflects the actual delivered behavior.
+          replace_once(
+              'docs/roadmap.md',
+              '5. - [ ] Permitir archivar pistas inactivas sin borrar ni mover el archivo.',
+              '5. - [x] Permitir archivar pistas inactivas sin borrar ni mover el archivo.',
+          )
+      - name: Commit implementation
+        run: |
+          git config user.name "Dromart98"
+          git config user.email "davidromanmartin@yahoo.es"
+          git rm .github/workflows/temporary-archive-inactive-tracks.yml
+          git add docs/roadmap.md src supabase tests/e2e/authenticated-library-archive.spec.ts
+          git commit -m "Implement inactive track archiving"
+          git push origin HEAD:feat/archive-inactive-tracks
