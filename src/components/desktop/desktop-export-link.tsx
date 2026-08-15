@@ -18,17 +18,33 @@ export function DesktopExportLink({ request }: { request: DesktopExportRequest }
   const [available, setAvailable] = useState(false);
   useEffect(() => setAvailable(hasDesktopExport()), []);
 
-  if (!available) {
-    return <p className="organization-muted" role="status">La exportación está disponible al abrir esta biblioteca en la aplicación de escritorio.</p>;
-  }
-
   return (
-    <Link
-      className="button button--secondary button--small"
-      href="/import"
-      onClick={() => sessionStorage.setItem(DESKTOP_EXPORT_REQUEST_KEY, JSON.stringify(request))}
-    >
-      Exportar
-    </Link>
+    <div className="organization-inline-actions">
+      <Link
+        className="button button--secondary button--small"
+        href={`/crates/${request.crateId}/sort`}
+      >
+        Ordenar
+      </Link>
+      {available ? (
+        <Link
+          className="button button--secondary button--small"
+          href="/import"
+          onClick={() =>
+            sessionStorage.setItem(
+              DESKTOP_EXPORT_REQUEST_KEY,
+              JSON.stringify(request),
+            )
+          }
+        >
+          Exportar
+        </Link>
+      ) : (
+        <p className="organization-muted" role="status">
+          La exportación está disponible al abrir esta biblioteca en la aplicación
+          de escritorio.
+        </p>
+      )}
+    </div>
   );
 }
