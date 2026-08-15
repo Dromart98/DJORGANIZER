@@ -196,6 +196,7 @@ export type Database = {
           acoustic_fingerprint: string | null;
           album: string | null;
           analysis_status: string;
+          archived_at: string | null;
           artist: string | null;
           artwork_url: string | null;
           bpm: number | null;
@@ -245,6 +246,7 @@ export type Database = {
           acoustic_fingerprint?: string | null;
           album?: string | null;
           analysis_status?: string;
+          archived_at?: string | null;
           artist?: string | null;
           artwork_url?: string | null;
           bpm?: number | null;
@@ -294,6 +296,7 @@ export type Database = {
           acoustic_fingerprint?: string | null;
           album?: string | null;
           analysis_status?: string;
+          archived_at?: string | null;
           artist?: string | null;
           artwork_url?: string | null;
           bpm?: number | null;
