@@ -112,8 +112,8 @@ export function TrackEditHistory({
       ) : (
         <p className="organization-muted">
           {en
-            ? "There are no recorded individual edits yet."
-            : "Todavía no hay ediciones individuales registradas."}
+            ? "There are no recorded edits yet."
+            : "Todavía no hay ediciones registradas."}
         </p>
       )}
     </section>
