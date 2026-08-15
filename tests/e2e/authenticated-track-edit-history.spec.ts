@@ -48,7 +48,7 @@ test("@authenticated records and undoes an individual track edit", async ({
   await expect(page).toHaveURL(/\/library\/[0-9a-f-]+\?undone=1$/, {
     timeout: 20_000,
   });
-  await expect(page.getByText("The individual edit was undone.")).toBeVisible();
+  await expect(page.getByText("The edit was undone.")).toBeVisible();
   await expect(page.getByLabel("Title *")).toHaveValue(beforeTitle);
   await expect(page.getByText("Already undone")).toBeVisible();
   await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
