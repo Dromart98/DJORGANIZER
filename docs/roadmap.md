@@ -83,10 +83,14 @@ resultado directamente utilizable:
    `Género desconocido` cuando falta el dato; reutiliza la previsualización,
    saneado, resolución de colisiones, confirmación, rollback, historial y
    deshacer del motor seguro existente.
-4. - [ ] Añadir organización física por rangos de BPM configurables. Debe admitir
-   una estructura exclusiva por rango y combinaciones como género/rango de BPM,
-   energía/rango de BPM o tonalidad/rango de BPM. Los límites se revisan antes de
-   aplicar y nunca se crea una carpeta por valor exacto salvo elección expresa.
+4. - [x] Añadir organización física por rangos de BPM configurables. Admite
+   una estructura exclusiva por rango y combinaciones género/rango de BPM,
+   energía/rango de BPM y tonalidad/rango de BPM. El usuario revisa de 1 a 8
+   cortes enteros, ascendentes y entre 20–300 antes de simular o aplicar; las
+   pistas sin BPM permanecen visibles como `BPM desconocido`. La energía procede
+   únicamente de vínculos confirmados con la biblioteca y la variante por energía
+   queda bloqueada mientras ese vínculo no esté sincronizado. No se crea una
+   carpeta por valor exacto salvo elección expresa.
 5. - [ ] Sustituir la dependencia exclusiva de plantillas fijas por un constructor
    de reglas de organización de uno a tres niveles. Los niveles disponibles serán
    género, subgénero cuando exista, artista, álbum, tonalidad, Camelot, BPM,

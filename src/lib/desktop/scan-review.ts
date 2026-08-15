@@ -78,7 +78,16 @@ export type OrganizationScheme =
   | "artist-album"
   | "genre"
   | "genre-artist"
-  | "key-bpm";
+  | "key-bpm"
+  | "bpm-range"
+  | "genre-bpm-range"
+  | "energy-bpm-range"
+  | "key-bpm-range";
+
+export interface OrganizationPreviewOptions {
+  bpmBoundaries?: readonly number[];
+  energyByScanId?: ReadonlyMap<string, number>;
+}
 
 export interface OrganizationPreviewItem {
   sourcePath: string;
@@ -88,6 +97,42 @@ export interface OrganizationPreviewItem {
 
 const WINDOWS_RESERVED_NAME =
   /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const BPM_RANGE_SCHEMES = new Set<OrganizationScheme>([
+  "bpm-range",
+  "genre-bpm-range",
+  "energy-bpm-range",
+  "key-bpm-range",
+]);
+
+export function organizationSchemeUsesBpmRanges(scheme: OrganizationScheme) {
+  return BPM_RANGE_SCHEMES.has(scheme);
+}
+
+export function parseBpmRangeBoundaries(input: string) {
+  const tokens = input
+    .trim()
+    .split(/[\s,;]+/)
+    .filter(Boolean);
+  if (!tokens.length || tokens.length > 8) return null;
+  const boundaries = tokens.map(Number);
+  return normalizeBpmRangeBoundaries(boundaries);
+}
+
+export function normalizeBpmRangeBoundaries(boundaries: readonly number[]) {
+  if (!boundaries.length || boundaries.length > 8) return null;
+  const normalized = [...boundaries];
+  if (
+    normalized.some(
+      (value) => !Number.isInteger(value) || value < 20 || value > 300,
+    )
+  ) {
+    return null;
+  }
+  if (normalized.some((value, index) => index > 0 && value <= normalized[index - 1])) {
+    return null;
+  }
+  return normalized;
+}
 
 export function safePathSegment(value: string | null, fallback: string) {
   const clean = (candidate: string) =>
@@ -105,9 +150,24 @@ export function safePathSegment(value: string | null, fallback: string) {
   return WINDOWS_RESERVED_NAME.test(segment) ? `_${segment}` : segment;
 }
 
+function bpmRangeFolder(bpm: number | null, boundaries: readonly number[]) {
+  if (bpm === null || !Number.isFinite(bpm)) return "BPM desconocido";
+  const rounded = Math.round(bpm);
+  const first = boundaries[0];
+  if (rounded < first) return `Menos de ${first} BPM`;
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const lower = boundaries[index];
+    const upperExclusive = boundaries[index + 1];
+    if (rounded < upperExclusive) return `${lower}–${upperExclusive - 1} BPM`;
+  }
+  return `${boundaries[boundaries.length - 1]} BPM o más`;
+}
+
 function organizationFolders(
   track: ScannedAudioFile,
   scheme: OrganizationScheme,
+  options: OrganizationPreviewOptions,
+  bpmBoundaries: readonly number[] | null,
 ) {
   if (scheme === "genre") {
     return [safePathSegment(track.genre, "Género desconocido")];
@@ -130,6 +190,25 @@ function organizationFolders(
     ];
   }
 
+  if (bpmBoundaries) {
+    const range = bpmRangeFolder(track.bpm, bpmBoundaries);
+    if (scheme === "bpm-range") return [range];
+    if (scheme === "genre-bpm-range") {
+      return [safePathSegment(track.genre, "Género desconocido"), range];
+    }
+    if (scheme === "key-bpm-range") {
+      return [safePathSegment(track.musicalKey, "Tonalidad desconocida"), range];
+    }
+    if (scheme === "energy-bpm-range") {
+      const energy = options.energyByScanId?.get(track.scanId);
+      const energyFolder =
+        energy !== undefined && Number.isInteger(energy) && energy >= 0 && energy <= 10
+          ? `Energía ${energy}`
+          : "Energía desconocida";
+      return [energyFolder, range];
+    }
+  }
+
   return [
     safePathSegment(track.artist, "Artista desconocido"),
     safePathSegment(track.album, "Sin álbum"),
@@ -139,7 +218,12 @@ function organizationFolders(
 export function createOrganizationPreview(
   tracks: readonly ScannedAudioFile[],
   scheme: OrganizationScheme,
+  options: OrganizationPreviewOptions = {},
 ) {
+  const bpmBoundaries = organizationSchemeUsesBpmRanges(scheme)
+    ? normalizeBpmRangeBoundaries(options.bpmBoundaries ?? [])
+    : null;
+  if (organizationSchemeUsesBpmRanges(scheme) && !bpmBoundaries) return [];
   const usedTargets = new Set<string>();
 
   return [...tracks]
@@ -149,7 +233,7 @@ export function createOrganizationPreview(
       }),
     )
     .map<OrganizationPreviewItem>((track) => {
-      const folders = organizationFolders(track, scheme);
+      const folders = organizationFolders(track, scheme, options, bpmBoundaries);
       const originalStem = track.name.replace(/\.[^.]+$/, "");
       const stem = safePathSegment(track.title, originalStem || "Pista sin nombre");
       const extension =
