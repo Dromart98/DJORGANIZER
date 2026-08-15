@@ -116,6 +116,13 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
   return (
     <>
       <PageHeader
+        action={
+          crateRows.length >= 2 ? (
+            <Link className="button button--secondary" href="/crates/compare">
+              {locale === "en" ? "Compare crates" : "Comparar crates"}
+            </Link>
+          ) : undefined
+        }
         description={t("Ordena sesiones y reutiliza etiquetas.")}
         eyebrow={t("Organización")}
         title={t("Crates y etiquetas")}
@@ -165,9 +172,7 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                             ?.name ?? t("otro crate")}
                         </small>
                       ) : null}
-                      <p>
-                        {crate.description || t("Sin descripción")}
-                      </p>
+                      <p>{crate.description || t("Sin descripción")}</p>
                     </div>
                     <span>
                       {smart
@@ -274,7 +279,6 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
             </Card>
           )}
 
-
           {hasTracks ? (
             <SmartCrateForm
               crates={crateRows.map(({ id, name }) => ({ id, name }))}
@@ -308,7 +312,9 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
                 {tagRows.map((tag: Tables<"tags">) => (
                   <li key={tag.id}>
                     <span>{tag.name}</span>
-                    <small>{formatTrackCount(locale, tagCounts.get(tag.id) ?? 0)}</small>
+                    <small>
+                      {formatTrackCount(locale, tagCounts.get(tag.id) ?? 0)}
+                    </small>
                     <DeleteTagForm
                       name={tag.name}
                       revision={tag.updated_at}
