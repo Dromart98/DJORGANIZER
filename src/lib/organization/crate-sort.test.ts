@@ -10,8 +10,10 @@ function track(
     bpm: null,
     camelot_key: null,
     energy: null,
+    genre: null,
     id,
     rating: null,
+    subgenre: null,
     title: id,
     ...values,
   };
@@ -74,6 +76,28 @@ describe("sortCrateTracks", () => {
       "second",
       "third",
       "first",
+    ]);
+  });
+
+  it("sorts genre and subgenre alphabetically, keeps blanks last, and preserves ties", () => {
+    const tracks = [
+      track("blank"),
+      track("house-a", { genre: "House", subgenre: "Deep House" }),
+      track("techno", { genre: "Techno", subgenre: "Peak Time" }),
+      track("house-b", { genre: "house", subgenre: "Afro House" }),
+    ];
+
+    expect(sortCrateTracks(tracks, "genre", "asc").map(({ id }) => id)).toEqual([
+      "house-a",
+      "house-b",
+      "techno",
+      "blank",
+    ]);
+    expect(sortCrateTracks(tracks, "subgenre", "asc").map(({ id }) => id)).toEqual([
+      "house-b",
+      "house-a",
+      "techno",
+      "blank",
     ]);
   });
 });
