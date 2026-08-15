@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { listTrackTags, listUserTags, mapTrackTags } from "./track-repository";
+import {
+  listCompatibleTracks,
+  listTrackTags,
+  listUserTags,
+  mapTrackTags,
+} from "./track-repository";
 
 type Row = Record<string, unknown>;
 
@@ -121,5 +126,15 @@ describe("listUserTags", () => {
       { id: "b", name: "afterhours" },
       { id: "z", name: "Warm up" },
     ]);
+  });
+});
+
+describe("listCompatibleTracks", () => {
+  it("does not recommend from an archived source track", async () => {
+    const { client, from } = pagedClient({ tracks: [] });
+    await expect(
+      listCompatibleTracks(client, "user", { archived_at: "2026-08-15T00:00:00Z" } as never),
+    ).resolves.toEqual([]);
+    expect(from).not.toHaveBeenCalled();
   });
 });
