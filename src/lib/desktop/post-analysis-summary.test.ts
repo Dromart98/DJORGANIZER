@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { MaestBatchItem } from "./maest-batch";
 import { DESKTOP_MAEST_ANALYZER, DESKTOP_MAEST_COMPATIBILITY_KEY } from "./maest-analysis";
 import type { MaestPublicResult } from "./maest-preview";
-import { summarizePostAnalysis } from "./post-analysis-summary";
+import {
+  mergePostAnalysisSummaries,
+  summarizePostAnalysis,
+} from "./post-analysis-summary";
 
 const evidence = {
   genre: {
@@ -66,7 +69,7 @@ function item(
 }
 
 describe("post-analysis summary", () => {
-  it("keeps successful, ambiguous, failed and omitted outcomes separate", () => {
+  it("keeps ready, ambiguous, failed and omitted outcomes separate", () => {
     const partial: MaestPublicResult = {
       ...completeResult,
       analysis: {
@@ -88,17 +91,41 @@ describe("post-analysis summary", () => {
       ]),
     ).toEqual({
       ambiguous: 1,
-      correct: 2,
       duplicates: 0,
       failed: 1,
       omitted: 2,
+      ready: 2,
     });
   });
 
   it("treats a completed item without a usable proposal as ambiguous", () => {
     expect(summarizePostAnalysis([item("missing", "completed")])).toMatchObject({
       ambiguous: 1,
-      correct: 0,
+      ready: 0,
+    });
+  });
+
+  it("classifies pending work as failed when model preparation blocks the batch", () => {
+    expect(
+      summarizePostAnalysis(
+        [item("a", "pending"), item("b", "pending")],
+        "blocked",
+      ),
+    ).toMatchObject({ failed: 2, omitted: 0, ready: 0 });
+  });
+
+  it("merges retained outcomes with the latest retry without losing prior totals", () => {
+    expect(
+      mergePostAnalysisSummaries(
+        { ambiguous: 1, duplicates: 0, failed: 0, omitted: 1, ready: 2 },
+        { ambiguous: 0, duplicates: 0, failed: 1, omitted: 0, ready: 1 },
+      ),
+    ).toEqual({
+      ambiguous: 1,
+      duplicates: 0,
+      failed: 1,
+      omitted: 1,
+      ready: 3,
     });
   });
 });
