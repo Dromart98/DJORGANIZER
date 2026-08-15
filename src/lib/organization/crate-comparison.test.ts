@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareCrateTrackIds } from "./crate-comparison";
+import { compareCrateTrackIds, mergeCrateTrackIds } from "./crate-comparison";
 
 describe("compareCrateTrackIds", () => {
   it("separates common and exclusive tracks while preserving crate order", () => {
@@ -21,5 +21,22 @@ describe("compareCrateTrackIds", () => {
       leftOnly: [],
       rightOnly: ["track-1"],
     });
+  });
+});
+
+describe("mergeCrateTrackIds", () => {
+  it("preserves target order and appends only source-exclusive tracks", () => {
+    expect(
+      mergeCrateTrackIds(
+        ["target-1", "common", "target-2"],
+        ["source-1", "common", "source-2", "source-1"],
+      ),
+    ).toEqual([
+      "target-1",
+      "common",
+      "target-2",
+      "source-1",
+      "source-2",
+    ]);
   });
 });
