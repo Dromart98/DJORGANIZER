@@ -1,6 +1,6 @@
 begin;
 
-select plan(14);
+select plan(15);
 
 insert into auth.users (id, email)
 values
@@ -65,6 +65,20 @@ select is(
 select ok(
   (select can_undo from public.list_track_tag_history(20) limit 1),
   'A compatible tag assignment is undoable'
+);
+
+insert into public.track_tags (user_id, tag_id, track_id)
+values (
+  '71000000-0000-4000-8000-000000000001',
+  '71200000-0000-4000-8000-000000000001',
+  '71100000-0000-4000-8000-000000000001'
+)
+on conflict (track_id, tag_id) do nothing;
+
+select is(
+  (select count(*)::integer from public.list_track_tag_history(20)),
+  1,
+  'A no-op duplicate assignment does not create false history'
 );
 
 select set_config(
