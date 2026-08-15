@@ -45,6 +45,11 @@ type LinkInput = {
   trackId: string;
 };
 
+type ReplaceLinksOptions = {
+  coverageComplete?: boolean;
+  scannedRelativePaths?: readonly string[];
+};
+
 type LinkState = {
   links: Map<string, DesktopTrackLink>;
   linksReady: boolean;
@@ -65,7 +70,7 @@ type ScanSessionContextValue = {
   replaceTrackLinks(
     sessionId: string,
     links: LinkInput[],
-    coverageComplete?: boolean,
+    options?: ReplaceLinksOptions,
   ): void;
   scanHealth: DesktopScanHealthSnapshot | null;
 };
@@ -89,7 +94,9 @@ export function DesktopScanSessionProvider({ children }: { children: ReactNode }
   );
 
   const replaceTrackLinks = useCallback(
-    (sessionId: string, nextLinks: LinkInput[], coverageComplete = true) => {
+    (sessionId: string, nextLinks: LinkInput[], options?: ReplaceLinksOptions) => {
+      const coverageComplete = options?.coverageComplete ?? true;
+      const scannedRelativePaths = new Set(options?.scannedRelativePaths ?? []);
       setLinkState((current) => {
         const next = new Map(
           nextLinks.map(({ relativePath, scanId, trackId }) => [
@@ -118,8 +125,15 @@ export function DesktopScanSessionProvider({ children }: { children: ReactNode }
         }
 
         const missingTrackIds = new Set(current.missingTrackIds);
-        for (const trackId of current.links.keys()) {
-          if (!next.has(trackId)) missingTrackIds.add(trackId);
+        for (const [trackId, previous] of current.links) {
+          if (next.has(trackId)) continue;
+          if (
+            !previous.relativePath ||
+            scannedRelativePaths.has(previous.relativePath)
+          ) {
+            continue;
+          }
+          missingTrackIds.add(trackId);
         }
         for (const trackId of next.keys()) missingTrackIds.delete(trackId);
 
