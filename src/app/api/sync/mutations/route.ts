@@ -3,12 +3,13 @@ import { z } from "zod";
 import { getOptionalUser } from "@/lib/auth/user";
 import { parseBulkTrackUpdate } from "@/lib/library/bulk-track-update";
 import {
+  maestEvidenceFromFormData,
+  nativeAnalysisEvidenceFromFormData,
   toTrackInsert,
   toTrackUpdate,
   trackIdSchema,
   trackIdsSchema,
   trackValuesFromFormData,
-  maestEvidenceFromFormData,
 } from "@/lib/library/track-schema";
 import {
   crateValuesFromFormData,
@@ -64,6 +65,18 @@ const requestSchema = z.object({
 
 type Mutation = z.infer<typeof mutationSchema>;
 type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+type UpdateTrackWithHistoryRpc = (
+  functionName: "update_track_with_history",
+  args: {
+    expected_updated_at: string;
+    requested_patch: Record<string, unknown>;
+    requested_track_id: string;
+  },
+) => Promise<{
+  data: { track_id: string } | null;
+  error: { message?: string } | null;
+}>;
 
 function response(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -165,6 +178,9 @@ async function applyMutation(
     }
     case "track-update": {
       const id = trackIdSchema.parse(value(mutation.payload, "id"));
+      if (!mutation.revision) {
+        throw new Error("La edición pendiente no incluye una revisión segura.");
+      }
       const conflict = await revisionConflict(
         supabase,
         "tracks",
@@ -183,14 +199,37 @@ async function applyMutation(
       if (readError || !persisted) {
         throw new Error("No se pudo actualizar la canción.");
       }
-      const { data, error } = await supabase
-        .from("tracks")
-        .update(toTrackUpdate(track, persisted, maestEvidenceFromFormData(formData)))
-        .eq("id", id)
-        .eq("user_id", userId)
-        .select("id")
-        .maybeSingle();
-      if (error || !data) throw new Error("No se pudo actualizar la canción.");
+      const patch = toTrackUpdate(
+        track,
+        persisted,
+        maestEvidenceFromFormData(formData),
+        nativeAnalysisEvidenceFromFormData(formData),
+      );
+      const rpc = supabase.rpc.bind(supabase) as unknown as UpdateTrackWithHistoryRpc;
+      const { data, error } = await rpc("update_track_with_history", {
+        expected_updated_at: mutation.revision,
+        requested_patch: patch,
+        requested_track_id: id,
+      });
+      if (error || !data) {
+        const message = error?.message ?? "";
+        if (message.includes("Track changed after form loaded")) {
+          const lateConflict = await revisionConflict(
+            supabase,
+            "tracks",
+            id,
+            userId,
+            mutation.revision,
+          );
+          if (lateConflict) return { conflict: lateConflict };
+        }
+        if (message.includes("Track not found")) {
+          return {
+            conflict: { reason: "deleted-remotely" as const, remote: null },
+          };
+        }
+        throw new Error("No se pudo actualizar la canción.");
+      }
       break;
     }
     case "track-bulk-update": {
