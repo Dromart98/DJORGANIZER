@@ -135,7 +135,7 @@ de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
    tendrá una pantalla independiente y nunca buscará ni rellenará datos externos
    automáticamente. Las pistas sin BPM o tonalidad podrán enviarse al análisis
    local existente mediante una acción explícita.
-3. - [ ] Incorporar una limpieza guiada de metadatos con propuestas revisables para
+3. - [x] Incorporar una limpieza guiada de metadatos con propuestas revisables para
    normalizar mayúsculas, espacios, separadores, nombres de género, artistas y
    textos residuales como URLs o prefijos numéricos. Debe mostrar valor actual y
    propuesto, permitir selección individual o masiva y no sobrescribir

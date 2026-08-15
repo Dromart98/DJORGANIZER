@@ -49,6 +49,9 @@ export default async function LibraryHealthPage() {
             <Link className="button button--secondary" href="/library">
               {en ? "Back to library" : "Volver a Biblioteca"}
             </Link>
+            <Link className="button button--secondary" href="/library/health/cleanup">
+              {en ? "Guided cleanup" : "Limpieza guiada"}
+            </Link>
             <Link className="button button--primary" href="/import">
               {en ? "Check local folder" : "Comprobar carpeta local"}
             </Link>
