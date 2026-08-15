@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   createOrganizationPreview,
+  countMissingSubgenreTracks,
   createOrganizationTree,
   filterScannedTracks,
+  normalizeMissingSubgenreFolder,
   ORGANIZATION_TREE_PREVIEW_PATH_LIMIT,
   normalizeOrganizationRuleLevels,
   organizationRulesUseBpmRanges,
@@ -147,6 +149,35 @@ describe("desktop organization preview", () => {
         collisionResolved: true,
       },
     ]);
+  });
+
+  it("supports configurable genre/subgenre handling without inventing metadata", () => {
+    const withSubgenre = new Map<string, LinkedOrganizationMetadata>([
+      ["track-1", { camelotKey: null, energy: null, releaseYear: null, subgenre: "Deep House" }],
+    ]);
+    expect(
+      createOrganizationPreview([tracks[0]], "genre-subgenre", {
+        linkedMetadataByScanId: withSubgenre,
+        missingSubgenreFolder: "Sin clasificar",
+        missingSubgenreMode: "folder",
+      })[0].targetPath,
+    ).toBe("House/Deep House/Opening.mp3");
+    expect(
+      createOrganizationPreview([tracks[1]], "genre-subgenre", {
+        linkedMetadataByScanId: withSubgenre,
+        missingSubgenreFolder: "Sin clasificar",
+        missingSubgenreMode: "folder",
+      })[0].targetPath,
+    ).toBe("Género desconocido/Sin clasificar/Closing.flac");
+    expect(
+      createOrganizationPreview(tracks, "genre-subgenre", {
+        linkedMetadataByScanId: withSubgenre,
+        missingSubgenreMode: "exclude",
+      }),
+    ).toHaveLength(1);
+    expect(countMissingSubgenreTracks(tracks, withSubgenre)).toBe(1);
+    expect(normalizeMissingSubgenreFolder("  Pendientes  ")).toBe("Pendientes");
+    expect(normalizeMissingSubgenreFolder("   ")).toBeNull();
   });
 
   it("supports existing fixed schemes", () => {

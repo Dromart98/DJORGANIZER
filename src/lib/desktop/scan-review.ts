@@ -78,6 +78,7 @@ export function paginateScannedTracks(
 export type OrganizationScheme =
   | "artist-album"
   | "genre"
+  | "genre-subgenre"
   | "genre-artist"
   | "key-bpm"
   | "bpm-range"
@@ -105,10 +106,14 @@ export interface LinkedOrganizationMetadata {
   subgenre: string | null;
 }
 
+export type MissingSubgenreMode = "folder" | "exclude";
+
 export interface OrganizationPreviewOptions {
   bpmBoundaries?: readonly number[];
   energyByScanId?: ReadonlyMap<string, number>;
   linkedMetadataByScanId?: ReadonlyMap<string, LinkedOrganizationMetadata>;
+  missingSubgenreFolder?: string;
+  missingSubgenreMode?: MissingSubgenreMode;
   ruleLevels?: readonly (OrganizationRuleLevel | "")[];
 }
 
@@ -205,6 +210,22 @@ export function normalizeBpmRangeBoundaries(boundaries: readonly number[]) {
   return normalized;
 }
 
+export function normalizeMissingSubgenreFolder(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 80) return null;
+  return safePathSegment(trimmed, "Sin subgénero");
+}
+
+export function countMissingSubgenreTracks(
+  tracks: readonly ScannedAudioFile[],
+  linkedMetadataByScanId?: ReadonlyMap<string, LinkedOrganizationMetadata>,
+) {
+  return tracks.filter((track) => {
+    const subgenre = linkedMetadataByScanId?.get(track.scanId)?.subgenre;
+    return !subgenre?.trim();
+  }).length;
+}
+
 export function safePathSegment(value: string | null, fallback: string) {
   const clean = (candidate: string) =>
     candidate
@@ -297,6 +318,17 @@ function organizationFolders(
     return [safePathSegment(track.genre, "Género desconocido")];
   }
 
+  if (scheme === "genre-subgenre") {
+    const subgenre = options.linkedMetadataByScanId?.get(track.scanId)?.subgenre;
+    const fallback =
+      normalizeMissingSubgenreFolder(options.missingSubgenreFolder ?? "Sin subgénero") ??
+      "Sin subgénero";
+    return [
+      safePathSegment(track.genre, "Género desconocido"),
+      safePathSegment(subgenre ?? null, fallback),
+    ];
+  }
+
   if (scheme === "genre-artist") {
     return [
       safePathSegment(track.genre, "Género desconocido"),
@@ -369,7 +401,14 @@ export function createOrganizationPreview(
         sensitivity: "base",
       }),
     )
-    .map<OrganizationPreviewItem>((track) => {
+    .flatMap<OrganizationPreviewItem>((track) => {
+      if (
+        scheme === "genre-subgenre" &&
+        options.missingSubgenreMode === "exclude" &&
+        !options.linkedMetadataByScanId?.get(track.scanId)?.subgenre?.trim()
+      ) {
+        return [];
+      }
       const folders = organizationFolders(
         track,
         scheme,
@@ -393,11 +432,13 @@ export function createOrganizationPreview(
       }
 
       usedTargets.add(targetPath.toLocaleLowerCase("es-ES"));
-      return {
-        sourcePath: track.relativePath,
-        targetPath,
-        collisionResolved: suffix > 1,
-      };
+      return [
+        {
+          sourcePath: track.relativePath,
+          targetPath,
+          collisionResolved: suffix > 1,
+        },
+      ];
     });
 }
 

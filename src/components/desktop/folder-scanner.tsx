@@ -10,9 +10,11 @@ import {
   type DesktopCrateExport,
 } from "@/app/import/actions";
 import {
+  countMissingSubgenreTracks,
   createOrganizationPreview,
   createOrganizationTree,
   filterScannedTracks,
+  normalizeMissingSubgenreFolder,
   normalizeOrganizationRuleLevels,
   organizationRulesUseBpmRanges,
   organizationRulesUseLinkedMetadata,
@@ -21,6 +23,7 @@ import {
   paginateScannedTracks,
   parseBpmRangeBoundaries,
   type LinkedOrganizationMetadata,
+  type MissingSubgenreMode,
   type OrganizationRuleLevel,
   type OrganizationScheme,
   type OrganizationTreeNode,
@@ -328,6 +331,11 @@ export function DesktopFolderScanner() {
   const [organizationRuleLevels, setOrganizationRuleLevels] = useState<
     (OrganizationRuleLevel | "")[]
   >(["genre", "", ""]);
+  const [missingSubgenreMode, setMissingSubgenreMode] =
+    useState<MissingSubgenreMode>("folder");
+  const [missingSubgenreFolder, setMissingSubgenreFolder] = useState("Sin subgénero");
+  const [confirmMissingSubgenreExclusion, setConfirmMissingSubgenreExclusion] =
+    useState(false);
   const [bpmBoundaryInput, setBpmBoundaryInput] = useState("");
   const [virtualDjListName, setVirtualDjListName] = useState("DJOrganizer");
   const [exportingVirtualDj, setExportingVirtualDj] =
@@ -392,22 +400,34 @@ export function DesktopFolderScanner() {
       organizationRulesUseBpmRanges(organizationRuleLevels));
   const usesLinkedOrganizationMetadata =
     organizationScheme === "energy-bpm-range" ||
+    organizationScheme === "genre-subgenre" ||
     (organizationScheme === "rules" &&
       organizationRulesUseLinkedMetadata(organizationRuleLevels));
   const organizationRulesValid =
     organizationScheme !== "rules" || Boolean(normalizedOrganizationRuleLevels);
+  const normalizedMissingSubgenreFolder = normalizeMissingSubgenreFolder(
+    missingSubgenreFolder,
+  );
+  const missingSubgenreCount = useMemo(
+    () => countMissingSubgenreTracks(selectedTracks, linkedOrganizationMetadataByScanId),
+    [linkedOrganizationMetadataByScanId, selectedTracks],
+  );
   const organizationPreview = useMemo(
     () =>
       createOrganizationPreview(selectedTracks, organizationScheme, {
         bpmBoundaries: bpmBoundaries ?? undefined,
         energyByScanId: linkedEnergyByScanId,
         linkedMetadataByScanId: linkedOrganizationMetadataByScanId,
+        missingSubgenreFolder,
+        missingSubgenreMode,
         ruleLevels: organizationRuleLevels,
       }),
     [
       bpmBoundaries,
       linkedEnergyByScanId,
       linkedOrganizationMetadataByScanId,
+      missingSubgenreFolder,
+      missingSubgenreMode,
       organizationRuleLevels,
       organizationScheme,
       selectedTracks,
@@ -420,8 +440,14 @@ export function DesktopFolderScanner() {
         : [],
     [organizationPreview, organizationScheme],
   );
+  const genreSubgenrePolicyReady =
+    organizationScheme !== "genre-subgenre" ||
+    (missingSubgenreMode === "folder"
+      ? Boolean(normalizedMissingSubgenreFolder)
+      : missingSubgenreCount === 0 || confirmMissingSubgenreExclusion);
   const organizationConfigurationReady =
     organizationRulesValid &&
+    genreSubgenrePolicyReady &&
     (!usesBpmRanges || Boolean(bpmBoundaries)) &&
     (!usesLinkedOrganizationMetadata || organizationMetadataReady);
   const visibleTrackIds = pagination.items.map((track) => track.scanId);
@@ -1098,6 +1124,18 @@ export function DesktopFolderScanner() {
   async function runReorganization(apply: boolean) {
     const core = getTauriCore();
     if (!core || !result || !selectedTracks.length) return;
+    if (!genreSubgenrePolicyReady) {
+      setReorganizationMessage(
+        missingSubgenreMode === "exclude"
+          ? locale === "en"
+            ? "Confirm the exclusion of tracks without subgenre before simulating the plan."
+            : "Confirma la exclusión de las pistas sin subgénero antes de simular el plan."
+          : locale === "en"
+            ? "Enter a valid neutral folder name for tracks without subgenre."
+            : "Introduce un nombre válido para la carpeta neutral de pistas sin subgénero.",
+      );
+      return;
+    }
     if (!organizationRulesValid) {
       setReorganizationMessage(
         locale === "en"
@@ -1140,6 +1178,16 @@ export function DesktopFolderScanner() {
         {
           request: {
             bpmBoundaries: usesBpmRanges ? bpmBoundaries ?? [] : [],
+            confirmMissingSubgenreExclusion:
+              organizationScheme === "genre-subgenre" &&
+              missingSubgenreMode === "exclude" &&
+              confirmMissingSubgenreExclusion,
+            missingSubgenreFolder:
+              organizationScheme === "genre-subgenre" && missingSubgenreMode === "folder"
+                ? normalizedMissingSubgenreFolder
+                : null,
+            missingSubgenreMode:
+              organizationScheme === "genre-subgenre" ? missingSubgenreMode : "folder",
             ruleLevels:
               organizationScheme === "rules"
                 ? normalizedOrganizationRuleLevels ?? []
@@ -1872,6 +1920,7 @@ export function DesktopFolderScanner() {
                       >
                         <option value="artist-album">{t("Artista / álbum")}</option>
                         <option value="genre">{t("Género")}</option>
+                        <option value="genre-subgenre">{t("Género / subgénero")}</option>
                         <option value="genre-artist">{t("Género / artista")}</option>
                         <option value="key-bpm">{t("Tonalidad / BPM")}</option>
                         <option value="bpm-range">{t("Rango de BPM")}</option>
@@ -1882,6 +1931,56 @@ export function DesktopFolderScanner() {
                       </select>
                     </label>
                   </div>
+                  {organizationScheme === "genre-subgenre" ? (
+                    <div className="organization-rule-builder">
+                      <label>
+                        {locale === "en" ? "Tracks without subgenre" : "Pistas sin subgénero"}
+                        <select
+                          onChange={(event) => {
+                            setMissingSubgenreMode(event.target.value as MissingSubgenreMode);
+                            setConfirmMissingSubgenreExclusion(false);
+                          }}
+                          value={missingSubgenreMode}
+                        >
+                          <option value="folder">
+                            {locale === "en" ? "Use a neutral folder" : "Usar carpeta neutral"}
+                          </option>
+                          <option value="exclude">
+                            {locale === "en" ? "Exclude with confirmation" : "Excluir con confirmación"}
+                          </option>
+                        </select>
+                      </label>
+                      {missingSubgenreMode === "folder" ? (
+                        <label>
+                          {locale === "en" ? "Neutral folder name" : "Nombre de carpeta neutral"}
+                          <input
+                            aria-invalid={!normalizedMissingSubgenreFolder}
+                            maxLength={80}
+                            onChange={(event) => setMissingSubgenreFolder(event.target.value)}
+                            value={missingSubgenreFolder}
+                          />
+                        </label>
+                      ) : missingSubgenreCount ? (
+                        <label>
+                          <input
+                            checked={confirmMissingSubgenreExclusion}
+                            onChange={(event) =>
+                              setConfirmMissingSubgenreExclusion(event.target.checked)
+                            }
+                            type="checkbox"
+                          />
+                          {locale === "en"
+                            ? `Confirm exclusion of ${missingSubgenreCount.toLocaleString(locale)} tracks without subgenre`
+                            : `Confirmo excluir ${missingSubgenreCount.toLocaleString(locale)} pistas sin subgénero`}
+                        </label>
+                      ) : null}
+                      <small>
+                        {locale === "en"
+                          ? `${missingSubgenreCount.toLocaleString(locale)} selected tracks currently have no linked subgenre.`
+                          : `${missingSubgenreCount.toLocaleString(locale)} pistas seleccionadas no tienen subgénero vinculado.`}
+                      </small>
+                    </div>
+                  ) : null}
                   {organizationScheme === "rules" ? (
                     <div className="organization-rule-builder">
                       {organizationRuleLevels.map((selectedLevel, index) => (

@@ -1310,6 +1310,7 @@ struct VirtualDjExportResult {
 enum OrganizationScheme {
     ArtistAlbum,
     Genre,
+    GenreSubgenre,
     GenreArtist,
     KeyBpm,
     BpmRange,
@@ -1334,11 +1335,25 @@ enum OrganizationRuleLevel {
     Year,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum MissingSubgenreMode {
+    #[default]
+    Folder,
+    Exclude,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReorganizationRequest {
     #[serde(default)]
     bpm_boundaries: Vec<u16>,
+    #[serde(default)]
+    confirm_missing_subgenre_exclusion: bool,
+    #[serde(default)]
+    missing_subgenre_folder: Option<String>,
+    #[serde(default)]
+    missing_subgenre_mode: MissingSubgenreMode,
     #[serde(default)]
     rule_levels: Vec<OrganizationRuleLevel>,
     scheme: OrganizationScheme,
@@ -2563,6 +2578,7 @@ fn organization_folders(
     bpm_boundaries: &[u16],
     energy: Option<u8>,
     metadata: Option<&LibraryOrganizationMetadataInput>,
+    missing_subgenre_folder: &str,
 ) -> Vec<String> {
     match scheme {
         OrganizationScheme::Rules => rule_levels
@@ -2573,6 +2589,13 @@ fn organization_folders(
             track.genre.as_deref(),
             "Género desconocido",
         )],
+        OrganizationScheme::GenreSubgenre => vec![
+            safe_path_segment(track.genre.as_deref(), "Género desconocido"),
+            safe_path_segment(
+                metadata.and_then(|value| value.subgenre.as_deref()),
+                missing_subgenre_folder,
+            ),
+        ],
         OrganizationScheme::GenreArtist => vec![
             safe_path_segment(track.genre.as_deref(), "Género desconocido"),
             safe_path_segment(track.artist.as_deref(), "Artista desconocido"),
@@ -2647,6 +2670,9 @@ fn build_reorganization_plan_with_options(
     bpm_boundaries: &[u16],
     energy_by_scan_id: &HashMap<String, u8>,
     metadata_by_scan_id: &HashMap<String, LibraryOrganizationMetadataInput>,
+    missing_subgenre_mode: &MissingSubgenreMode,
+    missing_subgenre_folder: Option<&str>,
+    confirm_missing_subgenre_exclusion: bool,
 ) -> Result<Vec<AppliedMove>, String> {
     if matches!(scheme, OrganizationScheme::Rules) {
         validate_organization_rule_levels(rule_levels)?;
@@ -2661,6 +2687,32 @@ fn build_reorganization_plan_with_options(
         return Err("Los cortes de BPM solo se admiten en esquemas por rango.".to_owned());
     }
     let selected = selected_session_tracks_from_session(session, track_ids)?;
+    let mut neutral_subgenre_folder = "Sin subgénero".to_owned();
+    if matches!(scheme, OrganizationScheme::GenreSubgenre) {
+        match missing_subgenre_mode {
+            MissingSubgenreMode::Folder => {
+                let configured = missing_subgenre_folder.unwrap_or("Sin subgénero").trim();
+                if configured.is_empty() || configured.chars().count() > 80 {
+                    return Err(
+                        "Configura un nombre válido para la carpeta neutral de subgénero."
+                            .to_owned(),
+                    );
+                }
+                neutral_subgenre_folder = safe_path_segment(Some(configured), "Sin subgénero");
+            }
+            MissingSubgenreMode::Exclude => {
+                let has_missing = selected.iter().any(|session_track| {
+                    metadata_by_scan_id
+                        .get(&session_track.track.scan_id)
+                        .and_then(|value| value.subgenre.as_deref())
+                        .is_none_or(|value| value.trim().is_empty())
+                });
+                if has_missing && !confirm_missing_subgenre_exclusion {
+                    return Err("Confirma la exclusión de las pistas sin subgénero.".to_owned());
+                }
+            }
+        }
+    }
     let mut used_targets = HashSet::with_capacity(selected.len());
     let mut moves = Vec::with_capacity(selected.len());
 
@@ -2683,6 +2735,14 @@ fn build_reorganization_plan_with_options(
 
         let energy = energy_by_scan_id.get(&session_track.track.scan_id).copied();
         let metadata = metadata_by_scan_id.get(&session_track.track.scan_id);
+        if matches!(scheme, OrganizationScheme::GenreSubgenre)
+            && matches!(missing_subgenre_mode, MissingSubgenreMode::Exclude)
+            && metadata
+                .and_then(|value| value.subgenre.as_deref())
+                .is_none_or(|value| value.trim().is_empty())
+        {
+            continue;
+        }
         let folders = organization_folders(
             &session_track.track,
             scheme,
@@ -2690,6 +2750,7 @@ fn build_reorganization_plan_with_options(
             bpm_boundaries,
             energy,
             metadata,
+            &neutral_subgenre_folder,
         );
         let original_stem = Path::new(&session_track.track.name)
             .file_stem()
@@ -2749,6 +2810,9 @@ fn build_reorganization_plan(
         &[],
         &HashMap::new(),
         &HashMap::new(),
+        &MissingSubgenreMode::Folder,
+        None,
+        false,
     )
 }
 
@@ -2844,6 +2908,7 @@ mod bpm_range_organization_tests {
                 &boundaries,
                 Some(7),
                 Some(&metadata),
+                "Sin subgénero",
             ),
             vec!["Deep House", "8A", "2024"]
         );
@@ -2858,6 +2923,7 @@ mod bpm_range_organization_tests {
                 &boundaries,
                 Some(7),
                 Some(&metadata),
+                "Sin subgénero",
             ),
             vec!["Energía 7", "120–139 BPM"]
         );
@@ -2878,12 +2944,30 @@ mod bpm_range_organization_tests {
                 &[],
                 None,
                 None,
+                "Sin subgénero",
             ),
             vec![
                 "Subgénero desconocido",
                 "Camelot desconocido",
                 "Año desconocido",
             ]
+        );
+    }
+
+    #[test]
+    fn genre_subgenre_uses_configured_neutral_folder_without_inventing_metadata() {
+        let track = track(Some(124.0));
+        assert_eq!(
+            organization_folders(
+                &track,
+                &OrganizationScheme::GenreSubgenre,
+                &[],
+                &[],
+                None,
+                None,
+                "Pendientes",
+            ),
+            vec!["House", "Pendientes"]
         );
     }
 
@@ -2899,6 +2983,7 @@ mod bpm_range_organization_tests {
                 &boundaries,
                 None,
                 None,
+                "Sin subgénero",
             ),
             vec!["House", "120–139 BPM"]
         );
@@ -2910,6 +2995,7 @@ mod bpm_range_organization_tests {
                 &boundaries,
                 None,
                 None,
+                "Sin subgénero",
             ),
             vec!["Am", "120–139 BPM"]
         );
@@ -2921,6 +3007,7 @@ mod bpm_range_organization_tests {
                 &boundaries,
                 Some(7),
                 None,
+                "Sin subgénero",
             ),
             vec!["Energía 7", "120–139 BPM"]
         );
@@ -5807,6 +5894,9 @@ async fn preview_reorganization_plan(
         &request.bpm_boundaries,
         &energy_by_scan_id,
         &metadata_by_scan_id,
+        &request.missing_subgenre_mode,
+        request.missing_subgenre_folder.as_deref(),
+        request.confirm_missing_subgenre_exclusion,
     )?;
     Ok(ReorganizationResult {
         applied: false,
@@ -5849,6 +5939,9 @@ async fn apply_reorganization_plan(
             &request.bpm_boundaries,
             &energy_by_scan_id,
             &metadata_by_scan_id,
+            &request.missing_subgenre_mode,
+            request.missing_subgenre_folder.as_deref(),
+            request.confirm_missing_subgenre_exclusion,
         )?;
         if moves.is_empty() {
             return Ok(ReorganizationResult {

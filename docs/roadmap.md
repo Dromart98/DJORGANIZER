@@ -104,10 +104,12 @@ resultado directamente utilizable:
    filtros, ordenación y sugerencias revisables. Mantener género y subgénero como
    datos separados, no sobrescribir correcciones manuales y exportarlo solo donde
    el formato de destino tenga un contrato compatible.
-7. - [ ] Añadir la organización física género/subgénero después de estabilizar el
-   nuevo campo. Las pistas sin subgénero deben permanecer visibles en la
-   previsualización y usar una carpeta neutral configurable o quedar excluidas
-   mediante confirmación; nunca se inventarán coincidencias.
+7. - [x] Añadir la organización física género/subgénero después de estabilizar el
+   nuevo campo. El preset reutiliza únicamente subgéneros vinculados a coincidencias
+   locales confirmadas. Las pistas sin subgénero permanecen visibles en la
+   previsualización y, por defecto, usan una carpeta neutral configurable; también
+   pueden excluirse mediante confirmación explícita. Tauri vuelve a validar la
+   política y nunca inventa coincidencias antes de mover archivos.
 
 Todas estas fases pertenecen a Tauri cuando afectan a archivos locales. React y
 Supabase solo manejarán metadatos e identificadores opacos; las rutas absolutas
