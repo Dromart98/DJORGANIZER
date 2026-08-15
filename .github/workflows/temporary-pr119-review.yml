@@ -1,0 +1,29 @@
+name: Temporary PR 119 review fix
+
+on:
+  push:
+    branches:
+      - feat/organization-rule-builder
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/organization-rule-builder
+          fetch-depth: 0
+      - name: Apply review fixes
+        run: |
+          python .github/scripts/address_pr119_review.py
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+      - name: Commit review fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Bound rule tree and clear stale metadata"
+          git push origin HEAD:feat/organization-rule-builder
