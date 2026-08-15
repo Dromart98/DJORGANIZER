@@ -1,4 +1,4 @@
-name: Temporary missing-file proof patch
+name: Temporary health patch runner
 
 on:
   push:
@@ -16,44 +16,8 @@ jobs:
         with:
           ref: feat/library-health-center
           fetch-depth: 0
-      - name: Pass confirmed scan paths
-        shell: python
-        run: |
-          from pathlib import Path
-          path = Path('src/components/desktop/folder-scanner.tsx')
-          text = path.read_text(encoding='utf-8')
-
-          old = '          if (!library.message) replaceTrackLinks(scanResult.sessionId, []);'
-          new = '''          if (!library.message) {
-            replaceTrackLinks(scanResult.sessionId, [], {
-              scannedRelativePaths: scanResult.tracks.map(
-                (track) => track.relativePath,
-              ),
-            });
-          }'''
-          if text.count(old) != 1:
-              raise SystemExit(f'empty links anchor count: {text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          old = '''          })),
-          !library.message,
-        );'''
-          new = '''          })),
-          {
-            coverageComplete: !library.message,
-            scannedRelativePaths: scanResult.tracks.map(
-              (track) => track.relativePath,
-            ),
-          },
-        );'''
-          if text.count(old) != 1:
-              raise SystemExit(f'linked paths anchor count: {text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          path.write_text(text, encoding='utf-8')
-          Path('.github/workflows/temporary-missing-file-proof.yml').unlink()
-      - name: Commit patch
-        run: |
+      - run: python .github/scripts/patch_missing_health.py
+      - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
