@@ -1,0 +1,109 @@
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.metric {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+}
+
+.metric strong {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric span,
+.sectionIntro,
+.detail,
+.pathList small {
+  color: var(--muted);
+}
+
+.section {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.issueGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.issueCard {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.issueCard strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trackList,
+.pathList {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trackRow,
+.pathRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.trackIdentity,
+.pathIdentity {
+  min-width: 0;
+}
+
+.trackIdentity strong,
+.trackIdentity span,
+.pathIdentity strong,
+.pathIdentity span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .sectionHeader,
+  .trackRow,
+  .pathRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trackRow :global(.button),
+  .pathRow :global(.button) {
+    align-self: flex-start;
+  }
+}

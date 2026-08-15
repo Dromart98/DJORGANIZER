@@ -300,7 +300,7 @@ function OrganizationTreeList({ nodes }: { nodes: readonly OrganizationTreeNode[
 
 export function DesktopFolderScanner() {
   const { format, locale, t } = useTranslator();
-  const { clearTrackLinks, replaceTrackLinks } = useDesktopScanSession();
+  const { clearTrackLinks, replaceScanHealth, replaceTrackLinks } = useDesktopScanSession();
   const [desktopAvailable, setDesktopAvailable] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [incrementalScanning, setIncrementalScanning] = useState(false);
@@ -489,7 +489,6 @@ export function DesktopFolderScanner() {
 
   const linkLibraryTracks = useCallback(
     async (core: TauriCore, scanResult: FolderScanResult) => {
-      clearTrackLinks();
       setLinkedEnergyByScanId(new Map());
       setLinkedOrganizationMetadataByScanId(new Map());
       setOrganizationMetadataReady(false);
@@ -502,6 +501,13 @@ export function DesktopFolderScanner() {
       try {
         const library = await getDesktopLibraryLinkCandidatesAction();
         if (!library.candidates.length) {
+          if (!library.message) {
+            replaceTrackLinks(scanResult.sessionId, [], {
+              scannedRelativePaths: scanResult.tracks.map(
+                (track) => track.relativePath,
+              ),
+            });
+          }
           setLibraryLinkMessage(
             library.message
               ? translateKnown(locale, library.message)
@@ -568,7 +574,22 @@ export function DesktopFolderScanner() {
           ),
         );
         setOrganizationMetadataReady(true);
-        replaceTrackLinks(scanResult.sessionId, linkResult.links);
+        const relativePathByScanId = new Map(
+          scanResult.tracks.map((track) => [track.scanId, track.relativePath]),
+        );
+        replaceTrackLinks(
+          scanResult.sessionId,
+          linkResult.links.map((link) => ({
+            ...link,
+            relativePath: relativePathByScanId.get(link.scanId),
+          })),
+          {
+            coverageComplete: !library.message,
+            scannedRelativePaths: scanResult.tracks.map(
+              (track) => track.relativePath,
+            ),
+          },
+        );
         const rawRequest = sessionStorage.getItem(DESKTOP_EXPORT_REQUEST_KEY);
         if (rawRequest) {
           sessionStorage.removeItem(DESKTOP_EXPORT_REQUEST_KEY);
@@ -614,7 +635,7 @@ export function DesktopFolderScanner() {
         );
       }
     },
-    [clearTrackLinks, locale, replaceTrackLinks, t],
+    [locale, replaceTrackLinks, t],
   );
 
   async function chooseAndScan() {
@@ -636,6 +657,7 @@ export function DesktopFolderScanner() {
 
       setResult(nextResult);
       clearTrackLinks();
+      replaceScanHealth(nextResult);
       setWatchingFolder(false);
       setIncrementalMessage(null);
       setQuery("");
@@ -690,6 +712,7 @@ export function DesktopFolderScanner() {
         ]);
 
         setResult(incremental.scan);
+        replaceScanHealth(incremental.scan);
         setSelectedTrackIds(
           (current) =>
             new Set([...current].filter((scanId) => activeScanIds.has(scanId))),

@@ -8,6 +8,7 @@ import { DesktopScanSessionProvider } from "@/components/desktop/scan-session-pr
 import { OfflineSyncManager } from "@/components/pwa/offline-sync-manager";
 import { PwaRegistration } from "@/components/pwa/pwa-registration";
 import { DiagnosticsCapture } from "@/components/settings/privacy-diagnostics";
+import { getOptionalUser } from "@/lib/auth/user";
 import { translate } from "@/lib/i18n/functional";
 import { resolveLocale } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
@@ -34,7 +35,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const cookieStore = await cookies();
+  const [cookieStore, user] = await Promise.all([cookies(), getOptionalUser()]);
   const locale = resolveLocale(cookieStore.get("djorganizer-locale")?.value);
   return (
     <html lang={locale}>
@@ -44,8 +45,11 @@ export default async function RootLayout({
           <DiagnosticsCapture />
           <ConnectivityStatus />
           <OfflineSyncManager />
-          <DesktopScanSessionProvider>
-            <AppShell authStatus={<AuthStatus locale={locale} />} locale={locale}>
+          <DesktopScanSessionProvider key={user?.id ?? "signed-out"}>
+            <AppShell
+              authStatus={<AuthStatus locale={locale} user={user} />}
+              locale={locale}
+            >
               {children}
             </AppShell>
           </DesktopScanSessionProvider>

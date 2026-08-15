@@ -128,7 +128,7 @@ de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
    etiquetas y demás campos compatibles. Deben admitir grupos `Y` y `O`, mostrar
    una previsualización del resultado y actualizarse al cambiar la biblioteca sin
    duplicar pistas ni modificar archivos.
-2. - [ ] Añadir un centro de salud de la biblioteca que detecte archivos no
+2. - [x] Añadir un centro de salud de la biblioteca que detecte archivos no
    encontrados, ilegibles o corruptos, rutas modificadas, archivos presentes en
    carpetas confirmadas pero aún no importados, posibles duplicados y metadatos
    ausentes o inválidos. La detección de campos incompletos se integra aquí, no

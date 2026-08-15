@@ -73,9 +73,14 @@ export default async function LibraryPage({
     <>
       <PageHeader
         action={
-          <Link className="button button--primary" href="/library/new">
-            {t("Añadir canción")}
-          </Link>
+          <div className="empty-state__actions">
+            <Link className="button button--secondary" href="/library/health">
+              {locale === "en" ? "Library health" : "Salud de la biblioteca"}
+            </Link>
+            <Link className="button button--primary" href="/library/new">
+              {t("Añadir canción")}
+            </Link>
+          </div>
         }
         description={t("Busca, filtra y edita tus pistas.")}
         eyebrow={t("Colección")}

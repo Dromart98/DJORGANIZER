@@ -1,9 +1,19 @@
 import Link from "next/link";
-import { getOptionalUser, getUserDisplayName } from "@/lib/auth/user";
+import {
+  getOptionalUser,
+  getUserDisplayName,
+  type AuthenticatedUser,
+} from "@/lib/auth/user";
 import { getMessages, type Locale } from "@/lib/i18n/i18n";
 
-export async function AuthStatus({ locale }: { locale: Locale }) {
-  const user = await getOptionalUser();
+export async function AuthStatus({
+  locale,
+  user: suppliedUser,
+}: {
+  locale: Locale;
+  user?: AuthenticatedUser | null;
+}) {
+  const user = suppliedUser === undefined ? await getOptionalUser() : suppliedUser;
   const copy = getMessages(locale).auth;
 
   if (!user) {
