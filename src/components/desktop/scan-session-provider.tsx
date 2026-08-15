@@ -62,7 +62,11 @@ type ScanSessionContextValue = {
   missingTrackIds: string[];
   pathChanges: DesktopPathChange[];
   replaceScanHealth(snapshot: DesktopScanHealthSnapshot): void;
-  replaceTrackLinks(sessionId: string, links: LinkInput[]): void;
+  replaceTrackLinks(
+    sessionId: string,
+    links: LinkInput[],
+    coverageComplete?: boolean,
+  ): void;
   scanHealth: DesktopScanHealthSnapshot | null;
 };
 
@@ -85,7 +89,7 @@ export function DesktopScanSessionProvider({ children }: { children: ReactNode }
   );
 
   const replaceTrackLinks = useCallback(
-    (sessionId: string, nextLinks: LinkInput[]) => {
+    (sessionId: string, nextLinks: LinkInput[], coverageComplete = true) => {
       setLinkState((current) => {
         const next = new Map(
           nextLinks.map(({ relativePath, scanId, trackId }) => [
@@ -96,9 +100,19 @@ export function DesktopScanSessionProvider({ children }: { children: ReactNode }
         if (current.sessionId !== sessionId) {
           return {
             links: next,
-            linksReady: true,
+            linksReady: coverageComplete,
             missingTrackIds: new Set(),
             pathChanges: new Map(),
+            sessionId,
+          };
+        }
+
+        if (!coverageComplete) {
+          return {
+            links: next,
+            linksReady: false,
+            missingTrackIds: current.missingTrackIds,
+            pathChanges: current.pathChanges,
             sessionId,
           };
         }
