@@ -13,6 +13,9 @@ create table private.track_archive_history (
 
 create unique index track_archive_history_user_revision_idx
   on private.track_archive_history (user_id, revision);
+create index track_archive_history_active_track_revision_idx
+  on private.track_archive_history (user_id, track_id, revision desc)
+  where undone_at is null;
 
 revoke all on private.track_archive_history
   from public, anon, authenticated, service_role;
@@ -133,10 +136,8 @@ begin
 end;
 $$;
 
-revoke all on function public.list_track_archive_history(integer)
-  from public, anon;
-grant execute on function public.list_track_archive_history(integer)
-  to authenticated;
+revoke all on function public.list_track_archive_history(integer) from public, anon;
+grant execute on function public.list_track_archive_history(integer) to authenticated;
 
 create or replace function public.undo_track_archive_history(
   requested_history_id uuid
@@ -227,7 +228,5 @@ begin
 end;
 $$;
 
-revoke all on function public.undo_track_archive_history(uuid)
-  from public, anon;
-grant execute on function public.undo_track_archive_history(uuid)
-  to authenticated;
+revoke all on function public.undo_track_archive_history(uuid) from public, anon;
+grant execute on function public.undo_track_archive_history(uuid) to authenticated;
