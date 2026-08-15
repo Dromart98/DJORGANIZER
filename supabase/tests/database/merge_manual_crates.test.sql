@@ -1,6 +1,6 @@
 begin;
 
-select plan(5);
+select plan(9);
 
 insert into auth.users (id, email)
 values
@@ -16,7 +16,8 @@ values
   ('41100000-0000-4000-8000-000000000001', '41000000-0000-4000-8000-000000000001', 'Target one'),
   ('41100000-0000-4000-8000-000000000002', '41000000-0000-4000-8000-000000000001', 'Common'),
   ('41100000-0000-4000-8000-000000000003', '41000000-0000-4000-8000-000000000001', 'Source only'),
-  ('41100000-0000-4000-8000-000000000004', '41000000-0000-4000-8000-000000000001', 'Late source');
+  ('41100000-0000-4000-8000-000000000004', '41000000-0000-4000-8000-000000000001', 'Late source'),
+  ('41100000-0000-4000-8000-000000000005', '41000000-0000-4000-8000-000000000001', 'Locked append');
 
 insert into public.crates (id, user_id, name)
 values
@@ -73,6 +74,53 @@ select is(
   'Source crate remains unchanged'
 );
 
+select lives_ok(
+  $$select public.add_track_to_manual_crate(
+    '41200000-0000-4000-8000-000000000002'::uuid,
+    '41100000-0000-4000-8000-000000000005'::uuid
+  )$$,
+  'Appending a track uses the locked database mutation path'
+);
+
+select is(
+  (
+    select array_agg(track_id order by position, created_at, track_id)
+    from public.crate_tracks
+    where crate_id = '41200000-0000-4000-8000-000000000002'
+  ),
+  array[
+    '41100000-0000-4000-8000-000000000001'::uuid,
+    '41100000-0000-4000-8000-000000000002'::uuid,
+    '41100000-0000-4000-8000-000000000003'::uuid,
+    '41100000-0000-4000-8000-000000000005'::uuid
+  ],
+  'Locked append uses the current final position'
+);
+
+select lives_ok(
+  $$select public.move_track_in_manual_crate(
+    '41200000-0000-4000-8000-000000000002'::uuid,
+    '41100000-0000-4000-8000-000000000005'::uuid,
+    'up'
+  )$$,
+  'Reordering uses the locked database mutation path'
+);
+
+select is(
+  (
+    select array_agg(track_id order by position, created_at, track_id)
+    from public.crate_tracks
+    where crate_id = '41200000-0000-4000-8000-000000000002'
+  ),
+  array[
+    '41100000-0000-4000-8000-000000000001'::uuid,
+    '41100000-0000-4000-8000-000000000002'::uuid,
+    '41100000-0000-4000-8000-000000000005'::uuid,
+    '41100000-0000-4000-8000-000000000003'::uuid
+  ],
+  'Locked reorder derives positions from the current membership snapshot'
+);
+
 insert into public.crate_tracks (user_id, crate_id, track_id, position)
 values (
   '41000000-0000-4000-8000-000000000001',
@@ -92,6 +140,7 @@ select throws_ok(
     array[
       '41100000-0000-4000-8000-000000000001'::uuid,
       '41100000-0000-4000-8000-000000000002'::uuid,
+      '41100000-0000-4000-8000-000000000005'::uuid,
       '41100000-0000-4000-8000-000000000003'::uuid
     ]
   )$$,
