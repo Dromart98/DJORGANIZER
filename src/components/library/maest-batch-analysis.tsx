@@ -20,7 +20,12 @@ import {
   maestFormProposal,
   maestProgressText,
 } from "@/lib/desktop/maest-preview";
-import { summarizePostAnalysis } from "@/lib/desktop/post-analysis-summary";
+import {
+  EMPTY_POST_ANALYSIS_SUMMARY,
+  mergePostAnalysisSummaries,
+  summarizePostAnalysis,
+  type PostAnalysisSummary,
+} from "@/lib/desktop/post-analysis-summary";
 import { getTauriCore } from "@/lib/desktop/tauri";
 
 type ReviewField = "genre" | "subgenre";
@@ -48,6 +53,8 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   const [creatingCrate, setCreatingCrate] = useState(false);
   const [retainedPostAnalysisTrackIds, setRetainedPostAnalysisTrackIds] =
     useState<string[]>([]);
+  const [retainedPostAnalysisSummary, setRetainedPostAnalysisSummary] =
+    useState<PostAnalysisSummary>({ ...EMPTY_POST_ANALYSIS_SUMMARY });
   const orchestratorRef = useRef<MaestBatchOrchestrator | null>(null);
   const getTrackLinkRef = useRef(getTrackLink);
   getTrackLinkRef.current = getTrackLink;
@@ -75,7 +82,10 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
     }
     const core = getTauriCore();
     if (!core) return;
-    if (!preservePostAnalysisResults) setRetainedPostAnalysisTrackIds([]);
+    if (!preservePostAnalysisResults) {
+      setRetainedPostAnalysisTrackIds([]);
+      setRetainedPostAnalysisSummary({ ...EMPTY_POST_ANALYSIS_SUMMARY });
+    }
     setLimitError(false);
     setOpen(true);
     setReviewSelection({});
@@ -108,12 +118,20 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
     setApplyResult(null);
     setCrateResult(null);
     setRetainedPostAnalysisTrackIds([]);
+    setRetainedPostAnalysisSummary({ ...EMPTY_POST_ANALYSIS_SUMMARY });
     setOpen(false);
   }
 
   function retryFailed() {
     if (!state) return;
     setRetainedPostAnalysisTrackIds(postAnalysisTrackIds);
+    const retainedFromCurrentRun = summarizePostAnalysis(
+      state.items.filter((item) => item.status !== "failed"),
+      state.phase,
+    );
+    setRetainedPostAnalysisSummary((current) =>
+      mergePostAnalysisSummaries(current, retainedFromCurrentRun),
+    );
     startBatch(
       state.items
         .filter((item) => item.status === "failed")
@@ -201,7 +219,10 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
   const terminal = Boolean(
     state && ["completed", "cancelled", "blocked"].includes(state.phase),
   );
-  const postAnalysisSummary = summarizePostAnalysis(state?.items ?? []);
+  const postAnalysisSummary = mergePostAnalysisSummaries(
+    retainedPostAnalysisSummary,
+    summarizePostAnalysis(state?.items ?? [], state?.phase),
+  );
   const reviewNeeded = postAnalysisSummary.ambiguous;
 
   async function applySelected() {
@@ -429,13 +450,13 @@ export function MaestBatchAnalysis({ tracks }: { tracks: MaestBatchTrack[] }) {
                   </h3>
                   <p role="status">
                     {locale === "en"
-                      ? `Correct: ${postAnalysisSummary.correct} · Need review: ${postAnalysisSummary.ambiguous} · Duplicates: ${postAnalysisSummary.duplicates} · Failed: ${postAnalysisSummary.failed}${postAnalysisSummary.omitted ? ` · Omitted: ${postAnalysisSummary.omitted}` : ""}`
-                      : `Correctas: ${postAnalysisSummary.correct} · Requieren revisión: ${postAnalysisSummary.ambiguous} · Duplicadas: ${postAnalysisSummary.duplicates} · Fallidas: ${postAnalysisSummary.failed}${postAnalysisSummary.omitted ? ` · Omitidas: ${postAnalysisSummary.omitted}` : ""}`}
+                      ? `Ready without issues: ${postAnalysisSummary.ready} · Need review: ${postAnalysisSummary.ambiguous} · Duplicates: ${postAnalysisSummary.duplicates} · Failed: ${postAnalysisSummary.failed}${postAnalysisSummary.omitted ? ` · Omitted: ${postAnalysisSummary.omitted}` : ""}`
+                      : `Sin incidencias: ${postAnalysisSummary.ready} · Requieren revisión: ${postAnalysisSummary.ambiguous} · Duplicadas: ${postAnalysisSummary.duplicates} · Fallidas: ${postAnalysisSummary.failed}${postAnalysisSummary.omitted ? ` · Omitidas: ${postAnalysisSummary.omitted}` : ""}`}
                   </p>
                   <p>
                     {locale === "en"
-                      ? "Duplicates are detected during Import before a saved library track reaches this batch, so this analysis does not create new duplicates."
-                      : "Los duplicados se detectan durante Importar antes de que una pista guardada llegue a este lote, por lo que este análisis no genera duplicados nuevos."}
+                      ? "Ready means the analysis produced a structurally usable result; it does not mean the prediction has been musically confirmed. Duplicates are detected during Import before a saved library track reaches this batch."
+                      : "Sin incidencias significa que el análisis produjo un resultado estructuralmente utilizable; no implica que la predicción se haya confirmado musicalmente. Los duplicados se detectan durante Importar antes de que una pista guardada llegue a este lote."}
                   </p>
                   <p>
                     {locale === "en"
