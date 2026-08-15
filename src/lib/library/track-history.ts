@@ -13,6 +13,9 @@ export type BulkTrackEditHistoryBatch = {
   batch_id: string;
   can_undo: boolean;
   created_at: string;
+  field_name: string;
+  previous_value_count: number;
+  previous_values: unknown[];
   track_count: number;
   undone_at: string | null;
 };
