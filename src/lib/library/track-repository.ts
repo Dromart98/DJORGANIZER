@@ -195,6 +195,7 @@ export async function listCompatibleTracks(
   userId: string,
   source: Tables<"tracks">,
 ) {
+  if (source.archived_at) return [];
   const matches = compatibleCamelotKeys(source.camelot_key);
   if (!matches.length) return [];
   const reasons = new Map(
