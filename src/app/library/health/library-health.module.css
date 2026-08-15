@@ -102,8 +102,8 @@
     flex-direction: column;
   }
 
-  .trackRow .button,
-  .pathRow .button {
+  .trackRow :global(.button),
+  .pathRow :global(.button) {
     align-self: flex-start;
   }
 }
