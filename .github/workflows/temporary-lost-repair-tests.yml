@@ -1,0 +1,32 @@
+name: Temporary lost repair tests
+
+on:
+  push:
+    branches:
+      - feat/repair-lost-track-references
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/repair-lost-track-references
+          fetch-depth: 0
+      - name: Apply regression tests
+        run: python3 scripts/temporary_lost_repair_tests.py
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt
+      - name: Format and commit
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          git config user.name "Dromart98"
+          git config user.email "davidromanmartin@yahoo.es"
+          git add src-tauri/src/lost_track_repair.rs
+          git rm scripts/temporary_lost_repair_tests.py .github/workflows/temporary-lost-repair-tests.yml scripts/temporary-lost-repair-tests.trigger
+          git commit -m "Test lost reference candidate security"
+          git push origin HEAD:feat/repair-lost-track-references
