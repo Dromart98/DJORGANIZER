@@ -154,11 +154,14 @@ de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
    pistas archivadas quedarán fuera de la biblioteca principal, recomendaciones y
    crates inteligentes salvo filtro explícito, y podrán restaurarse conservando
    sus metadatos, etiquetas y relaciones.
-6. - [ ] Añadir herramientas avanzadas para crates: fusionar, comparar, encontrar
-   pistas comunes o exclusivas, mostrar en qué crates aparece una pista, ordenar
-   por BPM, Camelot, energía o valoración y retirar duplicados internos sin borrar
-   canciones de la biblioteca. Todas las operaciones deben conservar el orden o
-   mostrar una previsualización cuando lo alteren.
+6. - [x] Añadir herramientas avanzadas para crates manuales: fusionar y comparar,
+   encontrar pistas comunes o exclusivas y mostrar en qué crates aparece una pista.
+   La ordenación admite BPM, Camelot, energía, género, subgénero y valoración,
+   ascendente o descendente, con previsualización completa antes de alterar el orden.
+   La misma pista no puede duplicarse dentro de un crate porque `crate_tracks` impone
+   la clave primaria `(crate_id, track_id)`; la fusión también deduplica los IDs de
+   origen. Por ello no se añade una operación destructiva de limpieza de duplicados ni
+   se borra ninguna canción de la biblioteca.
 7. - [ ] Extender el historial y deshacer a edición individual y masiva,
    normalización, etiquetas, valoración, archivado, cambios de crates y aceptación
    masiva de sugerencias. Guardar el estado anterior necesario, aislarlo por
