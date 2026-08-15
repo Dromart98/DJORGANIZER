@@ -1,6 +1,6 @@
 begin;
 
-select plan(8);
+select plan(9);
 
 insert into auth.users (id, email)
 values
@@ -75,6 +75,26 @@ select is(
   '31200000-0000-4000-8000-000000000001'::uuid,
   'Tag rules use owned persistent tag membership'
 );
+
+update public.tracks
+set archived_at = now()
+where id = '31200000-0000-4000-8000-000000000001';
+
+select is(
+  (
+    select count(*)::integer
+    from public.resolve_smart_crate_rule_tracks(
+      '{"version":1,"logic":"and","groups":[{"logic":"and","conditions":[{"field":"genre","operator":"equals","value":"Techno"}]}]}'::jsonb,
+      0, 100, null
+    )
+  ),
+  0,
+  'Archived tracks are excluded from smart crates by default'
+);
+
+update public.tracks
+set archived_at = null
+where id = '31200000-0000-4000-8000-000000000001';
 
 update public.tracks
 set genre = 'Techno'
