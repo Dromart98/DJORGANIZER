@@ -169,12 +169,18 @@ describe("desktop organization preview", () => {
         missingSubgenreMode: "folder",
       })[0].targetPath,
     ).toBe("Género desconocido/Sin clasificar/Closing.flac");
-    expect(
-      createOrganizationPreview(tracks, "genre-subgenre", {
-        linkedMetadataByScanId: withSubgenre,
-        missingSubgenreMode: "exclude",
-      }),
-    ).toHaveLength(1);
+    const exclusionPreview = createOrganizationPreview(tracks, "genre-subgenre", {
+      linkedMetadataByScanId: withSubgenre,
+      missingSubgenreMode: "exclude",
+    });
+    expect(exclusionPreview).toHaveLength(2);
+    expect(exclusionPreview.find((item) => item.sourcePath === "Set/Closing.flac"))
+      .toEqual({
+        collisionResolved: false,
+        excluded: true,
+        sourcePath: "Set/Closing.flac",
+        targetPath: "Set/Closing.flac",
+      });
     expect(countMissingSubgenreTracks(tracks, withSubgenre)).toBe(1);
     expect(normalizeMissingSubgenreFolder("  Pendientes  ")).toBe("Pendientes");
     expect(normalizeMissingSubgenreFolder("   ")).toBeNull();

@@ -121,6 +121,7 @@ export interface OrganizationPreviewItem {
   sourcePath: string;
   targetPath: string;
   collisionResolved: boolean;
+  excluded?: boolean;
 }
 
 export interface OrganizationTreeNode {
@@ -407,7 +408,14 @@ export function createOrganizationPreview(
         options.missingSubgenreMode === "exclude" &&
         !options.linkedMetadataByScanId?.get(track.scanId)?.subgenre?.trim()
       ) {
-        return [];
+        return [
+          {
+            sourcePath: track.relativePath,
+            targetPath: track.relativePath,
+            collisionResolved: false,
+            excluded: true,
+          },
+        ];
       }
       const folders = organizationFolders(
         track,
@@ -447,7 +455,9 @@ export function createOrganizationTree(
 ): OrganizationTreeNode[] {
   type OrganizationTreeMap = Map<string, OrganizationTreeMap>;
   const root: OrganizationTreeMap = new Map();
-  for (const item of preview.slice(0, ORGANIZATION_TREE_PREVIEW_PATH_LIMIT)) {
+  for (const item of preview
+    .filter((entry) => !entry.excluded)
+    .slice(0, ORGANIZATION_TREE_PREVIEW_PATH_LIMIT)) {
     const folders = item.targetPath.split("/").slice(0, -1);
     let cursor = root;
     for (const folder of folders) {
