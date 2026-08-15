@@ -43,9 +43,12 @@ export type DuplicateCheckResult = {
 
 
 export type DesktopLibraryLinkCandidate = {
+  camelotKey: string | null;
   energy: number | null;
   fileFingerprint: string;
   fileSize: number;
+  releaseYear: number | null;
+  subgenre: string | null;
   trackId: string;
 };
 
@@ -601,7 +604,7 @@ export async function getDesktopLibraryLinkCandidatesAction(): Promise<DesktopLi
   const supabase = await createClient();
   const { count, data, error } = await supabase
     .from("tracks")
-    .select("id, file_fingerprint, file_size, energy", { count: "exact" })
+    .select("id, file_fingerprint, file_size, energy, subgenre, camelot_key, release_year", { count: "exact" })
     .eq("user_id", user.id)
     .not("file_fingerprint", "is", null)
     .not("file_size", "is", null)
@@ -624,6 +627,11 @@ export async function getDesktopLibraryLinkCandidatesAction(): Promise<DesktopLi
     track.file_size >= 0
       ? [
           {
+            camelotKey:
+              typeof track.camelot_key === "string" &&
+              /^(?:[1-9]|1[0-2])[AB]$/.test(track.camelot_key)
+                ? track.camelot_key
+                : null,
             energy:
               track.energy !== null &&
               Number.isInteger(track.energy) &&
@@ -633,6 +641,17 @@ export async function getDesktopLibraryLinkCandidatesAction(): Promise<DesktopLi
                 : null,
             fileFingerprint: track.file_fingerprint,
             fileSize: track.file_size,
+            releaseYear:
+              track.release_year !== null &&
+              Number.isInteger(track.release_year) &&
+              track.release_year >= 1000 &&
+              track.release_year <= 9999
+                ? track.release_year
+                : null,
+            subgenre:
+              typeof track.subgenre === "string" && track.subgenre.trim()
+                ? track.subgenre.trim().slice(0, 120)
+                : null,
             trackId: track.id,
           },
         ]
