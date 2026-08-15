@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import { recordDiagnosticEvent } from "@/lib/diagnostics/local-diagnostics";
 import {
+  discardFailedMutations,
   formDataToOfflinePayload,
   loadOfflineMutations,
   offlineEntityForAction,
@@ -179,6 +180,7 @@ export function OfflineSyncManager() {
 
   const managed = queue.filter((mutation) => mutation.action);
   const conflicts = managed.filter((mutation) => mutation.status === "conflict");
+  const failed = managed.filter((mutation) => mutation.status === "failed");
   if (!managed.length && !notice) return null;
 
   function resolveConflicts(force: boolean) {
@@ -198,6 +200,22 @@ export function OfflineSyncManager() {
     if (force) void synchronize();
   }
 
+  function discardFailed() {
+    const confirmation =
+      locale === "en"
+        ? `Discard ${failed.length} failed offline change${failed.length === 1 ? "" : "s"}? This only removes changes that the server already rejected.`
+        : `¿Descartar ${failed.length} cambio${failed.length === 1 ? "" : "s"} offline fallido${failed.length === 1 ? "" : "s"}? Solo se eliminarán cambios que el servidor ya rechazó.`;
+    if (!window.confirm(confirmation)) return;
+    const next = discardFailedMutations(loadOfflineMutations(window.localStorage));
+    saveOfflineMutations(window.localStorage, next);
+    setQueue(next);
+    setNotice(
+      locale === "en"
+        ? "Failed offline changes were discarded."
+        : "Los cambios offline fallidos se descartaron.",
+    );
+  }
+
   return (
     <aside
       aria-live="polite"
@@ -211,6 +229,11 @@ export function OfflineSyncManager() {
           {format("{count} pendientes", { count: managed.length })}
           {conflicts.length
             ? ` · ${format("{count} conflictos", { count: conflicts.length })}`
+            : ""}
+          {failed.length
+            ? locale === "en"
+              ? ` · ${failed.length} failed`
+              : ` · ${failed.length} fallidos`
             : ""}
         </span>
       ) : null}
@@ -242,6 +265,15 @@ export function OfflineSyncManager() {
               {t("Descartar conflictos")}
             </button>
           </>
+        ) : null}
+        {failed.length ? (
+          <button
+            className="button button--danger button--small"
+            onClick={discardFailed}
+            type="button"
+          >
+            {locale === "en" ? "Discard failed" : "Descartar fallidos"}
+          </button>
         ) : null}
       </div>
     </aside>

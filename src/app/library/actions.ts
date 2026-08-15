@@ -27,6 +27,7 @@ export type TrackActionState = {
 
 const trackRevisionSchema = z.string().datetime({ offset: true });
 const historyIdSchema = z.string().uuid();
+const historyBatchIdSchema = z.string().uuid();
 
 type UpdateTrackWithHistoryRpc = (
   functionName: "update_track_with_history",
@@ -51,6 +52,31 @@ type UndoTrackEditRpc = (
   args: { requested_history_id: string },
 ) => Promise<{
   data: { history_id: string; track_id: string } | null;
+  error: { message?: string } | null;
+}>;
+
+type BulkUpdateTracksWithHistoryRpc = (
+  functionName: "bulk_update_tracks_with_history",
+  args: {
+    requested_patch: Record<string, unknown>;
+    requested_track_ids: string[];
+  },
+) => Promise<{
+  data:
+    | {
+        batch_id: string | null;
+        changed_count: number;
+        requested_count: number;
+      }
+    | null;
+  error: { message?: string } | null;
+}>;
+
+type UndoBulkTrackEditRpc = (
+  functionName: "undo_bulk_track_edit",
+  args: { requested_batch_id: string },
+) => Promise<{
+  data: { batch_id: string; restored_count: number } | null;
   error: { message?: string } | null;
 }>;
 
@@ -292,14 +318,21 @@ export async function restoreTrackAction(formData: FormData) {
   await setTrackArchivedAt(formData, null);
 }
 
-function withLibraryStatus(returnTo: string, status: string) {
+function withLibraryStatus(
+  returnTo: string,
+  status: string,
+  extra?: Record<string, string>,
+) {
   const url = new URL(returnTo, "https://djorganizer.local");
   url.searchParams.set(status, "1");
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    url.searchParams.set(key, value);
+  }
   return `${url.pathname}${url.search}`;
 }
 
 export async function bulkUpdateTracksAction(formData: FormData) {
-  const user = await requireUser();
+  await requireUser();
   const returnTo = libraryReturnTo(formData);
   let change: ReturnType<typeof bulkTrackUpdateFromFormData>;
 
@@ -310,16 +343,49 @@ export async function bulkUpdateTracksAction(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("tracks")
-    .update(change.update)
-    .eq("user_id", user.id)
-    .in("id", change.trackIds);
+  const rpc = supabase.rpc.bind(supabase) as unknown as BulkUpdateTracksWithHistoryRpc;
+  const { data, error } = await rpc("bulk_update_tracks_with_history", {
+    requested_patch: change.update,
+    requested_track_ids: change.trackIds,
+  });
 
-  if (error) {
+  if (error || !data) {
     redirect(withLibraryStatus(returnTo, "bulkError"));
   }
 
   revalidatePath("/library");
-  redirect(withLibraryStatus(returnTo, "bulkUpdated"));
+  redirect(
+    withLibraryStatus(
+      returnTo,
+      "bulkUpdated",
+      data.batch_id ? { bulkBatch: data.batch_id } : undefined,
+    ),
+  );
+}
+
+export async function undoBulkTrackEditAction(formData: FormData) {
+  await requireUser();
+  const returnTo = libraryReturnTo(formData);
+  const batchId = historyBatchIdSchema.safeParse(formData.get("batchId"));
+  if (!batchId.success) {
+    redirect(withLibraryStatus(returnTo, "bulkUndoError"));
+  }
+
+  const supabase = await createClient();
+  const rpc = supabase.rpc.bind(supabase) as unknown as UndoBulkTrackEditRpc;
+  const { data, error } = await rpc("undo_bulk_track_edit", {
+    requested_batch_id: batchId.data,
+  });
+
+  if (error || !data) {
+    const reason = (error?.message ?? "").includes("changed after history entry")
+      ? "changed"
+      : "failed";
+    redirect(
+      withLibraryStatus(returnTo, "bulkUndoError", { bulkUndoReason: reason }),
+    );
+  }
+
+  revalidatePath("/library");
+  redirect(withLibraryStatus(returnTo, "bulkUndone"));
 }
