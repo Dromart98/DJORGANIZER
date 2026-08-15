@@ -71,7 +71,9 @@ describe("post-analysis summary", () => {
       ...completeResult,
       analysis: {
         ...completeResult.analysis,
-        partialErrors: ["subgenre"],
+        partialErrors: [
+          { code: "subgenre_unavailable", message: "Subgenre needs review." },
+        ],
       },
     };
 
