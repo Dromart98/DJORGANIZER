@@ -128,7 +128,7 @@ export default async function MetadataCleanupPage({ searchParams }: CleanupPageP
       </div>
 
       {proposals.length ? (
-        <MetadataCleanupReview locale={locale} proposals={proposals} />
+        <MetadataCleanupReview locale={locale} page={page} proposals={proposals} />
       ) : (
         <div className={`card ${styles.empty}`}>
           {en
