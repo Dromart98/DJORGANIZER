@@ -18,6 +18,7 @@ import {
 import { organizationIdSchema } from "@/lib/organization/schemas";
 import { createClient } from "@/lib/supabase/server";
 
+const MAX_SORT_TRACKS = 20_000;
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const sortKeySchema = z.enum(crateSortKeys);
 const sortDirectionSchema = z.enum(crateSortDirections);
@@ -67,6 +68,14 @@ export async function sortManualCrateAction(formData: FormData) {
 
   const crate = data as ComparableCrate;
   if (crate.smart_rules !== null) sortError(crate.id, "manual-only");
+
+  const { count: membershipCount, error: countError } = await supabase
+    .from("crate_tracks")
+    .select("track_id", { count: "exact", head: true })
+    .eq("crate_id", crate.id)
+    .eq("user_id", user.id);
+  if (countError) sortError(crate.id, "save");
+  if ((membershipCount ?? 0) > MAX_SORT_TRACKS) sortError(crate.id, "limit");
 
   const currentTrackIds = await resolveComparableCrateTrackIds(
     supabase,
