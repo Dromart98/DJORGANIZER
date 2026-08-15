@@ -28,6 +28,21 @@ export function compareCrateTrackIds(
   };
 }
 
+export function mergeCrateTrackIds(
+  targetTrackIds: string[],
+  sourceTrackIds: string[],
+) {
+  const target = [...new Set(targetTrackIds)];
+  const seen = new Set(target);
+  const merged = [...target];
+  for (const trackId of sourceTrackIds) {
+    if (seen.has(trackId)) continue;
+    seen.add(trackId);
+    merged.push(trackId);
+  }
+  return merged;
+}
+
 export async function resolveComparableCrateTrackIds(
   supabase: SupabaseClient<Database>,
   userId: string,

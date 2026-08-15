@@ -118,9 +118,14 @@ export default async function CratesPage({ searchParams }: CratesPageProps) {
       <PageHeader
         action={
           crateRows.length >= 2 ? (
-            <Link className="button button--secondary" href="/crates/compare">
-              {locale === "en" ? "Compare crates" : "Comparar crates"}
-            </Link>
+            <div className="organization-inline-actions">
+              <Link className="button button--secondary" href="/crates/compare">
+                {locale === "en" ? "Compare crates" : "Comparar crates"}
+              </Link>
+              <Link className="button button--secondary" href="/crates/merge">
+                {locale === "en" ? "Merge crates" : "Fusionar crates"}
+              </Link>
+            </div>
           ) : undefined
         }
         description={t("Ordena sesiones y reutiliza etiquetas.")}

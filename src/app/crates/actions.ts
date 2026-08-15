@@ -6,7 +6,6 @@ import { safeRedirectPath } from "@/lib/auth/redirects";
 import { requireUser } from "@/lib/auth/user";
 import {
   crateValuesFromFormData,
-  moveTrackIds,
   moveTrackSchema,
   organizationIdSchema,
   tagAssignmentSchema,
@@ -20,7 +19,14 @@ import {
   smartCrateRulesToJson,
 } from "@/lib/organization/smart-crates";
 import { createClient } from "@/lib/supabase/server";
-import type { Tables } from "@/types/database";
+
+type CrateMutationRpc = (
+  functionName: "add_track_to_manual_crate" | "move_track_in_manual_crate",
+  args: Record<string, string>,
+) => Promise<{
+  data: unknown;
+  error: { code?: string; message?: string } | null;
+}>;
 
 function statusPath(path: string, key: string) {
   const url = new URL(path, "https://djorganizer.local");
@@ -338,7 +344,7 @@ export async function removeTagFromTracksAction(formData: FormData) {
 }
 
 export async function addTrackToCrateAction(formData: FormData) {
-  const user = await requireUser();
+  await requireUser();
   const parsed = trackAssignmentSchema.safeParse({
     crateId: formData.get("crateId"),
     trackId: formData.get("trackId"),
@@ -346,46 +352,20 @@ export async function addTrackToCrateAction(formData: FormData) {
   if (!parsed.success) cratesError("invalid-assignment");
 
   const supabase = await createClient();
-  const [{ data: crate }, { data: track }, { data: lastMembership }] =
-    await Promise.all([
-      supabase
-        .from("crates")
-        .select("id, smart_rules")
-        .eq("id", parsed.data.crateId)
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("tracks")
-        .select("id")
-        .eq("id", parsed.data.trackId)
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("crate_tracks")
-        .select("position")
-        .eq("crate_id", parsed.data.crateId)
-        .eq("user_id", user.id)
-        .order("position", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-
-  if (!crate || crate.smart_rules !== null || !track) cratesError("invalid-assignment");
-  const { error } = await supabase.from("crate_tracks").insert({
-    crate_id: crate.id,
-    position: (lastMembership?.position ?? -1) + 1,
-    track_id: track.id,
-    user_id: user.id,
+  const rpc = supabase.rpc.bind(supabase) as unknown as CrateMutationRpc;
+  const { error } = await rpc("add_track_to_manual_crate", {
+    requested_crate_id: parsed.data.crateId,
+    requested_track_id: parsed.data.trackId,
   });
 
-  if (error?.code === "23505") {
-    redirect(`/crates/${crate.id}?error=duplicate-track`);
+  if (error?.message?.includes("already in crate")) {
+    redirect(`/crates/${parsed.data.crateId}?error=duplicate-track`);
   }
-  if (error) redirect(`/crates/${crate.id}?error=add-track`);
+  if (error) redirect(`/crates/${parsed.data.crateId}?error=add-track`);
 
   revalidatePath("/crates");
-  revalidatePath(`/crates/${crate.id}`);
-  redirect(`/crates/${crate.id}?trackAdded=1`);
+  revalidatePath(`/crates/${parsed.data.crateId}`);
+  redirect(`/crates/${parsed.data.crateId}?trackAdded=1`);
 }
 
 export async function removeTrackFromCrateAction(formData: FormData) {
@@ -418,55 +398,20 @@ export async function removeTrackFromCrateAction(formData: FormData) {
 }
 
 export async function moveTrackInCrateAction(formData: FormData) {
-  const user = await requireUser();
+  await requireUser();
   const parsed = moveTrackSchema.parse({
     crateId: formData.get("crateId"),
     direction: formData.get("direction"),
     trackId: formData.get("trackId"),
   });
   const supabase = await createClient();
-  const { data: crate } = await supabase
-    .from("crates")
-    .select("id, smart_rules")
-    .eq("id", parsed.crateId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (!crate || crate.smart_rules !== null) {
-    redirect(`/crates/${parsed.crateId}?error=reorder`);
-  }
-  const { data: memberships, error: listError } = await supabase
-    .from("crate_tracks")
-    .select("track_id, position")
-    .eq("crate_id", parsed.crateId)
-    .eq("user_id", user.id)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
+  const rpc = supabase.rpc.bind(supabase) as unknown as CrateMutationRpc;
+  const { error } = await rpc("move_track_in_manual_crate", {
+    requested_crate_id: parsed.crateId,
+    requested_direction: parsed.direction,
+    requested_track_id: parsed.trackId,
+  });
 
-  if (listError) redirect(`/crates/${parsed.crateId}?error=reorder`);
-  const membershipRows: Pick<Tables<"crate_tracks">, "track_id">[] =
-    memberships ?? [];
-  const currentIds = membershipRows.map(
-    (membership: Pick<Tables<"crate_tracks">, "track_id">) =>
-      membership.track_id,
-  );
-  const nextIds = moveTrackIds(
-    currentIds,
-    parsed.trackId,
-    parsed.direction,
-  );
-
-  if (nextIds.some((id, index) => id !== currentIds[index])) {
-    const { error } = await supabase.from("crate_tracks").upsert(
-      nextIds.map((trackId, position) => ({
-        crate_id: parsed.crateId,
-        position,
-        track_id: trackId,
-        user_id: user.id,
-      })),
-      { onConflict: "crate_id,track_id" },
-    );
-    if (error) redirect(`/crates/${parsed.crateId}?error=reorder`);
-  }
-
+  if (error) redirect(`/crates/${parsed.crateId}?error=reorder`);
   revalidatePath(`/crates/${parsed.crateId}`);
 }
