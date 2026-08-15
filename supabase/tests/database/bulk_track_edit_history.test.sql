@@ -7,16 +7,16 @@ values
   ('71000000-0000-4000-8000-000000000001', 'bulk-history-a@djorganizer.test'),
   ('72000000-0000-4000-8000-000000000002', 'bulk-history-b@djorganizer.test');
 
-set local role authenticated;
-select set_config('request.jwt.claim.sub', '71000000-0000-4000-8000-000000000001', true);
-select set_config('request.jwt.claim.role', 'authenticated', true);
-
 insert into public.tracks (id, user_id, title, genre, genre_source, rating)
 values
   ('71100000-0000-4000-8000-000000000001', '71000000-0000-4000-8000-000000000001', 'Bulk One', 'House', 'manual', 1),
   ('71100000-0000-4000-8000-000000000002', '71000000-0000-4000-8000-000000000001', 'Bulk Two', 'Techno', 'manual', 2),
   ('71100000-0000-4000-8000-000000000003', '71000000-0000-4000-8000-000000000001', 'Bulk Three', 'House', 'manual', 5),
   ('72100000-0000-4000-8000-000000000001', '72000000-0000-4000-8000-000000000002', 'Other User', 'House', 'manual', 1);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '71000000-0000-4000-8000-000000000001', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 
 select lives_ok(
   $$select public.bulk_update_tracks_with_history(
