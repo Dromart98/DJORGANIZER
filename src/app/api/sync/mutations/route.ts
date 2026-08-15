@@ -78,6 +78,17 @@ type UpdateTrackWithHistoryRpc = (
   error: { message?: string } | null;
 }>;
 
+type BulkUpdateTracksWithHistoryRpc = (
+  functionName: "bulk_update_tracks_with_history",
+  args: {
+    requested_patch: Record<string, unknown>;
+    requested_track_ids: string[];
+  },
+) => Promise<{
+  data: { batch_id: string | null; changed_count: number } | null;
+  error: { message?: string } | null;
+}>;
+
 function response(body: unknown, status = 200) {
   return NextResponse.json(body, {
     headers: { "Cache-Control": "private, no-store" },
@@ -238,12 +249,12 @@ async function applyMutation(
         trackIds: values(mutation.payload, "trackId"),
         value: value(mutation.payload, "value"),
       });
-      const { error } = await supabase
-        .from("tracks")
-        .update(change.update)
-        .eq("user_id", userId)
-        .in("id", change.trackIds);
-      if (error) throw new Error("No se pudo aplicar la edición masiva.");
+      const rpc = supabase.rpc.bind(supabase) as unknown as BulkUpdateTracksWithHistoryRpc;
+      const { data, error } = await rpc("bulk_update_tracks_with_history", {
+        requested_patch: change.update,
+        requested_track_ids: change.trackIds,
+      });
+      if (error || !data) throw new Error("No se pudo aplicar la edición masiva.");
       break;
     }
     case "track-delete": {
