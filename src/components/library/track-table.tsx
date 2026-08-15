@@ -6,7 +6,11 @@ import {
   assignTagToTracksAction,
   removeTagFromTracksAction,
 } from "@/app/crates/actions";
-import { deleteTracksAction } from "@/app/library/actions";
+import {
+  archiveTrackAction,
+  deleteTracksAction,
+  restoreTrackAction,
+} from "@/app/library/actions";
 import { useTranslator } from "@/components/i18n/locale-provider";
 import { BulkEditForm } from "@/components/library/bulk-edit-form";
 import { CreateCrateFromSelection } from "@/components/library/create-crate-from-selection";
@@ -271,6 +275,19 @@ export function TrackTable({
                   >
                     {t("Ver y editar")}
                   </Link>
+                  <form action={track.archived_at ? restoreTrackAction : archiveTrackAction}>
+                    <input name="id" type="hidden" value={track.id} />
+                    <input name="returnTo" type="hidden" value={returnTo} />
+                    <button className="table-action" type="submit">
+                      {track.archived_at
+                        ? locale === "en"
+                          ? "Restore"
+                          : "Restaurar"
+                        : locale === "en"
+                          ? "Archive"
+                          : "Archivar"}
+                    </button>
+                  </form>
                 </td>
               </tr>
             ))}
@@ -311,6 +328,19 @@ export function TrackTable({
             >
               {t("Editar")}
             </Link>
+            <form action={track.archived_at ? restoreTrackAction : archiveTrackAction}>
+              <input name="id" type="hidden" value={track.id} />
+              <input name="returnTo" type="hidden" value={returnTo} />
+              <button className="table-action" type="submit">
+                {track.archived_at
+                  ? locale === "en"
+                    ? "Restore"
+                    : "Restaurar"
+                  : locale === "en"
+                    ? "Archive"
+                    : "Archivar"}
+              </button>
+            </form>
           </article>
         ))}
       </div>
