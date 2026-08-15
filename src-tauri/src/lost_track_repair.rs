@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, fs, path::Path};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use super::{
-    file_version, hash_file, parse_library_fingerprint, persist_local_aliases,
+    file_version, hash_file, parse_library_fingerprint, persist_local_aliases, read_audio_metadata,
     read_local_alias_store, valid_library_track_id, DesktopState, FileVersion, LibraryTrackLink,
     LocalFileIdentity, ScanSession, SessionTrack, MAX_SAFE_JSON_INTEGER,
 };
@@ -100,37 +104,66 @@ fn valid_duration(value: Option<f64>) -> Option<f64> {
     value.filter(|value| value.is_finite() && *value > 0.0 && *value <= 86_400.0)
 }
 
+fn validated_candidate_file(
+    session: &ScanSession,
+    track: &SessionTrack,
+) -> Option<(PathBuf, fs::Metadata, FileVersion)> {
+    if !session.root.is_absolute() || !track.absolute_path.is_absolute() {
+        return None;
+    }
+    let link_metadata = fs::symlink_metadata(&track.absolute_path).ok()?;
+    if link_metadata.file_type().is_symlink() || !link_metadata.is_file() {
+        return None;
+    }
+    let canonical_root = fs::canonicalize(&session.root).ok()?;
+    let canonical_path = fs::canonicalize(&track.absolute_path).ok()?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return None;
+    }
+    let expected_path = session.root.join(Path::new(&track.track.relative_path));
+    if fs::canonicalize(expected_path).ok()? != canonical_path {
+        return None;
+    }
+    let metadata = fs::metadata(&canonical_path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let version = file_version(&metadata);
+    let expected = session.file_versions.get(&track.track.relative_path)?;
+    if expected != &version {
+        return None;
+    }
+    Some((canonical_path, metadata, version))
+}
+
 fn score_candidate(
     library: &LostTrackRepairLibraryTrack,
-    track: &SessionTrack,
+    canonical_path: &Path,
+    size: u64,
 ) -> Option<(u8, Vec<&'static str>, [u8; 32])> {
-    let size = track.track.size_bytes;
     let old_fingerprint = parse_library_fingerprint(&library.file_fingerprint).ok()?;
-
     if size == library.file_size {
-        if let Ok(fingerprint) = hash_file(&track.absolute_path, size) {
+        if let Ok(fingerprint) = hash_file(canonical_path, size) {
             if fingerprint == old_fingerprint {
                 return Some((100, vec!["hash", "size"], fingerprint));
             }
         }
     }
 
-    let title_match = same_text(Some(&library.title), track.track.title.as_deref());
-    let artist_match = same_text(library.artist.as_deref(), track.track.artist.as_deref());
-    let album_match = same_text(library.album.as_deref(), track.track.album.as_deref());
-    let genre_match = same_text(library.genre.as_deref(), track.track.genre.as_deref());
+    let current = read_audio_metadata(canonical_path).ok()?;
+    let title_match = same_text(Some(&library.title), current.title.as_deref());
+    let artist_match = same_text(library.artist.as_deref(), current.artist.as_deref());
+    let album_match = same_text(library.album.as_deref(), current.album.as_deref());
+    let genre_match = same_text(library.genre.as_deref(), current.genre.as_deref());
     let duration_difference = match (
         valid_duration(library.duration_seconds),
-        valid_duration(track.track.duration_seconds),
+        valid_duration(current.duration_seconds),
     ) {
         (Some(left), Some(right)) => Some((left - right).abs()),
         _ => None,
     };
     let duration_strong = duration_difference.is_some_and(|difference| difference <= 0.75);
     let duration_close = duration_difference.is_some_and(|difference| difference <= 2.0);
-
-    // Metadata-only recovery is intentionally conservative: title and duration must
-    // agree, plus artist or album. Ambiguous or weak matches are not surfaced.
     if !title_match || !duration_close || !(artist_match || album_match) {
         return None;
     }
@@ -160,7 +193,6 @@ fn score_candidate(
         score = score.saturating_add(25);
         reasons.push("duration");
     }
-
     if library.file_size > 0 {
         let difference = library.file_size.abs_diff(size) as f64 / library.file_size as f64;
         if difference <= 0.005 {
@@ -171,11 +203,10 @@ fn score_candidate(
             reasons.push("size");
         }
     }
-
     if score < MIN_REPAIR_CONFIDENCE {
         return None;
     }
-    let fingerprint = hash_file(&track.absolute_path, size).ok()?;
+    let fingerprint = hash_file(canonical_path, size).ok()?;
     Some((score.min(99), reasons, fingerprint))
 }
 
@@ -223,11 +254,9 @@ fn score_for_library_track(
         .values()
         .filter(|track| !already_linked_scan_ids.contains(track.track.scan_id.as_str()))
         .filter_map(|track| {
-            let (confidence, reasons, fingerprint) = score_candidate(library, track)?;
-            let version = session
-                .file_versions
-                .get(&track.track.relative_path)?
-                .clone();
+            let (canonical_path, metadata, version) = validated_candidate_file(session, track)?;
+            let (confidence, reasons, fingerprint) =
+                score_candidate(library, &canonical_path, metadata.len())?;
             Some(ScoredCandidate {
                 confidence,
                 fingerprint,
@@ -421,16 +450,14 @@ pub(super) fn apply(
             .tracks
             .get(&selection.scan_id)
             .ok_or_else(|| "El archivo candidato ya no pertenece al escaneo activo.".to_owned())?;
-        let metadata = fs::metadata(&track.absolute_path)
-            .map_err(|_| "El archivo candidato ya no está disponible.".to_owned())?;
-        let expected = session
-            .file_versions
-            .get(&track.track.relative_path)
-            .ok_or_else(|| "El archivo candidato cambió desde el escaneo.".to_owned())?;
-        if file_version(&metadata) != receipt.file_version || expected != &receipt.file_version {
+        let (canonical_path, metadata, current_version) = validated_candidate_file(session, track)
+            .ok_or_else(|| {
+                "El archivo candidato ya no es un archivo válido del escaneo activo.".to_owned()
+            })?;
+        if current_version != receipt.file_version {
             return Err("El archivo candidato cambió desde la previsualización.".to_owned());
         }
-        let fingerprint = hash_file(&track.absolute_path, metadata.len())
+        let fingerprint = hash_file(&canonical_path, metadata.len())
             .map_err(|_| "No se pudo volver a verificar el archivo candidato.".to_owned())?;
         if fingerprint != receipt.fingerprint {
             return Err("La huella del candidato cambió desde la previsualización.".to_owned());
