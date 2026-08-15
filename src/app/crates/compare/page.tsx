@@ -65,7 +65,9 @@ export default async function CompareCratesPage({ searchParams }: ComparePagePro
     .limit(500);
   if (cratesError) throw new Error("No se pudieron cargar los crates.");
 
-  const crates = (crateData ?? []) as ComparableCrate[];
+  const crates = ((crateData ?? []) as ComparableCrate[]).filter(
+    (crate) => crate.smart_rules === null,
+  );
   const byId = new Map(crates.map((crate) => [crate.id, crate]));
   const leftId = firstValue(query.left);
   const rightId = firstValue(query.right);
@@ -116,22 +118,24 @@ export default async function CompareCratesPage({ searchParams }: ComparePagePro
       ? {
           back: "Back to crates",
           compare: "Compare",
-          description: "See which tracks two crates share and which belong only to one of them.",
+          description:
+            "See which tracks two manual crates share and which belong only to one of them.",
           first: "First crate",
           same: "Choose two different crates.",
           second: "Second crate",
           title: "Compare crates",
-          tooFew: "Create at least two crates before comparing them.",
+          tooFew: "Create at least two manual crates before comparing them.",
         }
       : {
           back: "Volver a crates",
           compare: "Comparar",
-          description: "Comprueba qué pistas comparten dos crates y cuáles pertenecen solo a uno de ellos.",
+          description:
+            "Comprueba qué pistas comparten dos crates manuales y cuáles pertenecen solo a uno de ellos.",
           first: "Primer crate",
           same: "Selecciona dos crates diferentes.",
           second: "Segundo crate",
           title: "Comparar crates",
-          tooFew: "Crea al menos dos crates antes de compararlos.",
+          tooFew: "Crea al menos dos crates manuales antes de compararlos.",
         };
 
   return (
