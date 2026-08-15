@@ -1,6 +1,6 @@
 begin;
 
-select plan(9);
+select plan(10);
 
 insert into auth.users (id, email)
 values
@@ -90,6 +90,18 @@ select is(
   ),
   0,
   'Archived tracks are excluded from smart crates by default'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.resolve_smart_crate_rule_tracks(
+      '{"version":1,"trackStatus":"archived","logic":"and","groups":[{"logic":"and","conditions":[{"field":"genre","operator":"equals","value":"Techno"}]}]}'::jsonb,
+      0, 100, null
+    )
+  ),
+  1,
+  'Archived tracks enter smart crates only through an explicit filter'
 );
 
 update public.tracks

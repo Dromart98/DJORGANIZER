@@ -24,6 +24,7 @@ export const smartCrateFieldSchema = z.enum([
 
 export type SmartCrateField = z.infer<typeof smartCrateFieldSchema>;
 export type SmartCrateLogic = "and" | "or";
+export type SmartCrateTrackStatus = "active" | "archived" | "all";
 export type SmartCrateOperator =
   | "equals"
   | "contains"
@@ -151,6 +152,7 @@ export const smartCrateGroupSchema = z.object({
 
 export const smartCrateRulesSchema = z
   .object({
+    trackStatus: z.enum(["active", "archived", "all"]).optional(),
     version: z.literal(1),
     logic: z.enum(["and", "or"]),
     groups: z
