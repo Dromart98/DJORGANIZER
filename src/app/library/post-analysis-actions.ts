@@ -104,7 +104,7 @@ export async function createCrateFromFiltersAction(
     Object.fromEntries(new URLSearchParams(parsed.data.searchParams)),
   );
   const supabase = await createClient();
-  const createFilteredCrate = supabase.rpc as unknown as CreateFilteredCrateRpc;
+  const createFilteredCrate = (supabase.rpc as unknown as CreateFilteredCrateRpc).bind(supabase);
   const { data: crateId, error } = await createFilteredCrate(
     "create_crate_from_library_filters",
     {
