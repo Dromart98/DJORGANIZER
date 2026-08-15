@@ -25,6 +25,7 @@ describe("proposeMetadataCleanup", () => {
       reasons: ["track-number", "case"],
     });
     expect(proposeMetadataCleanup("title", "2024")).toBeNull();
+    expect(proposeMetadataCleanup("title", "2024 - Summer Mix")).toBeNull();
   });
 
   it("normalizes separator spacing without rewriting compact artist names", () => {
