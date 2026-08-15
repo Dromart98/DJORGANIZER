@@ -131,6 +131,14 @@ export function LibraryHealthDesktop({ locale }: { locale: Locale }) {
         ))}
       </div>
 
+      {missingTrackIds.length ? (
+        <div className={styles.actions}>
+          <Link className="button button--primary" href="/library/health/repair">
+            {en ? "Repair lost references" : "Reparar referencias perdidas"}
+          </Link>
+        </div>
+      ) : null}
+
       {unreadable.length ? (
         <div className="card">
           <h3>{en ? "Unreadable file sample" : "Muestra de archivos ilegibles"}</h3>
