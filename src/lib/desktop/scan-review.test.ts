@@ -131,9 +131,9 @@ describe("desktop organization preview", () => {
   });
 
   it("supports single-level genre, genre/artist and harmonic schemes", () => {
-    expect(createOrganizationPreview([tracks[0]], "genre")[0].targetPath).toBe(
-      "House/Opening.mp3",
-    );
+    const genrePreview = createOrganizationPreview([tracks[0]], "genre")[0];
+    expect(genrePreview.targetPath).toBe("House/Opening.mp3");
+    expect(genrePreview.collisionResolved).toBe(false);
     expect(createOrganizationPreview([tracks[1]], "genre")[0].targetPath).toBe(
       "Género desconocido/Closing.flac",
     );
