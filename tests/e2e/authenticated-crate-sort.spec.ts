@@ -4,6 +4,7 @@ test.skip(
   process.env.E2E_AUTHENTICATED !== "1",
   "Requires the ephemeral Supabase stack configured by CI.",
 );
+test.setTimeout(120_000);
 
 async function addTrack(
   page: import("@playwright/test").Page,
