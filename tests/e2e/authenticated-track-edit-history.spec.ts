@@ -40,7 +40,8 @@ test("@authenticated records and undoes an individual track edit", async ({
   });
   await expect(page.getByText("Changes saved successfully.")).toBeVisible();
 
-  const history = page.getByRole("heading", { name: "Edit history" }).locator("..").locator("..");
+  const historyHeading = page.getByRole("heading", { name: "Edit history" });
+  const history = page.locator("section").filter({ has: historyHeading });
   await expect(history.getByText("Title", { exact: true })).toBeVisible();
   await history.getByRole("button", { name: "Undo" }).click();
 
