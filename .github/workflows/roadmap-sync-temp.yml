@@ -1,0 +1,49 @@
+name: Roadmap sync temporary
+
+on:
+  push:
+    branches:
+      - docs/close-advanced-crate-tools
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/close-advanced-crate-tools
+      - name: Update advanced crate tools status
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("docs/roadmap.md")
+          text = path.read_text(encoding="utf-8")
+          old = """6. - [ ] Añadir herramientas avanzadas para crates: fusionar, comparar, encontrar
+             pistas comunes o exclusivas, mostrar en qué crates aparece una pista, ordenar
+             por BPM, Camelot, energía o valoración y retirar duplicados internos sin borrar
+             canciones de la biblioteca. Todas las operaciones deben conservar el orden o
+             mostrar una previsualización cuando lo alteren."""
+          new = """6. - [x] Añadir herramientas avanzadas para crates manuales: fusionar y comparar,
+             encontrar pistas comunes o exclusivas y mostrar en qué crates aparece una pista.
+             La ordenación admite BPM, Camelot, energía, género, subgénero y valoración,
+             ascendente o descendente, con previsualización completa antes de alterar el orden.
+             La misma pista no puede duplicarse dentro de un crate porque `crate_tracks` impone
+             la clave primaria `(crate_id, track_id)`; la fusión también deduplica los IDs de
+             origen. Por ello no se añade una operación destructiva de limpieza de duplicados ni
+             se borra ninguna canción de la biblioteca."""
+          if old not in text:
+              raise SystemExit("roadmap target block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+      - name: Commit roadmap update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/roadmap.md
+          git diff --cached --quiet && exit 0
+          git commit -m "Close advanced crate tools roadmap"
+          git push origin HEAD:docs/close-advanced-crate-tools
