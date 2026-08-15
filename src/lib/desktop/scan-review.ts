@@ -403,29 +403,30 @@ export function createOrganizationPreview(
 export function createOrganizationTree(
   preview: readonly OrganizationPreviewItem[],
 ): OrganizationTreeNode[] {
-  const root = new Map<string, Map<string, unknown>>();
+  type OrganizationTreeMap = Map<string, OrganizationTreeMap>;
+  const root: OrganizationTreeMap = new Map();
   for (const item of preview) {
     const folders = item.targetPath.split("/").slice(0, -1);
     let cursor = root;
     for (const folder of folders) {
-      let child = cursor.get(folder) as Map<string, unknown> | undefined;
+      let child = cursor.get(folder);
       if (!child) {
-        child = new Map<string, unknown>();
+        child = new Map();
         cursor.set(folder, child);
       }
       cursor = child;
     }
   }
 
-  const toNodes = (node: Map<string, Map<string, unknown>>): OrganizationTreeNode[] =>
+  const toNodes = (node: OrganizationTreeMap): OrganizationTreeNode[] =>
     [...node.entries()]
       .sort(([left], [right]) =>
         left.localeCompare(right, "es", { sensitivity: "base" }),
       )
       .map(([name, children]) => ({
         name,
-        children: toNodes(children as Map<string, Map<string, unknown>>),
+        children: toNodes(children),
       }));
 
-  return toNodes(root as Map<string, Map<string, unknown>>);
+  return toNodes(root);
 }
