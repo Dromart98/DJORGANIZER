@@ -501,7 +501,7 @@ export function DesktopFolderScanner() {
       try {
         const library = await getDesktopLibraryLinkCandidatesAction();
         if (!library.candidates.length) {
-          replaceTrackLinks(scanResult.sessionId, []);
+          if (!library.message) replaceTrackLinks(scanResult.sessionId, []);
           setLibraryLinkMessage(
             library.message
               ? translateKnown(locale, library.message)
