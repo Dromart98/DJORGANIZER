@@ -5,7 +5,7 @@ test.skip(
   "Requires the ephemeral Supabase stack configured by CI.",
 );
 
-test("@authenticated archives and restores a library track", async ({ page }, testInfo) => {
+test("@authenticated archives, undoes and restores a library track", async ({ page }, testInfo) => {
   const runId = `${Date.now()}-${testInfo.workerIndex}`;
   const email = `e2e-archive-${runId}@djorganizer.test`;
   const password = `DjOrganizer-${runId}!`;
@@ -33,6 +33,27 @@ test("@authenticated archives and restores a library track", async ({ page }, te
   await row.getByRole("button", { name: "Archive" }).click();
   await expect(page.locator("tbody tr").filter({ hasText: title })).toHaveCount(0, { timeout: 20_000 });
 
+  let history = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Archive history" }),
+  });
+  await expect(history.getByText(title, { exact: true })).toBeVisible();
+  await expect(history.getByText("Archived", { exact: true })).toBeVisible();
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain(title);
+    expect(dialog.message()).toContain("active library");
+    await dialog.accept();
+  });
+  await history.getByRole("button", { name: "Undo" }).click();
+  await expect(page).toHaveURL(/archiveUndone=1/, { timeout: 20_000 });
+  await expect(page.getByText("The archive change was undone.")).toBeVisible();
+  await expect(page.locator("tbody tr").filter({ hasText: title })).toHaveCount(1);
+  await expect(history.getByText("Already undone")).toBeVisible();
+
+  row = page.locator("tbody tr").filter({ hasText: title });
+  await row.getByRole("button", { name: "Archive" }).click();
+  await expect(page.locator("tbody tr").filter({ hasText: title })).toHaveCount(0, { timeout: 20_000 });
+
   await page.getByLabel("Status").selectOption("archived");
   await page.getByRole("button", { name: "Apply" }).click();
   await expect(page).toHaveURL(/status=archived/);
@@ -43,4 +64,8 @@ test("@authenticated archives and restores a library track", async ({ page }, te
 
   await page.goto("/library");
   await expect(page.locator("tbody tr").filter({ hasText: title })).toHaveCount(1);
+  history = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Archive history" }),
+  });
+  await expect(history.getByText("Restored", { exact: true })).toBeVisible();
 });
