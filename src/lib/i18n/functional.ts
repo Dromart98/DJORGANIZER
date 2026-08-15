@@ -107,6 +107,7 @@ const english = {
     "Common formats: MP3, M4A, FLAC, WAV, AIFF, AAC, OGG and Opus.",
   "Género": "Genre",
   "Género / artista": "Genre / artist",
+  "Género / subgénero": "Genre / subgenre",
   "Género / rango de BPM": "Genre / BPM range",
   "Guardar cambios": "Save changes",
   "Guardar M3U8 compatible": "Save compatible M3U8",
