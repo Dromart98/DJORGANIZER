@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import { requireUser } from "@/lib/auth/user";
 import { translate, translateKnown } from "@/lib/i18n/functional";
 import { getCurrentLocale } from "@/lib/i18n/server";
@@ -24,6 +24,35 @@ export type TrackActionState = {
   message?: string;
   status: "idle" | "error";
 };
+
+const trackRevisionSchema = z.string().datetime({ offset: true });
+const historyIdSchema = z.string().uuid();
+
+type UpdateTrackWithHistoryRpc = (
+  functionName: "update_track_with_history",
+  args: {
+    expected_updated_at: string;
+    requested_patch: Record<string, unknown>;
+    requested_track_id: string;
+  },
+) => Promise<{
+  data:
+    | {
+        changed: boolean;
+        history_id: string | null;
+        track_id: string;
+      }
+    | null;
+  error: { message?: string } | null;
+}>;
+
+type UndoTrackEditRpc = (
+  functionName: "undo_track_edit",
+  args: { requested_history_id: string },
+) => Promise<{
+  data: { history_id: string; track_id: string } | null;
+  error: { message?: string } | null;
+}>;
 
 function validationState(
   error: ZodError,
@@ -88,7 +117,8 @@ export async function updateTrackAction(
 ): Promise<TrackActionState> {
   const [user, locale] = await Promise.all([requireUser(), getCurrentLocale()]);
   const idResult = trackIdSchema.safeParse(formData.get("id"));
-  if (!idResult.success) {
+  const revisionResult = trackRevisionSchema.safeParse(formData.get("revision"));
+  if (!idResult.success || !revisionResult.success) {
     return {
       message: translate(locale, "La canción indicada no es válida."),
       status: "error",
@@ -119,15 +149,31 @@ export async function updateTrackAction(
       status: "error",
     };
   }
-  const { data, error } = await supabase
-    .from("tracks")
-    .update(toTrackUpdate(values, persisted, maestEvidenceFromFormData(formData), nativeAnalysisEvidenceFromFormData(formData)))
-    .eq("id", idResult.data)
-    .eq("user_id", user.id)
-    .select("id")
-    .maybeSingle();
+
+  const patch = toTrackUpdate(
+    values,
+    persisted,
+    maestEvidenceFromFormData(formData),
+    nativeAnalysisEvidenceFromFormData(formData),
+  );
+  const rpc = supabase.rpc.bind(supabase) as unknown as UpdateTrackWithHistoryRpc;
+  const { data, error } = await rpc("update_track_with_history", {
+    expected_updated_at: revisionResult.data,
+    requested_patch: patch,
+    requested_track_id: idResult.data,
+  });
 
   if (error || !data) {
+    const message = error?.message ?? "";
+    if (message.includes("Track changed after form loaded")) {
+      return {
+        message:
+          locale === "en"
+            ? "This track changed after you opened the form. Reload it and review the latest values before saving."
+            : "Esta canción cambió después de abrir el formulario. Recárgala y revisa los valores actuales antes de guardar.",
+        status: "error",
+      };
+    }
     return {
       message: translate(locale, "No se pudo actualizar la canción."),
       status: "error",
@@ -135,8 +181,35 @@ export async function updateTrackAction(
   }
 
   revalidatePath("/library");
-  revalidatePath(`/library/${data.id}`);
-  redirect(`/library/${data.id}?updated=1`);
+  revalidatePath(`/library/${data.track_id}`);
+  redirect(`/library/${data.track_id}?updated=1`);
+}
+
+export async function undoTrackEditAction(formData: FormData) {
+  await requireUser();
+  const historyId = historyIdSchema.safeParse(formData.get("historyId"));
+  const trackId = trackIdSchema.safeParse(formData.get("trackId"));
+  if (!historyId.success || !trackId.success) {
+    redirect("/library");
+  }
+
+  const supabase = await createClient();
+  const rpc = supabase.rpc.bind(supabase) as unknown as UndoTrackEditRpc;
+  const { data, error } = await rpc("undo_track_edit", {
+    requested_history_id: historyId.data,
+  });
+
+  if (error || !data || data.track_id !== trackId.data) {
+    const message = error?.message ?? "";
+    const reason = message.includes("Track changed after history entry")
+      ? "changed"
+      : "failed";
+    redirect(`/library/${trackId.data}?undoError=${reason}`);
+  }
+
+  revalidatePath("/library");
+  revalidatePath(`/library/${data.track_id}`);
+  redirect(`/library/${data.track_id}?undone=1`);
 }
 
 export async function deleteTrackAction(formData: FormData) {
