@@ -13,6 +13,12 @@ import {
   tagNameSchema,
   trackAssignmentSchema,
 } from "@/lib/organization/schemas";
+import {
+  parseSmartCrateRulesJson,
+  resolveSmartCrateTracks,
+  SMART_CRATE_PREVIEW_LIMIT,
+  smartCrateRulesToJson,
+} from "@/lib/organization/smart-crates";
 import { createClient } from "@/lib/supabase/server";
 import type { Tables } from "@/types/database";
 
@@ -98,6 +104,106 @@ export async function updateCrateAction(formData: FormData) {
   const { data, error } = await supabase
     .from("crates")
     .update(parsed)
+    .eq("id", id.data)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error?.code === "23505") {
+    redirect(`/crates/${id.data}?error=duplicate-crate`);
+  }
+  if (error || !data) redirect(`/crates/${id.data}?error=save-crate`);
+
+  revalidatePath("/crates");
+  revalidatePath(`/crates/${id.data}`);
+  redirect(`/crates/${id.data}?updated=1`);
+}
+
+export async function previewSmartCrateAction(serializedRules: string) {
+  await requireUser();
+  const parsedRules = parseSmartCrateRulesJson(serializedRules);
+  if (!parsedRules.success) return { count: 0, tracks: [] };
+
+  try {
+    const supabase = await createClient();
+    const resolved = await resolveSmartCrateTracks(supabase, parsedRules.data, {
+      limit: SMART_CRATE_PREVIEW_LIMIT,
+    });
+    return {
+      count: resolved.count,
+      tracks: resolved.tracks.map(({ artist, id, title }) => ({ artist, id, title })),
+    };
+  } catch {
+    return { count: 0, tracks: [] };
+  }
+}
+
+export async function createSmartCrateAction(formData: FormData) {
+  const user = await requireUser();
+  const parsed = (() => {
+    try {
+      return crateValuesFromFormData(formData);
+    } catch {
+      return null;
+    }
+  })();
+  const parsedRules = parseSmartCrateRulesJson(String(formData.get("smartRules") ?? ""));
+  if (!parsed || !parsedRules.success) cratesError("invalid-crate");
+  if (!(await validateParentCrate(parsed.parent_id, user.id))) {
+    cratesError("invalid-crate");
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("crates")
+    .insert({
+      ...parsed,
+      smart_rules: smartCrateRulesToJson(parsedRules.data),
+      user_id: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error?.code === "23505") cratesError("duplicate-crate");
+  if (error || !data) cratesError("save-crate");
+
+  revalidatePath("/crates");
+  redirect(`/crates/${data.id}?created=1`);
+}
+
+export async function updateSmartCrateAction(formData: FormData) {
+  const user = await requireUser();
+  const id = organizationIdSchema.safeParse(formData.get("id"));
+  const parsed = (() => {
+    try {
+      return crateValuesFromFormData(formData);
+    } catch {
+      return null;
+    }
+  })();
+  const parsedRules = parseSmartCrateRulesJson(String(formData.get("smartRules") ?? ""));
+  if (!id.success || !parsed || !parsedRules.success) cratesError("invalid-crate");
+  if (!(await validateParentCrate(parsed.parent_id, user.id, id.data))) {
+    redirect(`/crates/${id.data}?error=invalid-crate`);
+  }
+
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("crates")
+    .select("id, smart_rules")
+    .eq("id", id.data)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!existing || existing.smart_rules === null) {
+    redirect(`/crates/${id.data}?error=invalid-crate`);
+  }
+
+  const { data, error } = await supabase
+    .from("crates")
+    .update({
+      ...parsed,
+      smart_rules: smartCrateRulesToJson(parsedRules.data),
+    })
     .eq("id", id.data)
     .eq("user_id", user.id)
     .select("id")
@@ -244,7 +350,7 @@ export async function addTrackToCrateAction(formData: FormData) {
     await Promise.all([
       supabase
         .from("crates")
-        .select("id")
+        .select("id, smart_rules")
         .eq("id", parsed.data.crateId)
         .eq("user_id", user.id)
         .maybeSingle(),
@@ -264,7 +370,7 @@ export async function addTrackToCrateAction(formData: FormData) {
         .maybeSingle(),
     ]);
 
-  if (!crate || !track) cratesError("invalid-assignment");
+  if (!crate || crate.smart_rules !== null || !track) cratesError("invalid-assignment");
   const { error } = await supabase.from("crate_tracks").insert({
     crate_id: crate.id,
     position: (lastMembership?.position ?? -1) + 1,
@@ -289,6 +395,15 @@ export async function removeTrackFromCrateAction(formData: FormData) {
     trackId: formData.get("trackId"),
   });
   const supabase = await createClient();
+  const { data: crate } = await supabase
+    .from("crates")
+    .select("id, smart_rules")
+    .eq("id", parsed.crateId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!crate || crate.smart_rules !== null) {
+    redirect(`/crates/${parsed.crateId}?error=remove-track`);
+  }
   const { error } = await supabase
     .from("crate_tracks")
     .delete()
@@ -310,6 +425,15 @@ export async function moveTrackInCrateAction(formData: FormData) {
     trackId: formData.get("trackId"),
   });
   const supabase = await createClient();
+  const { data: crate } = await supabase
+    .from("crates")
+    .select("id, smart_rules")
+    .eq("id", parsed.crateId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!crate || crate.smart_rules !== null) {
+    redirect(`/crates/${parsed.crateId}?error=reorder`);
+  }
   const { data: memberships, error: listError } = await supabase
     .from("crate_tracks")
     .select("track_id, position")

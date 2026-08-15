@@ -51,6 +51,7 @@ export type Database = {
           id: string;
           name: string;
           parent_id: string | null;
+          smart_rules: Json | null;
           updated_at: string;
           user_id: string;
         };
@@ -60,6 +61,7 @@ export type Database = {
           id?: string;
           name: string;
           parent_id?: string | null;
+          smart_rules?: Json | null;
           updated_at?: string;
           user_id: string;
         };
@@ -69,6 +71,7 @@ export type Database = {
           id?: string;
           name?: string;
           parent_id?: string | null;
+          smart_rules?: Json | null;
           updated_at?: string;
           user_id?: string;
         };
@@ -355,6 +358,18 @@ export type Database = {
           target_crate_id: string;
         };
         Returns: Json;
+      };
+      resolve_smart_crate_rule_tracks: {
+        Args: {
+          p_limit?: number;
+          p_offset?: number;
+          p_rules: Json;
+          p_search?: string | null;
+        };
+        Returns: Array<{
+          total_count: number;
+          track_id: string;
+        }>;
       };
     };
     Enums: { [_ in never]: never };
