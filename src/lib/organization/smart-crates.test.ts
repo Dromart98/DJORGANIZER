@@ -76,7 +76,12 @@ describe("smart crate rules", () => {
           {
             logic: "and",
             conditions: [
-              { field: "bpm-range", operator: "between", value: 130, value2: 120 },
+              {
+                field: "bpm-range",
+                operator: "between",
+                value: 130,
+                value2: 120,
+              },
             ],
           },
         ],
@@ -85,7 +90,9 @@ describe("smart crate rules", () => {
   });
 
   it("rejects empty rules and excessive condition counts", () => {
-    expect(parseSmartCrateRules({ version: 1, logic: "and", groups: [] }).success).toBe(false);
+    expect(
+      parseSmartCrateRules({ version: 1, logic: "and", groups: [] }).success,
+    ).toBe(false);
     expect(
       parseSmartCrateRules({
         version: 1,
@@ -93,11 +100,14 @@ describe("smart crate rules", () => {
         groups: [
           {
             logic: "and",
-            conditions: Array.from({ length: SMART_CRATE_MAX_CONDITIONS + 1 }, () => ({
-              field: "rating",
-              operator: "gte",
-              value: 3,
-            })),
+            conditions: Array.from(
+              { length: SMART_CRATE_MAX_CONDITIONS + 1 },
+              () => ({
+                field: "rating",
+                operator: "gte",
+                value: 3,
+              }),
+            ),
           },
         ],
       }).success,
@@ -108,26 +118,28 @@ describe("smart crate rules", () => {
     expect(parseSmartCrateRulesJson("{nope").success).toBe(false);
   });
 
-it("preserves the total count when a requested page is empty", async () => {
-  const rpc = vi
-    .fn()
-    .mockResolvedValueOnce({ data: [], error: null })
-    .mockResolvedValueOnce({
-      data: [
-        {
-          total_count: 3,
-          track_id: "00000000-0000-4000-8000-000000000001",
-        },
-      ],
-      error: null,
-    });
-  const result = await resolveSmartCrateTrackIds(
-    { rpc } as never,
-    rules,
-    { limit: 100, offset: 100 },
-  );
-  expect(result).toEqual({ count: 3, trackIds: [] });
-  expect(rpc).toHaveBeenCalledTimes(2);
-});
+  it("preserves the total count when a requested page is empty", async () => {
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            total_count: 3,
+            track_id: "00000000-0000-4000-8000-000000000001",
+          },
+        ],
+        error: null,
+      });
 
+    const result = await resolveSmartCrateTrackIds(
+      { rpc } as never,
+      rules,
+      { limit: 100, offset: 100 },
+    );
+
+    expect(result).toEqual({ count: 3, trackIds: [] });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc.mock.calls[1]?.[1]).toMatchObject({ p_limit: 1, p_offset: 0 });
+  });
 });
