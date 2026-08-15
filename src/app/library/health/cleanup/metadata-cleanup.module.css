@@ -1,0 +1,147 @@
+.pageIntro {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.notice {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+}
+
+.review {
+  display: grid;
+  gap: 16px;
+}
+
+.reviewToolbar,
+.applyBar,
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.actions,
+.reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.proposalList {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.proposal {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--surface);
+}
+
+.proposalSelect {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.proposalSelect input {
+  margin-top: 4px;
+}
+
+.proposalSelect span,
+.values div {
+  min-width: 0;
+}
+
+.proposalSelect strong,
+.proposalSelect small,
+.values span,
+.values strong {
+  display: block;
+}
+
+.proposalSelect small,
+.values span,
+.applyBar p,
+.empty,
+.pageMeta {
+  color: var(--muted);
+}
+
+.values {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.values strong {
+  overflow-wrap: anywhere;
+}
+
+.arrow {
+  color: var(--muted);
+  font-size: 20px;
+}
+
+.reason {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.applyBar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 3;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.applyBar p {
+  margin: 0;
+  max-width: 760px;
+}
+
+.empty {
+  padding: 24px;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .reviewToolbar,
+  .applyBar,
+  .pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .values {
+    grid-template-columns: 1fr;
+  }
+
+  .arrow {
+    transform: rotate(90deg);
+    justify-self: start;
+  }
+
+  .applyBar :global(.button) {
+    width: 100%;
+  }
+}
