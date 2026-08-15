@@ -17,6 +17,7 @@ import {
   organizationRulesUseBpmRanges,
   organizationRulesUseLinkedMetadata,
   organizationSchemeUsesBpmRanges,
+  ORGANIZATION_TREE_PREVIEW_PATH_LIMIT,
   paginateScannedTracks,
   parseBpmRangeBoundaries,
   type LinkedOrganizationMetadata,
@@ -1963,6 +1964,13 @@ export function DesktopFolderScanner() {
                     <div className="organization-tree-preview">
                       <strong>{t("Árbol resultante")}</strong>
                       <OrganizationTreeList nodes={organizationTree} />
+                      {organizationPreview.length > ORGANIZATION_TREE_PREVIEW_PATH_LIMIT ? (
+                        <small>
+                          {locale === "en"
+                            ? `Tree preview limited to the first ${ORGANIZATION_TREE_PREVIEW_PATH_LIMIT.toLocaleString(locale)} proposed paths for performance. The final native simulation still validates the complete selection.`
+                            : `El árbol se limita a las primeras ${ORGANIZATION_TREE_PREVIEW_PATH_LIMIT.toLocaleString(locale)} rutas propuestas para mantener el rendimiento. La simulación nativa final sigue validando la selección completa.`}
+                        </small>
+                      ) : null}
                     </div>
                   ) : null}
                   <ol>

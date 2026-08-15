@@ -3,6 +3,7 @@ import {
   createOrganizationPreview,
   createOrganizationTree,
   filterScannedTracks,
+  ORGANIZATION_TREE_PREVIEW_PATH_LIMIT,
   normalizeOrganizationRuleLevels,
   organizationRulesUseBpmRanges,
   organizationRulesUseLinkedMetadata,
@@ -330,5 +331,25 @@ describe("organization rule builder", () => {
         ],
       },
     ]);
+  });
+
+  it("bounds the rendered tree preview for large high-cardinality selections", () => {
+    const preview = Array.from(
+      { length: ORGANIZATION_TREE_PREVIEW_PATH_LIMIT + 50 },
+      (_, index) => ({
+        collisionResolved: false,
+        sourcePath: `source-${index}.mp3`,
+        targetPath: `Artist ${index}/Album ${index}/Track ${index}.mp3`,
+      }),
+    );
+    const tree = createOrganizationTree(preview);
+    const countNodes = (nodes: ReturnType<typeof createOrganizationTree>): number =>
+      nodes.reduce(
+        (total, node) => total + 1 + countNodes(node.children),
+        0,
+      );
+
+    expect(tree).toHaveLength(ORGANIZATION_TREE_PREVIEW_PATH_LIMIT);
+    expect(countNodes(tree)).toBe(ORGANIZATION_TREE_PREVIEW_PATH_LIMIT * 2);
   });
 });

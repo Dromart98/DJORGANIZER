@@ -18,6 +18,7 @@ export interface ScannedAudioFile {
 }
 
 export const DESKTOP_SCAN_PAGE_SIZE = 25;
+export const ORGANIZATION_TREE_PREVIEW_PATH_LIMIT = 100;
 
 export function filterScannedTracks(
   tracks: readonly ScannedAudioFile[],
@@ -405,7 +406,7 @@ export function createOrganizationTree(
 ): OrganizationTreeNode[] {
   type OrganizationTreeMap = Map<string, OrganizationTreeMap>;
   const root: OrganizationTreeMap = new Map();
-  for (const item of preview) {
+  for (const item of preview.slice(0, ORGANIZATION_TREE_PREVIEW_PATH_LIMIT)) {
     const folders = item.targetPath.split("/").slice(0, -1);
     let cursor = root;
     for (const folder of folders) {

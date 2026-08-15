@@ -4881,12 +4881,12 @@ async fn link_library_tracks(
         .library_energy
         .lock()
         .map_err(|_| "No se pudo reiniciar la energía vinculada.".to_owned())?
-        .retain(|(linked_session_id, _), _| linked_session_id != &session_id);
+        .clear();
     state
         .library_organization_metadata
         .lock()
         .map_err(|_| "No se pudieron reiniciar los metadatos vinculados.".to_owned())?
-        .retain(|(linked_session_id, _), _| linked_session_id != &session_id);
+        .clear();
 
     let mut alias_store = read_local_alias_store(&alias_path);
     let session_tracks = {
