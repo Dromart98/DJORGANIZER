@@ -4,6 +4,7 @@ import { BulkEditHistory } from "@/components/library/bulk-edit-history";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
 import { CreateCrateFromFilters } from "@/components/library/create-crate-from-filters";
+import { TagHistory } from "@/components/library/tag-history";
 import { TrackFilters } from "@/components/library/track-filters";
 import { TrackTable } from "@/components/library/track-table";
 import { PageHeader } from "@/components/ui/page-header";
@@ -11,6 +12,7 @@ import { requireUser } from "@/lib/auth/user";
 import { formatMessage, formatTrackCount, translate } from "@/lib/i18n/functional";
 import { getMessages } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
+import { listTrackTagHistory } from "@/lib/library/tag-history";
 import { listBulkTrackEditHistory } from "@/lib/library/track-history";
 import {
   buildLibraryHref,
@@ -42,10 +44,11 @@ export default async function LibraryPage({
   const t = (message: Parameters<typeof translate>[1]) =>
     translate(locale, message);
   const supabase = await createClient();
-  const [page, tags, bulkEditHistory] = await Promise.all([
+  const [page, tags, bulkEditHistory, tagHistory] = await Promise.all([
     listTracks(supabase, user.id, query),
     listUserTags(supabase, user.id),
     listBulkTrackEditHistory(supabase, 10),
+    listTrackTagHistory(supabase, 10),
   ]);
   const trackTags = await listTrackTags(
     supabase,
@@ -107,6 +110,24 @@ export default async function LibraryPage({
           {t("La etiqueta se quitó de la selección.")}
         </p>
       ) : null}
+      {rawSearchParams.tagUndone === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          {locale === "en"
+            ? "The tag change was undone."
+            : "El cambio de etiqueta se deshizo correctamente."}
+        </p>
+      ) : null}
+      {rawSearchParams.tagUndoError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          {rawSearchParams.tagUndoReason === "changed"
+            ? locale === "en"
+              ? "This tag change cannot be undone because the tag or affected tracks changed afterwards."
+              : "No se puede deshacer este cambio de etiqueta porque la etiqueta o las pistas afectadas cambiaron después."
+            : locale === "en"
+              ? "The tag change could not be undone."
+              : "No se pudo deshacer el cambio de etiqueta."}
+        </p>
+      ) : null}
       {rawSearchParams.tagError === "1" ? (
         <p className="form-message form-message--error" role="alert">
           {t("No se pudo actualizar la etiqueta de la selección.")}
@@ -146,6 +167,7 @@ export default async function LibraryPage({
         locale={locale}
         returnTo={returnTo}
       />
+      <TagHistory entries={tagHistory} locale={locale} returnTo={returnTo} />
 
       <TrackFilters query={query} />
 
