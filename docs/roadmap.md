@@ -78,9 +78,11 @@ resultado directamente utilizable:
    selección actual o los filtros activos. Debe conservar el orden visible,
    excluir únicamente las pistas que el usuario confirme y mostrar errores
    parciales sin perder las incorporaciones correctas.
-3. - [ ] Añadir una plantilla de organización física de un solo nivel por género,
-   además de las plantillas existentes. Debe previsualizar destinos, sanear
-   nombres, resolver colisiones, confirmar el lote y conservar deshacer.
+3. - [x] Añadir una plantilla de organización física de un solo nivel por género,
+   además de las plantillas existentes. Usa una única carpeta por género y
+   `Género desconocido` cuando falta el dato; reutiliza la previsualización,
+   saneado, resolución de colisiones, confirmación, rollback, historial y
+   deshacer del motor seguro existente.
 4. - [ ] Añadir organización física por rangos de BPM configurables. Debe admitir
    una estructura exclusiva por rango y combinaciones como género/rango de BPM,
    energía/rango de BPM o tonalidad/rango de BPM. Los límites se revisan antes de

@@ -1306,6 +1306,7 @@ struct VirtualDjExportResult {
 #[serde(rename_all = "kebab-case")]
 enum OrganizationScheme {
     ArtistAlbum,
+    Genre,
     GenreArtist,
     KeyBpm,
 }
@@ -2405,6 +2406,10 @@ fn safe_path_segment(value: Option<&str>, fallback: &str) -> String {
 
 fn organization_folders(track: &ScannedAudioFile, scheme: &OrganizationScheme) -> Vec<String> {
     match scheme {
+        OrganizationScheme::Genre => vec![safe_path_segment(
+            track.genre.as_deref(),
+            "Género desconocido",
+        )],
         OrganizationScheme::GenreArtist => vec![
             safe_path_segment(track.genre.as_deref(), "Género desconocido"),
             safe_path_segment(track.artist.as_deref(), "Artista desconocido"),

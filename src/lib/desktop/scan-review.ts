@@ -76,6 +76,7 @@ export function paginateScannedTracks(
 
 export type OrganizationScheme =
   | "artist-album"
+  | "genre"
   | "genre-artist"
   | "key-bpm";
 
@@ -108,6 +109,10 @@ function organizationFolders(
   track: ScannedAudioFile,
   scheme: OrganizationScheme,
 ) {
+  if (scheme === "genre") {
+    return [safePathSegment(track.genre, "Género desconocido")];
+  }
+
   if (scheme === "genre-artist") {
     return [
       safePathSegment(track.genre, "Género desconocido"),
