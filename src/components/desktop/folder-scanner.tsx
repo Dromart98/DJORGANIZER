@@ -1673,6 +1673,7 @@ export function DesktopFolderScanner() {
                         value={organizationScheme}
                       >
                         <option value="artist-album">{t("Artista / álbum")}</option>
+                        <option value="genre">{t("Género")}</option>
                         <option value="genre-artist">{t("Género / artista")}</option>
                         <option value="key-bpm">{t("Tonalidad / BPM")}</option>
                       </select>
