@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BulkEditHistory } from "@/components/library/bulk-edit-history";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
 import { CreateCrateFromFilters } from "@/components/library/create-crate-from-filters";
@@ -10,6 +11,7 @@ import { requireUser } from "@/lib/auth/user";
 import { formatMessage, formatTrackCount, translate } from "@/lib/i18n/functional";
 import { getMessages } from "@/lib/i18n/i18n";
 import { getCurrentLocale } from "@/lib/i18n/server";
+import { listBulkTrackEditHistory } from "@/lib/library/track-history";
 import {
   buildLibraryHref,
   parseTrackQuery,
@@ -40,9 +42,10 @@ export default async function LibraryPage({
   const t = (message: Parameters<typeof translate>[1]) =>
     translate(locale, message);
   const supabase = await createClient();
-  const [page, tags] = await Promise.all([
+  const [page, tags, bulkEditHistory] = await Promise.all([
     listTracks(supabase, user.id, query),
     listUserTags(supabase, user.id),
+    listBulkTrackEditHistory(supabase, 10),
   ]);
   const trackTags = await listTrackTags(
     supabase,
@@ -69,6 +72,7 @@ export default async function LibraryPage({
     ...query,
     page: 1,
   }).toString();
+  const returnTo = buildLibraryHref(query, {});
 
   return (
     <>
@@ -113,11 +117,35 @@ export default async function LibraryPage({
           {t("Los metadatos de la selección se actualizaron correctamente.")}
         </p>
       ) : null}
+      {rawSearchParams.bulkUndone === "1" ? (
+        <p className="form-message form-message--success" role="status">
+          {locale === "en"
+            ? "The bulk edit was undone."
+            : "La edición masiva se deshizo correctamente."}
+        </p>
+      ) : null}
+      {rawSearchParams.bulkUndoError === "1" ? (
+        <p className="form-message form-message--error" role="alert">
+          {rawSearchParams.bulkUndoReason === "changed"
+            ? locale === "en"
+              ? "This bulk edit cannot be undone because at least one track changed afterwards."
+              : "No se puede deshacer esta edición masiva porque al menos una pista cambió después."
+            : locale === "en"
+              ? "The bulk edit could not be undone."
+              : "No se pudo deshacer la edición masiva."}
+        </p>
+      ) : null}
       {rawSearchParams.bulkError === "1" ? (
         <p className="form-message form-message--error" role="alert">
           {t("No se pudo aplicar la edición. Revisa el valor introducido.")}
         </p>
       ) : null}
+
+      <BulkEditHistory
+        batches={bulkEditHistory}
+        locale={locale}
+        returnTo={returnTo}
+      />
 
       <TrackFilters query={query} />
 
