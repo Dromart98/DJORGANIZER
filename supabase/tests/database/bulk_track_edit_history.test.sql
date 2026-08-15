@@ -172,6 +172,19 @@ select is(
   'A rejected undo leaves earlier batch members untouched'
 );
 
+select set_config(
+  'test.owner_bulk_batch_id',
+  (
+    select batch_id::text
+    from public.track_edit_history
+    where user_id = '71000000-0000-4000-8000-000000000001'
+      and change_kind = 'bulk_edit'
+    order by created_at desc
+    limit 1
+  ),
+  true
+);
+
 select throws_ok(
   $$select public.bulk_update_tracks_with_history(
     array[
@@ -195,10 +208,7 @@ select is(
 
 select throws_ok(
   $$select public.undo_bulk_track_edit(
-    (select batch_id from public.track_edit_history
-     where user_id = '71000000-0000-4000-8000-000000000001'
-       and change_kind = 'bulk_edit'
-     limit 1)
+    current_setting('test.owner_bulk_batch_id')::uuid
   )$$,
   'P0001',
   'Bulk history batch not found',
