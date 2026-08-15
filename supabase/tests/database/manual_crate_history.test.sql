@@ -64,9 +64,14 @@ select lives_ok(
 );
 
 select is(
-  private.manual_crate_order(
-    '91200000-0000-4000-8000-000000000001',
-    '91000000-0000-4000-8000-000000000001'
+  (
+    select coalesce(
+      array_agg(ct.track_id order by ct.position, ct.created_at, ct.track_id),
+      array[]::uuid[]
+    )
+    from public.crate_tracks ct
+    where ct.crate_id = '91200000-0000-4000-8000-000000000001'
+      and ct.user_id = '91000000-0000-4000-8000-000000000001'
   ),
   array[]::uuid[],
   'Undo add restores the empty crate'
@@ -106,9 +111,14 @@ select lives_ok(
 );
 
 select is(
-  private.manual_crate_order(
-    '91200000-0000-4000-8000-000000000001',
-    '91000000-0000-4000-8000-000000000001'
+  (
+    select coalesce(
+      array_agg(ct.track_id order by ct.position, ct.created_at, ct.track_id),
+      array[]::uuid[]
+    )
+    from public.crate_tracks ct
+    where ct.crate_id = '91200000-0000-4000-8000-000000000001'
+      and ct.user_id = '91000000-0000-4000-8000-000000000001'
   ),
   array[
     '91100000-0000-4000-8000-000000000001'::uuid,
@@ -256,11 +266,11 @@ values (
 
 select throws_ok(
   $$select public.undo_manual_crate_history(
-    (select id from private.manual_crate_history
-     where user_id = '91000000-0000-4000-8000-000000000001'::uuid
-       and crate_id = '91200000-0000-4000-8000-000000000005'::uuid
-       and change_kind = 'reconcile'
-     order by revision desc limit 1)
+    (select id from public.list_manual_crate_history(
+      '91200000-0000-4000-8000-000000000005'::uuid, 10
+    ) where change_kind = 'reconcile'
+      order by created_at desc, id desc
+      limit 1)
   )$$,
   'P0001',
   'Crate changed after history entry',
