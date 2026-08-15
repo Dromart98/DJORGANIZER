@@ -53,11 +53,14 @@ describe("URL de biblioteca", () => {
     expect(buildLibraryHref(query, { page: 2 })).toContain("page=2");
   });
 
-  it("conserva archivadas y omite el estado activo por defecto", () => {
+  it("conserva estados explícitos y omite el estado activo por defecto", () => {
     const archived = parseTrackQuery({ status: "archived" });
     expect(buildLibraryHref(archived, { page: 2 })).toContain(
       "status=archived",
     );
+
+    const all = parseTrackQuery({ status: "all" });
+    expect(buildLibraryHref(all, { page: 1 })).toContain("status=all");
 
     const active = parseTrackQuery({});
     expect(buildLibraryHref(active, { page: 1 })).not.toContain("status=");
