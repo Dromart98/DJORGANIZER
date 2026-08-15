@@ -3,6 +3,7 @@ import {
   createOrganizationPreview,
   filterScannedTracks,
   paginateScannedTracks,
+  parseBpmRangeBoundaries,
   safePathSegment,
   type ScannedAudioFile,
 } from "./scan-review";
@@ -141,5 +142,56 @@ describe("desktop organization preview", () => {
       .toBe("House/DJ Aurora/Opening.mp3");
     expect(createOrganizationPreview([tracks[0]], "key-bpm")[0].targetPath)
       .toBe("Am/124 BPM/Opening.mp3");
+  });
+
+  it("validates configurable BPM boundaries", () => {
+    expect(parseBpmRangeBoundaries("100, 120; 140")).toEqual([100, 120, 140]);
+    expect(parseBpmRangeBoundaries("")).toBeNull();
+    expect(parseBpmRangeBoundaries("100, 100")).toBeNull();
+    expect(parseBpmRangeBoundaries("120, 100")).toBeNull();
+    expect(parseBpmRangeBoundaries("19, 120")).toBeNull();
+    expect(parseBpmRangeBoundaries("100.5, 120")).toBeNull();
+    expect(parseBpmRangeBoundaries("20 40 60 80 100 120 140 160 180")).toBeNull();
+  });
+
+  it("organizes by reviewed BPM ranges and preserves missing BPM", () => {
+    const boundaries = [100, 120, 140];
+    expect(
+      createOrganizationPreview([tracks[0]], "bpm-range", {
+        bpmBoundaries: boundaries,
+      })[0].targetPath,
+    ).toBe("120–139 BPM/Opening.mp3");
+    expect(
+      createOrganizationPreview([tracks[1]], "bpm-range", {
+        bpmBoundaries: boundaries,
+      })[0].targetPath,
+    ).toBe("BPM desconocido/Closing.flac");
+    expect(
+      createOrganizationPreview([{ ...tracks[0], bpm: 99.6 }], "bpm-range", {
+        bpmBoundaries: boundaries,
+      })[0].targetPath,
+    ).toBe("100–119 BPM/Opening.mp3");
+  });
+
+  it("combines BPM ranges with genre, key and linked library energy", () => {
+    const options = {
+      bpmBoundaries: [100, 120, 140],
+      energyByScanId: new Map([["track-1", 7]]),
+    };
+    expect(createOrganizationPreview([tracks[0]], "genre-bpm-range", options)[0].targetPath)
+      .toBe("House/120–139 BPM/Opening.mp3");
+    expect(createOrganizationPreview([tracks[0]], "key-bpm-range", options)[0].targetPath)
+      .toBe("Am/120–139 BPM/Opening.mp3");
+    expect(createOrganizationPreview([tracks[0]], "energy-bpm-range", options)[0].targetPath)
+      .toBe("Energía 7/120–139 BPM/Opening.mp3");
+    expect(createOrganizationPreview([tracks[1]], "energy-bpm-range", options)[0].targetPath)
+      .toBe("Energía desconocida/BPM desconocido/Closing.flac");
+  });
+
+  it("does not produce range previews until valid boundaries are reviewed", () => {
+    expect(createOrganizationPreview(tracks, "bpm-range")).toEqual([]);
+    expect(
+      createOrganizationPreview(tracks, "bpm-range", { bpmBoundaries: [120, 100] }),
+    ).toEqual([]);
   });
 });
