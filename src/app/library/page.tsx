@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/layout/icon";
+import { CreateCrateFromFilters } from "@/components/library/create-crate-from-filters";
 import { TrackFilters } from "@/components/library/track-filters";
 import { TrackTable } from "@/components/library/track-table";
 import { PageHeader } from "@/components/ui/page-header";
@@ -12,6 +13,7 @@ import { getCurrentLocale } from "@/lib/i18n/server";
 import {
   buildLibraryHref,
   parseTrackQuery,
+  queryToSearchParams,
 } from "@/lib/library/track-query";
 import { listTracks, listTrackTags, listUserTags } from "@/lib/library/track-repository";
 import { createClient } from "@/lib/supabase/server";
@@ -62,6 +64,10 @@ export default async function LibraryPage({
       query.energyMax !== undefined ||
       query.rating !== undefined,
   );
+  const filteredSearchParams = queryToSearchParams({
+    ...query,
+    page: 1,
+  }).toString();
 
   return (
     <>
@@ -120,6 +126,12 @@ export default async function LibraryPage({
             pages: page.pageCount,
           })}
         </p>
+        {hasFilters && page.count > 0 ? (
+          <CreateCrateFromFilters
+            filteredCount={page.count}
+            searchParams={filteredSearchParams}
+          />
+        ) : null}
       </div>
 
       {page.tracks.length > 0 ? (
