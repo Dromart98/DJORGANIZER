@@ -1,6 +1,6 @@
 begin;
 
-select plan(7);
+select plan(8);
 
 insert into auth.users (id, email)
 values ('73000000-0000-4000-8000-000000000003', 'tag-history-superseded@djorganizer.test');
