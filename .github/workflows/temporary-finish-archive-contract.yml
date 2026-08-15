@@ -1,0 +1,210 @@
+name: Temporary finish archive contract
+on:
+  push:
+    branches: [feat/archive-inactive-tracks]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Finish archive contract') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/archive-inactive-tracks
+          fetch-depth: 0
+      - name: Complete explicit smart-crate archive mode and tests
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'anchor not found in {path}: {old[:100]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'src/lib/organization/smart-crates.ts',
+              'export type SmartCrateLogic = "and" | "or";\n',
+              'export type SmartCrateLogic = "and" | "or";\nexport type SmartCrateTrackStatus = "active" | "archived" | "all";\n',
+          )
+          replace_once(
+              'src/lib/organization/smart-crates.ts',
+              '  .object({\n    version: z.literal(1),',
+              '  .object({\n    trackStatus: z.enum(["active", "archived", "all"]).optional(),\n    version: z.literal(1),',
+          )
+
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  type SmartCrateOperator,\n  type SmartCrateRules,',
+              '  type SmartCrateOperator,\n  type SmartCrateRules,\n  type SmartCrateTrackStatus,',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  const { locale } = useTranslator();\n  const [logic, setLogic] = useState<SmartCrateLogic>(initialRules?.logic ?? "and");',
+              '  const { locale } = useTranslator();\n  const [trackStatus, setTrackStatus] = useState<SmartCrateTrackStatus>(initialRules?.trackStatus ?? "active");\n  const [logic, setLogic] = useState<SmartCrateLogic>(initialRules?.logic ?? "and");',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  const rules = useMemo<SmartCrateRules>(() => ({\n    version: 1,',
+              '  const rules = useMemo<SmartCrateRules>(() => ({\n    trackStatus,\n    version: 1,',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '  }), [groups, logic]);',
+              '  }), [groups, logic, trackStatus]);',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '    parent: "Save inside",\n    none: "None",\n    groups:',
+              '    parent: "Save inside",\n    none: "None",\n    trackStatus: "Tracks",\n    activeTracks: "Active only",\n    archivedTracks: "Archived only",\n    allTracks: "Active and archived",\n    groups:',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '    parent: "Guardar dentro de",\n    none: "Ninguna",\n    groups:',
+              '    parent: "Guardar dentro de",\n    none: "Ninguna",\n    trackStatus: "Pistas",\n    activeTracks: "Solo activas",\n    archivedTracks: "Solo archivadas",\n    allTracks: "Activas y archivadas",\n    groups:',
+          )
+          replace_once(
+              'src/components/organization/smart-crate-form.tsx',
+              '''      <label className="field">
+        {text.groups}
+        <select value={logic} onChange={(event) => { setLogic(event.target.value as SmartCrateLogic); setPreview(null); }}>
+''',
+              '''      <label className="field">
+        {text.trackStatus}
+        <select
+          value={trackStatus}
+          onChange={(event) => {
+            setTrackStatus(event.target.value as SmartCrateTrackStatus);
+            setPreview(null);
+          }}
+        >
+          <option value="active">{text.activeTracks}</option>
+          <option value="archived">{text.archivedTracks}</option>
+          <option value="all">{text.allTracks}</option>
+        </select>
+      </label>
+      <label className="field">
+        {text.groups}
+        <select value={logic} onChange={(event) => { setLogic(event.target.value as SmartCrateLogic); setPreview(null); }}>
+''',
+          )
+
+          replace_once(
+              'src/lib/organization/smart-crates.test.ts',
+              '  it("accepts tag conditions using persistent tag ids", () => {',
+              '''  it("keeps legacy rules active-only and accepts explicit archived modes", () => {
+    expect(parseSmartCrateRules(rules).success).toBe(true);
+    const archived = parseSmartCrateRules({ ...rules, trackStatus: "archived" });
+    expect(archived.success).toBe(true);
+    if (archived.success) expect(archived.data.trackStatus).toBe("archived");
+    expect(parseSmartCrateRules({ ...rules, trackStatus: "invalid" }).success).toBe(false);
+  });
+
+  it("accepts tag conditions using persistent tag ids", () => {''',
+          )
+
+          # Existing archive migration: explicit status in smart resolver; default remains active.
+          p = Path('supabase/migrations/20260815143000_archive_inactive_tracks.sql')
+          text = p.read_text(encoding='utf-8')
+          old = '    where t.user_id = (select auth.uid())\n      and t.archived_at is null\n      and jsonb_typeof(p_rules) = \'object\''
+          new = '''    where t.user_id = (select auth.uid())
+      and case coalesce(p_rules ->> 'trackStatus', 'active')
+        when 'active' then t.archived_at is null
+        when 'archived' then t.archived_at is not null
+        when 'all' then true
+        else false
+      end
+      and jsonb_typeof(p_rules) = 'object' '''
+          if old not in text:
+              raise SystemExit('archive resolver status anchor missing')
+          text = text.replace(old, new, 1)
+
+          # The existing filtered-crate RPC must remain consistent with the default active Library view.
+          filtered = Path('supabase/migrations/20260814154500_create_filtered_crate_rpc.sql').read_text(encoding='utf-8')
+          anchor = '    where tracks.user_id = current_user_id\n      and ('
+          if anchor not in filtered:
+              raise SystemExit('filtered crate active anchor missing')
+          filtered = filtered.replace(anchor, '    where tracks.user_id = current_user_id\n      and tracks.archived_at is null\n      and (', 1)
+          text = text.rstrip() + '\n\n' + filtered.strip() + '\n'
+          p.write_text(text, encoding='utf-8')
+
+          # Expand pgTAP with the explicit opt-in case.
+          p = Path('supabase/tests/database/smart_crates.test.sql')
+          text = p.read_text(encoding='utf-8')
+          if 'select plan(9);' not in text:
+              raise SystemExit('smart crate plan 9 anchor missing')
+          text = text.replace('select plan(9);', 'select plan(10);', 1)
+          anchor = "select is(\n  (\n    select count(*)::integer\n    from public.resolve_smart_crate_rule_tracks(\n      '{\"version\":1,\"logic\":\"and\",\"groups\":[{\"logic\":\"and\",\"conditions\":[{\"field\":\"genre\",\"operator\":\"equals\",\"value\":\"Techno\"}]}]}'::jsonb,\n      0, 100, null\n    )\n  ),\n  0,\n  'Archived tracks are excluded from smart crates by default'\n);"
+          if anchor not in text:
+              raise SystemExit('archived smart crate default test anchor missing')
+          extra = anchor + '''
+
+select is(
+  (
+    select count(*)::integer
+    from public.resolve_smart_crate_rule_tracks(
+      '{"version":1,"trackStatus":"archived","logic":"and","groups":[{"logic":"and","conditions":[{"field":"genre","operator":"equals","value":"Techno"}]}]}'::jsonb,
+      0, 100, null
+    )
+  ),
+  1,
+  'Archived tracks enter smart crates only through an explicit status filter'
+);'''
+          p.write_text(text.replace(anchor, extra, 1), encoding='utf-8')
+
+          # Real authenticated archive/restore flow.
+          Path('tests/e2e/authenticated-library-archive.spec.ts').write_text('''import { expect, test } from "@playwright/test";
+
+test.skip(process.env.E2E_AUTHENTICATED !== "1", "Requires the ephemeral Supabase stack configured by CI.");
+
+test("@authenticated archives and restores a library track", async ({ page }, testInfo) => {
+  const runId = `${Date.now()}-${testInfo.workerIndex}`;
+  const email = `e2e-archive-${runId}@djorganizer.test`;
+  const password = `DjOrganizer-${runId}!`;
+  const title = `Archive ${runId}`;
+  await page.context().addCookies([{ name: "djorganizer-locale", url: "http://127.0.0.1:3100", value: "en" }]);
+  await page.goto("/signup?next=/library/new");
+  await page.getByLabel("Name").fill("Archive E2E");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page).toHaveURL(/\\/library\\/new$/, { timeout: 20_000 });
+  await page.getByLabel("Title *").fill(title);
+  await page.getByRole("button", { name: "Add track" }).click();
+  await expect(page).toHaveURL(/\\/library\\/[0-9a-f-]+$/, { timeout: 20_000 });
+
+  await page.goto("/library");
+  let row = page.locator("tbody tr").filter({ hasText: title });
+  await expect(row).toHaveCount(1);
+  await row.getByRole("button", { name: "Archive" }).click();
+  await expect(page.locator("tbody tr").filter({ hasText: title })).toHaveCount(0, { timeout: 20_000 });
+
+  await page.getByLabel("Status").selectOption("archived");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page).toHaveURL(/status=archived/);
+  row = page.locator("tbody tr").filter({ hasText: title });
+  await expect(row).toHaveCount(1);
+  await row.getByRole("button", { name: "Restore" }).click();
+  await expect(page.locator("tbody tr").filter({ hasText: title })).toHaveCount(0, { timeout: 20_000 });
+
+  await page.goto("/library");
+  await expect(page.locator("tbody tr").filter({ hasText: title })).toHaveCount(1);
+});
+''', encoding='utf-8')
+
+          replace_once(
+              'docs/roadmap.md',
+              '5. - [ ] Permitir archivar pistas inactivas sin borrar ni mover el archivo.',
+              '5. - [x] Permitir archivar pistas inactivas sin borrar ni mover el archivo.',
+          )
+      - name: Commit final delta
+        run: |
+          git config user.name "Dromart98"
+          git config user.email "davidromanmartin@yahoo.es"
+          git rm .github/workflows/temporary-finish-archive-contract.yml
+          git add docs/roadmap.md src supabase tests/e2e/authenticated-library-archive.spec.ts
+          git commit -m "Finish archive contract"
+          git push origin HEAD:feat/archive-inactive-tracks
