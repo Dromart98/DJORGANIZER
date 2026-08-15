@@ -1,7 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
-export const crateSortKeys = ["bpm", "camelot", "energy", "rating"] as const;
+export const crateSortKeys = [
+  "bpm",
+  "camelot",
+  "energy",
+  "genre",
+  "rating",
+] as const;
 export const crateSortDirections = ["asc", "desc"] as const;
 
 export type CrateSortKey = (typeof crateSortKeys)[number];
@@ -12,6 +18,7 @@ export type CrateSortTrack = {
   bpm: number | null;
   camelot_key: string | null;
   energy: number | null;
+  genre: string | null;
   id: string;
   rating: number | null;
   title: string;
@@ -25,6 +32,11 @@ function camelotRank(value: string | null) {
   return (number - 1) * 2 + letterOffset;
 }
 
+function normalizedGenre(value: string | null) {
+  const normalized = value?.trim().toLocaleLowerCase("es");
+  return normalized ? normalized : null;
+}
+
 function sortValue(track: CrateSortTrack, key: CrateSortKey) {
   switch (key) {
     case "bpm":
@@ -33,6 +45,8 @@ function sortValue(track: CrateSortTrack, key: CrateSortKey) {
       return camelotRank(track.camelot_key);
     case "energy":
       return track.energy;
+    case "genre":
+      return normalizedGenre(track.genre);
     case "rating":
       return track.rating;
   }
@@ -53,8 +67,18 @@ export function sortCrateTracks(
       }
       if (leftValue === null) return 1;
       if (rightValue === null) return -1;
-      if (leftValue !== rightValue) {
-        return direction === "asc" ? leftValue - rightValue : rightValue - leftValue;
+
+      let comparison = 0;
+      if (typeof leftValue === "string" && typeof rightValue === "string") {
+        comparison = leftValue.localeCompare(rightValue, "es", {
+          sensitivity: "base",
+        });
+      } else if (typeof leftValue === "number" && typeof rightValue === "number") {
+        comparison = leftValue - rightValue;
+      }
+
+      if (comparison !== 0) {
+        return direction === "asc" ? comparison : -comparison;
       }
       return left.originalIndex - right.originalIndex;
     })
@@ -71,7 +95,7 @@ export async function loadCrateSortTracks(
     const ids = trackIds.slice(from, from + 500);
     const { data, error } = await supabase
       .from("tracks")
-      .select("id, title, artist, bpm, camelot_key, energy, rating")
+      .select("id, title, artist, bpm, camelot_key, energy, genre, rating")
       .eq("user_id", userId)
       .in("id", ids);
     if (error) throw new Error("No se pudieron cargar los datos de ordenación.");
