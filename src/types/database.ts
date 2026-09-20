@@ -347,6 +347,10 @@ export type Database = {
     };
     Views: { [_ in never]: never };
     Functions: {
+      apply_maest_batch_with_history: {
+        Args: { requested_items: Json };
+        Returns: Json;
+      };
       create_post_analysis_crate: {
         Args: {
           crate_name: string;

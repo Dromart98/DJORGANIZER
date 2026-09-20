@@ -8,6 +8,7 @@ import {
   executeMaestBatchApply,
   maestAutomaticClassificationUpdate,
   parseMaestBatchApplyRequest,
+  parseMaestBatchHistoryResult,
   type MaestBatchApplyFieldEvidence,
   type MaestBatchApplyStore,
 } from "./maest-batch-apply";
@@ -23,6 +24,23 @@ const evidence = (value: string): MaestBatchApplyFieldEvidence => ({
 });
 
 describe("MAEST batch apply contract", () => {
+  it("accepts a partial history response without losing field statuses", () => {
+    const response = {
+      batch_id: id(9), changed_count: 1,
+      items: [{ trackId: id(1), status: "conflict", genre: "applied", subgenre: "conflict" }],
+    };
+    expect(parseMaestBatchHistoryResult(response)).toEqual(response);
+  });
+
+  it("rejects malformed history responses instead of reporting them as applied", () => {
+    expect(() => parseMaestBatchHistoryResult(null)).toThrow();
+    expect(() => parseMaestBatchHistoryResult({ batch_id: null, changed_count: 26, items: [] })).toThrow();
+    expect(() => parseMaestBatchHistoryResult({
+      batch_id: id(9), changed_count: 1,
+      items: [{ trackId: id(1), status: "applied", genre: "unexpected", subgenre: "omitted" }],
+    })).toThrow();
+  });
+
   it("accepts independent genre and subgenre selections and caps the batch at 25 tracks", () => {
     const items = Array.from({ length: MAX_MAEST_BATCH_APPLY_TRACKS }, (_, index) => ({
       trackId: id(index + 1),

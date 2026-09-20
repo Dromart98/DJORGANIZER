@@ -168,6 +168,14 @@ de bibliotecas grandes sin convertir DJOrganizer en software de mezcla:
    usuario y permitir la reversión solo cuando el estado actual siga siendo
    compatible. Si hubo cambios posteriores o externos, bloquear el deshacer y
    explicar el conflicto sin forzar una restauración.
+   La aceptación múltiple MAEST reutiliza ahora `track_edit_history` y el
+   deshacer atómico de ediciones masivas: hasta 25 pistas, compare-and-set por
+   campo, evidencia anterior/posterior y miembros únicamente para cambios reales.
+   Género y subgénero conservan resultados independientes incluso ante fallos.
+   Implementación del último subbloque preparada; cierre del punto pendiente de
+   pgTAP en Supabase y del E2E autenticado en CI. La validación SQL embebida no
+   sustituye esas comprobaciones. El E2E usa un adaptador nativo determinista;
+   autenticación, aplicación, historial y deshacer utilizan Supabase real.
 8. - [ ] Añadir una preescucha ligera para revisar pistas desde la biblioteca,
    resultados de análisis y crates: reproducir, pausar, buscar dentro de la pista,
    controlar volumen y mantener una cola temporal. No añadir decks, mezcla,

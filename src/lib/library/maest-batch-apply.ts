@@ -79,6 +79,20 @@ export type MaestBatchApplyResult = {
   items: MaestBatchApplyItemResult[];
 };
 
+const fieldStatusSchema = z.enum(["applied", "omitted", "conflict", "failed"]);
+export function parseMaestBatchHistoryResult(input: unknown) {
+  return z.object({
+    batch_id: z.string().uuid().nullable(),
+    changed_count: z.number().int().min(0).max(MAX_MAEST_BATCH_APPLY_TRACKS),
+    items: z.array(z.object({
+      trackId: trackIdSchema,
+      status: fieldStatusSchema,
+      genre: fieldStatusSchema,
+      subgenre: fieldStatusSchema,
+    })).max(MAX_MAEST_BATCH_APPLY_TRACKS),
+  }).parse(input);
+}
+
 export type MaestBatchApplyCurrent = {
   genre: string | null;
   subgenre: string | null;

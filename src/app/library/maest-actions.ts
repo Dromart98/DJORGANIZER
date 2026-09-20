@@ -5,26 +5,14 @@ import { requireUser } from "@/lib/auth/user";
 import {
   maestAutomaticClassificationUpdate,
   parseMaestBatchApplyRequest,
+  parseMaestBatchHistoryResult,
   type MaestBatchApplyFieldStatus,
   type MaestBatchApplyItemResult,
   type MaestBatchApplyRequest,
   type MaestBatchApplyResult,
 } from "@/lib/library/maest-batch-apply";
 import { createClient } from "@/lib/supabase/server";
-
-type ApplyMaestBatchWithHistoryRpc = (
-  functionName: "apply_maest_batch_with_history",
-  args: { requested_items: unknown[] },
-) => Promise<{
-  data:
-    | {
-        batch_id: string | null;
-        changed_count: number;
-        items: MaestBatchApplyItemResult[];
-      }
-    | null;
-  error: { message?: string } | null;
-}>;
+import type { Json } from "@/types/database";
 
 function failedItems(request: MaestBatchApplyRequest): MaestBatchApplyItemResult[] {
   return request.items.map((item) => {
@@ -74,22 +62,27 @@ export async function applyMaestBatchProposalsAction(
       : {}),
   }));
 
-  const rpc = supabase.rpc.bind(supabase) as unknown as ApplyMaestBatchWithHistoryRpc;
-  const { data, error } = await rpc("apply_maest_batch_with_history", {
-    requested_items: requestedItems,
+  const { data, error } = await supabase.rpc("apply_maest_batch_with_history", {
+    requested_items: requestedItems as Json,
   });
 
-  if (error || !data || !Array.isArray(data.items)) {
+  if (error) {
+    return { status: "ok", items: failedItems(request) };
+  }
+  let result;
+  try {
+    result = parseMaestBatchHistoryResult(data);
+  } catch {
     return { status: "ok", items: failedItems(request) };
   }
 
   if (
-    data.items.some(
+    result.items.some(
       (item) => item.genre === "applied" || item.subgenre === "applied",
     )
   ) {
     revalidatePath("/library");
   }
 
-  return { status: "ok", items: data.items };
+  return { status: "ok", items: result.items };
 }

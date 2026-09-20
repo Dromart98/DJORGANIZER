@@ -28,6 +28,9 @@ function previousValueLabel(value: unknown, en: boolean) {
 }
 
 function previousValuesSummary(batch: BulkTrackEditHistoryBatch, en: boolean) {
+  if (batch.field_name === "multiple") {
+    return en ? "saved values for each changed field" : "valores guardados de cada campo modificado";
+  }
   const values = Array.isArray(batch.previous_values) ? batch.previous_values : [];
   if (!values.length) return en ? "No preview available" : "Sin vista previa disponible";
   const shown = values.map((value) => previousValueLabel(value, en)).join(", ");

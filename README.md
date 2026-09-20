@@ -236,6 +236,12 @@ React y Supabase solo manejan identificadores opacos.
   conjunta.
 - Cada acción requiere confirmación y se limita al usuario autenticado además de
   las políticas RLS.
+- La aceptación múltiple de propuestas de género/subgénero conserva el límite de
+  25 pistas y registra los cambios reales en el historial de ediciones masivas.
+  Cada campo se compara con el valor revisado: los conflictos y fallos parciales
+  no descartan otros campos aplicados. El deshacer es atómico para el lote y
+  restaura también su procedencia; se bloquea si una pista dejó de coincidir con
+  el estado guardado, se eliminó o el lote ya se deshizo. No escribe archivos.
 
 ## Diseño de producto
 
