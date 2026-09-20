@@ -93,7 +93,7 @@ test("@authenticated applies reviewed MAEST proposals and undoes their history b
   const applied = await db.from("tracks").select("genre, subgenre").order("title");
   expect(applied.error).toBeNull();
   expect(applied.data).toEqual([{ genre: "Disco", subgenre: "Nu Disco" }, { genre: "Disco", subgenre: null }]);
-  const calls = await page.evaluate(() => (window as Window & { __maestHistoryCalls: string[] }).__maestHistoryCalls);
+  const calls = await page.evaluate(() => (window as Window & { __maestHistoryCalls?: string[] }).__maestHistoryCalls ?? []);
   expect(calls.filter((command) => command === "analyze_scanned_track")).toHaveLength(2);
   expect(calls.some((command) => /write|export|reorganize/.test(command))).toBe(false);
   page.once("dialog", (dialog) => void dialog.accept());
