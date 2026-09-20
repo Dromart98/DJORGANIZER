@@ -111,4 +111,3 @@ test("@authenticated applies reviewed MAEST proposals and undoes their history b
     await page.getByRole("link", { name: "Library", exact: true }).first().click();
   }
 });
-

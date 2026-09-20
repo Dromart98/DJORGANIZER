@@ -140,4 +140,3 @@ select set_config('request.jwt.claim.sub', '', true);
 select throws_ok($$select public.apply_maest_batch_with_history('[]')$$, 'P0001', 'Authentication required', 'Null auth rejected');
 select * from finish();
 rollback;
-
