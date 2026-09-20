@@ -75,6 +75,10 @@ test("@authenticated applies reviewed MAEST proposals and undoes their history b
   for (const track of tracks) await page.getByRole("checkbox", { name: `Select ${track.title}`, exact: true }).check();
   await page.getByRole("button", { name: "Analyze genre and subgenre", exact: true }).click();
   const panel = page.getByRole("region", { name: "Batch genre and subgenre analysis" });
+  await expect(panel).toBeVisible();
+  const bounds = await panel.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   for (const track of tracks) {
     const item = panel.locator("li").filter({ has: page.getByText(track.title, { exact: true }) });
     await expect(item.getByText("Completed", { exact: true })).toBeVisible();
